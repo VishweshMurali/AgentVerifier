@@ -1,0 +1,4 @@
+# Hashed files must keep exact bytes (no CRLF conversion on Windows).
+data/*.jsonl -text
+data/*.sha256 -text
+sealed/** binary

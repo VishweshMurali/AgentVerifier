@@ -1,0 +1,45 @@
+# Pre-registration for agent-committee (Banking77).
+# MUST be committed BEFORE the sealed test set is unsealed (see CLAUDE.md).
+# Every number marked `assumed: true` is an assumption to be reviewed by the owner, not a measurement.
+
+task: banking77
+metric: accuracy
+alpha: 0.05
+min_gap: 0.02            # ASSUMED: smallest accuracy difference (agent - best simpler) worth acting on
+power: 0.80
+
+split:
+  seed: 20260101
+  test_fraction: 0.25    # of the pooled Banking77 train+test, stratified by intent
+
+stats:
+  ci_level: 0.95
+  bootstrap_replicates: 10000
+  aa_simulations: 1000
+  seed: 7
+
+error_cost:              # USD cost of ONE wrong intent classification
+  low: 0.50
+  high: 20.00
+  assumed: true
+
+price_tables:            # USD per million tokens; hypothetical, three scenarios
+  - name: local_amortized
+    input_usd_per_mtok: 0.05
+    output_usd_per_mtok: 0.10
+    assumed: true
+  - name: cloud_small
+    input_usd_per_mtok: 0.25
+    output_usd_per_mtok: 1.25
+    assumed: true
+  - name: cloud_large
+    input_usd_per_mtok: 3.00
+    output_usd_per_mtok: 15.00
+    assumed: true
+
+decision_policy:
+  primary_comparison: agent_vs_best_simpler_on_dev   # best simpler arm is chosen on DEV only
+  breakeven_requires_ci_above_zero: true             # report break-even only if diff CI is entirely > 0
+  require_point_estimate_at_least_min_gap: true
+  inconclusive_verdict: NEED_MORE_DATA
+  latency_in_decision: false                         # latency is reported, never decided on

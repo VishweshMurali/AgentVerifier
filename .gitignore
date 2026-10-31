@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# SEALED test set: bytes never enter git. Only its SHA-256 (data/test.sha256) is committed.
+sealed/
+
+# LLM cache / call logs (contain raw prompts)
+*.sqlite
+*.sqlite-journal
