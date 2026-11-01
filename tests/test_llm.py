@@ -4,7 +4,13 @@ import httpx
 import pytest
 from openai import APIConnectionError, BadRequestError, NotFoundError
 
-from agent_committee.llm import LLMClient, LLMUnavailable, LLMUsageMissing, request_key
+from agent_committee.llm import (
+    LLMCacheSchemaError,
+    LLMClient,
+    LLMUnavailable,
+    LLMUsageMissing,
+    request_key,
+)
 
 MSG = [{"role": "user", "content": "hi"}]
 
@@ -181,6 +187,54 @@ def test_concurrent_callers_on_one_key_get_one_stored_answer():
         t.join()
     assert len(set(out)) == 1
     assert c._db.execute("SELECT COUNT(*) FROM cache").fetchone()[0] == 1
+
+
+def test_old_schema_cache_is_refused_with_clear_error(tmp_path):
+    import sqlite3
+
+    db = tmp_path / "old.sqlite"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE cache (key TEXT PRIMARY KEY, request_json TEXT, response_json TEXT)")
+    con.commit()
+    con.close()
+    with pytest.raises(LLMCacheSchemaError, match="phase/arm"):
+        LLMClient(db, phase="build", transport=Fake([]))
+
+
+def test_concurrent_loser_logs_its_own_usage_not_the_winners():
+    barrier = threading.Barrier(2)
+    usages = iter([(30, 3), (40, 4)])
+
+    def transport(request):
+        barrier.wait(timeout=5)
+        pt, ct = next(usages)
+        return _resp("same", pt, ct)
+
+    c = LLMClient(":memory:", phase="build", transport=transport)
+    threads = [threading.Thread(target=lambda: c.chat(MSG, arm="prompt")) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    logged = sorted(c._db.execute("SELECT prompt_tokens FROM calls").fetchall())
+    assert logged == [(30,), (40,)]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {},
+        {"choices": []},
+        {"choices": [{}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+        {"choices": [{"message": "str"}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+    ],
+)
+def test_malformed_response_is_a_logged_failure(bad):
+    c = client(Fake([bad]))
+    with pytest.raises(Exception):  # noqa: B017 - any parse error is acceptable, logging is the point
+        c.chat(MSG, arm="prompt")
+    assert c.usage_summary()["failed"] == 1
+    assert c._db.execute("SELECT COUNT(*) FROM cache").fetchone()[0] == 0
 
 
 def test_persists_across_instances_and_context_manager(tmp_path):

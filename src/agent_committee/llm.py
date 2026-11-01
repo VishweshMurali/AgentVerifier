@@ -76,6 +76,16 @@ class LLMUnavailable(RuntimeError):
     """Ollama unreachable, model missing, or failing after all retries. Callers must stop."""
 
 
+_REQUIRED_COLUMNS = {
+    "cache": {"key", "phase", "arm", "finish_reason", "prompt_tokens", "completion_tokens"},
+    "calls": {"key", "phase", "arm", "status", "finish_reason", "error"},
+}
+
+
+class LLMCacheSchemaError(RuntimeError):
+    """The SQLite cache file was created by an older, incompatible schema."""
+
+
 class LLMUsageMissing(RuntimeError):
     """The response carried no token usage. Cost accounting must not silently become zero."""
 
@@ -157,7 +167,19 @@ class LLMClient:
         if str(db_path) != ":memory:":
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(db_path), check_same_thread=False)
+        self._check_schema()
         self._db.executescript(_SCHEMA)
+
+    def _check_schema(self) -> None:
+        """Refuse a cache file written by an older schema; its rows have no phase/arm tags."""
+        for table, required in _REQUIRED_COLUMNS.items():
+            cols = {row[1] for row in self._db.execute(f"PRAGMA table_info({table})")}
+            if cols and not required <= cols:
+                self._db.close()
+                raise LLMCacheSchemaError(
+                    f"cache table '{table}' is missing columns {sorted(required - cols)}: the "
+                    "file predates the phase/arm schema. Move or delete it and re-run."
+                )
 
     def close(self) -> None:
         self._db.close()
@@ -206,11 +228,14 @@ class LLMClient:
             prompt_tokens = _token_count(usage, "prompt_tokens")
             completion_tokens = _token_count(usage, "completion_tokens")
             choice = response["choices"][0]
+            message = choice["message"]
+            if not isinstance(message, dict):
+                raise TypeError(f"response message is not an object: {message!r}")
+            message_json = json.dumps(message)
+            finish_reason = choice.get("finish_reason")
         except Exception as exc:
             self._log_failure(key, arm, state["attempts"], time.perf_counter() - t_start, exc)
             raise
-        message = choice["message"]
-        finish_reason = choice.get("finish_reason")
 
         with self._lock:
             # INSERT OR IGNORE then re-read: concurrent callers on one key all return the same
@@ -224,7 +249,7 @@ class LLMClient:
                     self.phase,
                     arm,
                     json.dumps(request, sort_keys=True),
-                    json.dumps(message),
+                    message_json,
                     finish_reason,
                     prompt_tokens,
                     completion_tokens,
@@ -235,7 +260,17 @@ class LLMClient:
             self._db.commit()
         stored = self._lookup(key)
         assert stored is not None
-        result = self._to_result(stored, cached=False, attempts=state["attempts"])
+        # The answer is the stored one (so concurrent callers agree); the usage and latency logged
+        # are what THIS request actually measured, not the winner's.
+        result = LLMResult(
+            json.loads(stored[0]),
+            prompt_tokens,
+            completion_tokens,
+            latency,
+            False,
+            state["attempts"],
+            stored[4],
+        )
         self._log(key, arm, "ok", result, time.perf_counter() - t_start)
         return result
 
