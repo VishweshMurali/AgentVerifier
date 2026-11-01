@@ -13,7 +13,13 @@ from agent_committee.data import (
     write_split,
 )
 from agent_committee.schemas import Case
-from agent_committee.seal import SealError, check_unseal_conditions, load_test
+from agent_committee.seal import (
+    ARMS_PATH,
+    FROZEN_PATHS,
+    SealError,
+    check_unseal_conditions,
+    load_test,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "agent_committee"
@@ -41,8 +47,10 @@ def repo(tmp_path):
     arms = tmp_path / "src" / "agent_committee" / "arms"
     arms.mkdir(parents=True)
     (arms / "__init__.py").write_text("")
-    for name in ("llm.py", "data.py", "schemas.py"):
+    for name in ("llm.py", "data.py", "schemas.py", "prereg.py", "seal.py"):
         (tmp_path / "src" / "agent_committee" / name).write_text("x = 0\n")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+    (tmp_path / "uv.lock").write_text("version = 1\n")
     (tmp_path / ".gitignore").write_text("sealed/\n")
     cases = [Case(id=f"{x}{i}", text=f"t {x} {i}", label=x) for x in "ab" for i in range(10)]
     dev, test = split_cases(cases, 0.25, seed=1)
@@ -102,15 +110,42 @@ def test_load_test_compares_against_the_frozen_hash_even_if_diff_check_is_bypass
         load_test(repo)
 
 
-@pytest.mark.parametrize(
-    "rel",
-    ["src/agent_committee/llm.py", "src/agent_committee/data.py", "src/agent_committee/schemas.py"],
-)
-def test_refuses_if_core_module_changed_after_freeze(repo, rel):
+@pytest.mark.parametrize("rel", [p for p in FROZEN_PATHS if p != ARMS_PATH])
+def test_refuses_if_any_frozen_file_changed_after_freeze(repo, rel):
     git(repo, "tag", "arms-frozen")
-    (repo / rel).write_text("x = 1\n")
+    p = repo / rel
+    assert p.is_file(), f"fixture must contain frozen file {rel}"
+    p.write_bytes(p.read_bytes() + b"\n# edit after freeze\n")
     with pytest.raises(SealError, match="changed since"):
         check_unseal_conditions(repo)
+
+
+def test_frozen_paths_include_the_guard_itself_and_the_build_config():
+    for must in (
+        "src/agent_committee/seal.py",
+        "src/agent_committee/prereg.py",
+        "pyproject.toml",
+        "uv.lock",
+        "data/split_manifest.json",
+    ):
+        assert must in FROZEN_PATHS
+
+
+def test_load_test_works_with_absolute_repo_data_and_sealed_paths(repo):
+    git(repo, "tag", "arms-frozen")
+    expected = from_jsonl_bytes((repo / "sealed" / "test.jsonl").read_bytes())
+    got = load_test(
+        repo.resolve(),
+        data_dir=(repo / "data").resolve(),
+        sealed_dir=(repo / "sealed").resolve(),
+    )
+    assert got == expected
+
+
+def test_load_test_rejects_data_dir_outside_the_repo(repo, tmp_path_factory):
+    git(repo, "tag", "arms-frozen")
+    with pytest.raises(SealError, match="outside the repository"):
+        load_test(repo, data_dir=tmp_path_factory.mktemp("elsewhere"))
 
 
 def test_refuses_if_dev_data_changed_after_freeze(repo):

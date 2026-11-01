@@ -4,8 +4,8 @@ Unsealing requires ALL of:
  1. git tag `arms-frozen` exists
  2. the tag is an ancestor of HEAD
  3. prereg.yaml is tracked and committed
- 4. nothing in FROZEN_PATHS (prereg, arms/, llm.py, data.py, schemas.py, DEV data + hashes,
-    test hash) changed since the tag, tracked or untracked
+ 4. nothing in FROZEN_PATHS (prereg, arms/, core modules incl. this one, pyproject/uv.lock,
+    DEV data, hashes, manifest) changed since the tag, tracked or untracked
  5. sealed/test.jsonl matches the SHA-256 recorded in data/test.sha256 AS OF THE TAG
 
 This is tamper-EVIDENT, not tamper-proof: the repo owner can still create the tag. What it
@@ -33,9 +33,14 @@ FROZEN_PATHS = [
     "src/agent_committee/llm.py",
     "src/agent_committee/data.py",
     "src/agent_committee/schemas.py",
+    "src/agent_committee/prereg.py",
+    "src/agent_committee/seal.py",
+    "pyproject.toml",
+    "uv.lock",
     "data/dev.jsonl",
     "data/dev.sha256",
     "data/test.sha256",
+    "data/split_manifest.json",
 ]
 
 
@@ -83,7 +88,12 @@ def load_test(
     repo = Path(repo)
     check_unseal_conditions(repo)
 
-    hash_path = f"{Path(data_dir).as_posix()}/{TEST_HASH_FILE}"
+    # `git show tag:path` needs a repo-relative POSIX path; data_dir may be absolute.
+    try:
+        hash_path = (repo / data_dir / TEST_HASH_FILE).resolve().relative_to(repo.resolve())
+    except ValueError as exc:
+        raise SealError(f"data_dir {data_dir} is outside the repository") from exc
+    hash_path = hash_path.as_posix()
     frozen = _git(repo, "show", f"{FREEZE_TAG}:{hash_path}")
     if frozen.returncode != 0:
         raise SealError(f"{hash_path} does not exist in tag '{FREEZE_TAG}'")
