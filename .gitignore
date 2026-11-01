@@ -10,3 +10,6 @@ sealed/
 # LLM cache / call logs (contain raw prompts)
 *.sqlite
 *.sqlite-journal
+
+# Local multi-agent coordination notes: never uploaded
+COORDINATION.md
