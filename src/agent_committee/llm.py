@@ -3,19 +3,33 @@
 Runtime always talks to Ollama (OpenAI-compatible endpoint). If it cannot be reached after the
 retries, `LLMUnavailable` is raised; there is no fallback and no mock. Unit tests inject a fake
 `transport`; production code never does.
+
+Every call is attributed to a `phase` ("build" = arm construction/DEV evaluation, "run" = the
+Phase D test run) and an `arm`. Both are part of the cache key, so build-phase and run-phase
+prompts never share rows and the leakage check can scan `phase = 'build'` rows on their own.
+
+Cached answers are replayed verbatim on reruns, which hides any Ollama non-determinism by design.
+The key has the model tag; pass `model_digest` to also pin the exact weights.
 """
 
 import hashlib
 import json
+import math
 import sqlite3
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, Self
 
-from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    NotFoundError,
+    OpenAI,
+)
 
 BASE_URL = "http://localhost:11434/v1"
 MODEL = "qwen2.5:7b"
@@ -23,13 +37,17 @@ TIMEOUT_S = 60.0
 MAX_RETRIES = 3
 BACKOFF_BASE_S = 1.0
 
+Phase = Literal["build", "run"]
 Transport = Callable[[dict[str, Any]], dict[str, Any]]
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS cache (
     key TEXT PRIMARY KEY,
+    phase TEXT NOT NULL,
+    arm TEXT NOT NULL,
     request_json TEXT NOT NULL,
     response_json TEXT NOT NULL,
+    finish_reason TEXT,
     prompt_tokens INTEGER NOT NULL,
     completion_tokens INTEGER NOT NULL,
     latency_s REAL NOT NULL,
@@ -38,19 +56,28 @@ CREATE TABLE IF NOT EXISTS cache (
 CREATE TABLE IF NOT EXISTS calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     key TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    arm TEXT NOT NULL,
+    status TEXT NOT NULL,
     cached INTEGER NOT NULL,
     attempts INTEGER NOT NULL,
     wall_s REAL NOT NULL,
     latency_s REAL NOT NULL,
     prompt_tokens INTEGER NOT NULL,
     completion_tokens INTEGER NOT NULL,
+    finish_reason TEXT,
+    error TEXT,
     ts REAL NOT NULL
 );
 """
 
 
 class LLMUnavailable(RuntimeError):
-    """Ollama unreachable or failing after all retries. Callers must stop, never fake."""
+    """Ollama unreachable, model missing, or failing after all retries. Callers must stop."""
+
+
+class LLMUsageMissing(RuntimeError):
+    """The response carried no token usage. Cost accounting must not silently become zero."""
 
 
 @dataclass(frozen=True)
@@ -61,10 +88,16 @@ class LLMResult:
     latency_s: float  # latency of the real call (for cache hits: the original call's latency)
     cached: bool
     attempts: int
+    finish_reason: str | None = None
 
     @property
     def content(self) -> str:
         return self.message.get("content") or ""
+
+    @property
+    def truncated(self) -> bool:
+        """True when generation stopped at max_tokens; the content is incomplete."""
+        return self.finish_reason == "length"
 
 
 def request_key(request: dict[str, Any]) -> str:
@@ -88,19 +121,34 @@ def ollama_transport(base_url: str = BASE_URL, timeout: float = TIMEOUT_S) -> Tr
     return call
 
 
+def _token_count(usage: dict[str, Any], field: str) -> int:
+    value = usage.get(field)
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        raise LLMUsageMissing(f"response usage has no valid '{field}': {usage!r}")
+    if value < 0:
+        raise LLMUsageMissing(f"response usage '{field}' is negative: {value!r}")
+    return int(value)
+
+
 class LLMClient:
     def __init__(
         self,
         db_path: str | Path = "cache/llm.sqlite",
         *,
+        phase: Phase,
         model: str = MODEL,
+        model_digest: str | None = None,
         transport: Transport | None = None,
         max_retries: int = MAX_RETRIES,
         backoff_base_s: float = BACKOFF_BASE_S,
         timeout_s: float = TIMEOUT_S,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
+        if phase not in ("build", "run"):
+            raise ValueError("phase must be 'build' or 'run'")
+        self.phase: Phase = phase
         self.model = model
+        self.model_digest = model_digest
         self._transport = transport or ollama_transport(timeout=timeout_s)
         self._max_retries = max_retries
         self._backoff = backoff_base_s
@@ -114,10 +162,17 @@ class LLMClient:
     def close(self) -> None:
         self._db.close()
 
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
+
     def chat(
         self,
         messages: list[dict[str, Any]],
         *,
+        arm: str,
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
         max_tokens: int | None = None,
@@ -134,55 +189,79 @@ class LLMClient:
             request["max_tokens"] = max_tokens
         if seed is not None:
             request["seed"] = seed
-        key = request_key(request)
+        keyed = {**request, "_phase": self.phase, "_arm": arm, "_digest": self.model_digest}
+        key = request_key(keyed)
 
         t_start = time.perf_counter()
-        with self._lock:
-            row = self._db.execute(
-                "SELECT response_json, prompt_tokens, completion_tokens, latency_s "
-                "FROM cache WHERE key = ?",
-                (key,),
-            ).fetchone()
+        row = self._lookup(key)
         if row:
-            result = LLMResult(json.loads(row[0]), row[1], row[2], row[3], True, 0)
-            self._log(key, result, time.perf_counter() - t_start)
+            result = self._to_result(row, cached=True, attempts=0)
+            self._log(key, arm, "ok", result, time.perf_counter() - t_start)
             return result
 
-        response, attempts, latency = self._call_with_retries(request)
-        usage = response.get("usage") or {}
-        message = response["choices"][0]["message"]
-        result = LLMResult(
-            message,
-            int(usage.get("prompt_tokens") or 0),
-            int(usage.get("completion_tokens") or 0),
-            latency,
-            False,
-            attempts,
-        )
+        state = {"attempts": 0}
+        try:
+            response, latency = self._call_with_retries(request, state)
+            usage = response.get("usage") or {}
+            prompt_tokens = _token_count(usage, "prompt_tokens")
+            completion_tokens = _token_count(usage, "completion_tokens")
+            choice = response["choices"][0]
+        except Exception as exc:
+            self._log_failure(key, arm, state["attempts"], time.perf_counter() - t_start, exc)
+            raise
+        message = choice["message"]
+        finish_reason = choice.get("finish_reason")
+
         with self._lock:
+            # INSERT OR IGNORE then re-read: concurrent callers on one key all return the same
+            # stored answer instead of the last writer winning.
             self._db.execute(
-                "INSERT OR REPLACE INTO cache VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO cache (key, phase, arm, request_json, response_json, "
+                "finish_reason, prompt_tokens, completion_tokens, latency_s, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     key,
+                    self.phase,
+                    arm,
                     json.dumps(request, sort_keys=True),
                     json.dumps(message),
-                    result.prompt_tokens,
-                    result.completion_tokens,
+                    finish_reason,
+                    prompt_tokens,
+                    completion_tokens,
                     latency,
                     time.time(),
                 ),
             )
             self._db.commit()
-        self._log(key, result, time.perf_counter() - t_start)
+        stored = self._lookup(key)
+        assert stored is not None
+        result = self._to_result(stored, cached=False, attempts=state["attempts"])
+        self._log(key, arm, "ok", result, time.perf_counter() - t_start)
         return result
 
-    def _call_with_retries(self, request: dict[str, Any]) -> tuple[dict[str, Any], int, float]:
+    def _lookup(self, key: str) -> tuple | None:
+        with self._lock:
+            return self._db.execute(
+                "SELECT response_json, prompt_tokens, completion_tokens, latency_s, finish_reason "
+                "FROM cache WHERE key = ?",
+                (key,),
+            ).fetchone()
+
+    @staticmethod
+    def _to_result(row: tuple, *, cached: bool, attempts: int) -> LLMResult:
+        return LLMResult(json.loads(row[0]), row[1], row[2], row[3], cached, attempts, row[4])
+
+    def _call_with_retries(
+        self, request: dict[str, Any], state: dict[str, int]
+    ) -> tuple[dict[str, Any], float]:
         last: Exception | None = None
         for attempt in range(1, self._max_retries + 2):
+            state["attempts"] = attempt
             t0 = time.perf_counter()
             try:
-                response = self._transport(request)
-                return response, attempt, time.perf_counter() - t0
+                return self._transport(request), time.perf_counter() - t0
+            except NotFoundError as exc:
+                raise LLMUnavailable(f"model or endpoint not found: {exc}") from exc
             except Exception as exc:  # classified below; non-retryable errors are re-raised
                 if not _is_retryable(exc):
                     raise
@@ -193,33 +272,54 @@ class LLMClient:
             f"LLM call failed after {self._max_retries + 1} attempts: {last!r}"
         ) from last
 
-    def _log(self, key: str, r: LLMResult, wall_s: float) -> None:
+    def _log(self, key: str, arm: str, status: str, r: LLMResult, wall_s: float) -> None:
+        self._insert_call(
+            (
+                key,
+                self.phase,
+                arm,
+                status,
+                int(r.cached),
+                r.attempts,
+                wall_s,
+                r.latency_s,
+                r.prompt_tokens,
+                r.completion_tokens,
+                r.finish_reason,
+                None,
+            )
+        )
+
+    def _log_failure(
+        self, key: str, arm: str, attempts: int, wall_s: float, exc: Exception
+    ) -> None:
+        self._insert_call(
+            (key, self.phase, arm, "failed", 0, attempts, wall_s, 0.0, 0, 0, None, repr(exc))
+        )
+
+    def _insert_call(self, values: tuple) -> None:
         with self._lock:
             self._db.execute(
-                "INSERT INTO calls (key, cached, attempts, wall_s, latency_s, prompt_tokens, "
-                "completion_tokens, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    key,
-                    int(r.cached),
-                    r.attempts,
-                    wall_s,
-                    r.latency_s,
-                    r.prompt_tokens,
-                    r.completion_tokens,
-                    time.time(),
-                ),
+                "INSERT INTO calls (key, phase, arm, status, cached, attempts, wall_s, latency_s, "
+                "prompt_tokens, completion_tokens, finish_reason, error, ts) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (*values, time.time()),
             )
             self._db.commit()
 
     def usage_summary(self) -> dict[str, float]:
-        """Totals over all logged calls (cache hits carry their original tokens/latency)."""
+        """Totals over all logged calls; cache hits carry their original tokens/latency."""
         with self._lock:
-            n, hits, pt, ct, lat = self._db.execute(
-                "SELECT COUNT(*), COALESCE(SUM(cached), 0), COALESCE(SUM(prompt_tokens), 0), "
-                "COALESCE(SUM(completion_tokens), 0), COALESCE(AVG(latency_s), 0) FROM calls"
+            n, ok, failed, hits, pt, ct, lat = self._db.execute(
+                "SELECT COUNT(*), COALESCE(SUM(status = 'ok'), 0), "
+                "COALESCE(SUM(status = 'failed'), 0), COALESCE(SUM(cached), 0), "
+                "COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), "
+                "COALESCE(AVG(CASE WHEN status = 'ok' THEN latency_s END), 0) FROM calls"
             ).fetchone()
         return {
             "calls": n,
+            "ok": ok,
+            "failed": failed,
             "cache_hits": hits,
             "prompt_tokens": pt,
             "completion_tokens": ct,

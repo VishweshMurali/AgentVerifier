@@ -67,11 +67,11 @@ def required_n(
     if not 0 < power < 1:
         raise ValueError("power must be in (0, 1)")
     # Bisect on the (nearly monotone) power curve, back off past the sawtooth, then scan up.
-    lo, hi = 1, 1000
+    lo, hi = 1, min(1000, n_max)
     while mcnemar_power(hi, gap, discordance, alpha) < power:
-        lo, hi = hi, hi * 2
-        if hi > n_max:
+        if hi >= n_max:
             raise ValueError(f"required N exceeds n_max={n_max}")
+        lo, hi = hi, min(hi * 2, n_max)
     while lo < hi:
         mid = (lo + hi) // 2
         if mcnemar_power(mid, gap, discordance, alpha) >= power:
@@ -85,7 +85,8 @@ def required_n(
         if mcnemar_power(n, gap, discordance, alpha) >= power:
             first = n if run == 0 else first
             run += 1
-            if run >= _STABLE_WINDOW:
+            # The window is cut short at n_max: the search never looks past the caller's bound.
+            if run >= _STABLE_WINDOW or n == n_max:
                 return first  # type: ignore[return-value]
         else:
             run, first = 0, None

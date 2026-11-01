@@ -28,6 +28,12 @@ def test_close_to_normal_approximation():
     assert approx * 0.9 < n < approx * 1.2
 
 
+def test_required_n_respects_but_does_not_overshoot_n_max():
+    assert required_n(0.02, 0.15, n_max=3271) == required_n(0.02, 0.15)
+    with pytest.raises(ValueError, match="exceeds n_max"):
+        required_n(0.02, 0.15, n_max=3000)
+
+
 def test_table_skips_discordance_below_gap():
     assert [r.discordance for r in power_table(0.10, grid=(0.05, 0.15))] == [0.15]
 
