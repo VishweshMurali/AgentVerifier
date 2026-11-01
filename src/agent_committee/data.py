@@ -80,8 +80,22 @@ def write_split(
     data_dir: str | Path = "data",
     sealed_dir: str | Path = "sealed",
 ) -> dict:
-    """Write DEV (committed), sealed TEST (gitignored) and both hashes + a manifest (committed)."""
+    """Write DEV (committed), sealed TEST (gitignored) and both hashes + a manifest (committed).
+
+    Refuses (FileExistsError, nothing written) if any target already exists: a split is created
+    once, and silently regenerating it would invalidate every hash and prediction built on it.
+    """
     data_dir, sealed_dir = Path(data_dir), Path(sealed_dir)
+    targets = [
+        data_dir / DEV_FILE,
+        data_dir / DEV_HASH_FILE,
+        data_dir / TEST_HASH_FILE,
+        data_dir / MANIFEST_FILE,
+        sealed_dir / SEALED_TEST_FILE,
+    ]
+    existing = [str(p) for p in targets if p.exists()]
+    if existing:
+        raise FileExistsError(f"split already exists, refusing to overwrite: {existing}")
     data_dir.mkdir(parents=True, exist_ok=True)
     sealed_dir.mkdir(parents=True, exist_ok=True)
 

@@ -1,5 +1,6 @@
 """Pydantic schemas shared by every module. Pure data + validation, no I/O."""
 
+import math
 from enum import StrEnum
 from typing import Literal, Self
 
@@ -136,8 +137,39 @@ class VerdictJSON(_Frozen):
     latency_s: dict[str, float] = {}  # reported only; never used in the decision
 
     @model_validator(mode="after")
+    def _finite_and_ordered(self) -> Self:
+        """No NaN/inf anywhere numeric, and every CI must satisfy lo <= hi."""
+        numbers: list[float] = [*self.accuracy.values(), *self.latency_s.values()]
+        for x in (self.accuracy_diff, self.mcnemar_p, self.aa_false_winner_rate):
+            if x is not None:
+                numbers.append(x)
+        if self.accuracy_diff_ci is not None:
+            numbers.extend(self.accuracy_diff_ci)
+        for b in self.break_even:
+            numbers.extend((b.value, b.ci_low, b.ci_high))
+        if not all(math.isfinite(x) for x in numbers):
+            raise ValueError("verdict numbers must be finite (no NaN/inf)")
+        if (
+            self.accuracy_diff_ci is not None
+            and self.accuracy_diff_ci[0] > self.accuracy_diff_ci[1]
+        ):
+            raise ValueError("accuracy_diff_ci must satisfy lo <= hi")
+        if any(b.ci_low > b.ci_high for b in self.break_even):
+            raise ValueError("break_even CI must satisfy ci_low <= ci_high")
+        return self
+
+    @model_validator(mode="after")
     def _break_even_guard(self) -> Self:
         """Break-even may only be reported when the accuracy-difference CI is entirely above 0."""
         if self.break_even and (self.accuracy_diff_ci is None or self.accuracy_diff_ci[0] <= 0):
             raise ValueError("break_even requires accuracy_diff_ci lower bound > 0")
+        return self
+
+    @model_validator(mode="after")
+    def _deploy_needs_evidence(self) -> Self:
+        """DEPLOY_AGENT is only valid with an accuracy-difference CI entirely above 0."""
+        if self.verdict == Verdict.DEPLOY_AGENT and (
+            self.accuracy_diff_ci is None or self.accuracy_diff_ci[0] <= 0
+        ):
+            raise ValueError("DEPLOY_AGENT requires accuracy_diff_ci lower bound > 0")
         return self

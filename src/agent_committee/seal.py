@@ -3,9 +3,10 @@
 Unsealing requires ALL of:
  1. git tag `arms-frozen` exists
  2. the tag is an ancestor of HEAD
- 3. prereg.yaml is tracked, committed, and unchanged since the tag
- 4. nothing under src/agent_committee/arms/ changed since the tag (tracked or untracked)
- 5. sealed/test.jsonl matches the SHA-256 committed in data/test.sha256
+ 3. prereg.yaml is tracked and committed
+ 4. nothing in FROZEN_PATHS (prereg, arms/, llm.py, data.py, schemas.py, DEV data + hashes,
+    test hash) changed since the tag, tracked or untracked
+ 5. sealed/test.jsonl matches the SHA-256 recorded in data/test.sha256 AS OF THE TAG
 
 This is tamper-EVIDENT, not tamper-proof: the repo owner can still create the tag. What it
 guarantees that an honest run cannot unseal by accident and any edit after freezing is caught.
@@ -25,6 +26,17 @@ from agent_committee.schemas import Case
 FREEZE_TAG = "arms-frozen"
 PREREG_PATH = "prereg.yaml"
 ARMS_PATH = "src/agent_committee/arms"
+# Everything that must be byte-identical between the freeze tag and unsealing.
+FROZEN_PATHS = [
+    PREREG_PATH,
+    ARMS_PATH,
+    "src/agent_committee/llm.py",
+    "src/agent_committee/data.py",
+    "src/agent_committee/schemas.py",
+    "data/dev.jsonl",
+    "data/dev.sha256",
+    "data/test.sha256",
+]
 
 
 class SealError(RuntimeError):
@@ -48,16 +60,14 @@ def check_unseal_conditions(repo: str | Path = ".") -> None:
     if _git(repo, "ls-files", "--error-unmatch", PREREG_PATH).returncode != 0:
         raise SealError(f"{PREREG_PATH} is not committed")
 
-    # Tracked changes (staged or not) vs the tag, for the two frozen paths.
-    if _git(repo, "diff", "--quiet", FREEZE_TAG, "--", PREREG_PATH, ARMS_PATH).returncode != 0:
-        raise SealError(f"{PREREG_PATH} or {ARMS_PATH} changed since tag '{FREEZE_TAG}'")
+    # Tracked changes (staged or not) vs the tag, for every frozen path.
+    if _git(repo, "diff", "--quiet", FREEZE_TAG, "--", *FROZEN_PATHS).returncode != 0:
+        raise SealError(f"frozen paths changed since tag '{FREEZE_TAG}': {FROZEN_PATHS}")
 
-    # Untracked files under arms/ would not show up in `git diff`.
-    untracked = _git(repo, "ls-files", "--others", "--exclude-standard", "--", ARMS_PATH)
+    # Untracked files under frozen paths would not show up in `git diff`.
+    untracked = _git(repo, "ls-files", "--others", "--exclude-standard", "--", *FROZEN_PATHS)
     if untracked.stdout.strip():
-        raise SealError(
-            f"untracked files under {ARMS_PATH} since freeze: {untracked.stdout.strip()}"
-        )
+        raise SealError(f"untracked files under frozen paths since freeze: {untracked.stdout}")
 
 
 def load_test(
@@ -65,12 +75,24 @@ def load_test(
     data_dir: str | Path = "data",
     sealed_dir: str | Path = "sealed",
 ) -> list[Case]:
-    """Verify unseal conditions + hash, then return the TEST cases."""
+    """Verify unseal conditions + hash, then return the TEST cases.
+
+    The expected hash comes from the FROZEN revision (`git show arms-frozen:...`), not the working
+    tree, so replacing both the sealed file and the working-tree hash file cannot pass.
+    """
     repo = Path(repo)
     check_unseal_conditions(repo)
 
+    hash_path = f"{Path(data_dir).as_posix()}/{TEST_HASH_FILE}"
+    frozen = _git(repo, "show", f"{FREEZE_TAG}:{hash_path}")
+    if frozen.returncode != 0:
+        raise SealError(f"{hash_path} does not exist in tag '{FREEZE_TAG}'")
+    expected = frozen.stdout.strip()
+
+    if (repo / hash_path).read_text(encoding="utf-8").strip() != expected:
+        raise SealError(f"{hash_path} in the working tree differs from tag '{FREEZE_TAG}'")
+
     raw = (repo / sealed_dir / SEALED_TEST_FILE).read_bytes()
-    expected = (repo / data_dir / TEST_HASH_FILE).read_text(encoding="utf-8").strip()
     if sha256_hex(raw) != expected:
-        raise SealError("sealed test file does not match the committed SHA-256")
+        raise SealError("sealed test file does not match the frozen SHA-256")
     return from_jsonl_bytes(raw)

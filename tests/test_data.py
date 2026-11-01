@@ -72,6 +72,30 @@ def test_manifest_counts_test_texts_duplicated_in_dev(tmp_path):
     assert m["n_test_texts_duplicated_in_dev"] == 1
 
 
+@pytest.mark.parametrize(
+    "existing",
+    ["d/dev.jsonl", "d/dev.sha256", "d/test.sha256", "d/split_manifest.json", "s/test.jsonl"],
+)
+def test_write_split_refuses_to_overwrite_and_writes_nothing(tmp_path, existing):
+    dev, test = split_cases(_cases(), 0.25, seed=1)
+    (tmp_path / "d").mkdir()
+    (tmp_path / "s").mkdir()
+    pre = tmp_path / existing
+    pre.write_text("precious")
+    with pytest.raises(FileExistsError):
+        write_split(
+            dev,
+            test,
+            seed=1,
+            test_fraction=0.25,
+            data_dir=tmp_path / "d",
+            sealed_dir=tmp_path / "s",
+        )
+    assert pre.read_text() == "precious"
+    written = {p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file()}
+    assert written == {existing}  # nothing else was created
+
+
 def test_load_dev_detects_tampering(tmp_path):
     dev, test = split_cases(_cases(), 0.25, seed=1)
     write_split(

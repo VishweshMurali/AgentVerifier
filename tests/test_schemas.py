@@ -96,4 +96,45 @@ def test_verdict_json_blocks_break_even_unless_ci_entirely_above_zero():
         VerdictJSON(**common, accuracy_diff_ci=(0.0, 0.05), break_even=[be])  # lower bound == 0
     with pytest.raises(ValidationError):
         VerdictJSON(**common, break_even=[be])  # no CI at all
-    assert VerdictJSON(**common).break_even == []
+    simpler = {**common, "verdict": Verdict.USE_SIMPLER}
+    assert VerdictJSON(**simpler).break_even == []
+
+
+_BE = {"price_table": "a", "value": 5.0, "ci_low": 3.0, "ci_high": 8.0}
+_BASE = {"verdict": Verdict.USE_SIMPLER, "reasons": ["r"], "accuracy": {"agent": 0.9}}
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_verdict_json_rejects_non_finite_numbers(bad):
+    with pytest.raises(ValidationError):
+        VerdictJSON(**_BASE, accuracy_diff_ci=(bad, 0.05))
+    with pytest.raises(ValidationError):
+        VerdictJSON(**_BASE, accuracy_diff=bad)
+    with pytest.raises(ValidationError):
+        VerdictJSON(**_BASE, mcnemar_p=bad)
+    with pytest.raises(ValidationError):
+        VerdictJSON(**{**_BASE, "accuracy": {"agent": bad}})
+    with pytest.raises(ValidationError):
+        VerdictJSON(**_BASE, latency_s={"agent": bad})
+    with pytest.raises(ValidationError):
+        VerdictJSON(**_BASE, accuracy_diff_ci=(0.01, 0.05), break_even=[{**_BE, "value": bad}])
+
+
+def test_verdict_json_rejects_inverted_ci():
+    with pytest.raises(ValidationError):
+        VerdictJSON(**_BASE, accuracy_diff_ci=(0.05, 0.01))
+    with pytest.raises(ValidationError):
+        VerdictJSON(
+            **_BASE, accuracy_diff_ci=(0.01, 0.05), break_even=[{**_BE, "ci_low": 9, "ci_high": 1}]
+        )
+
+
+def test_deploy_agent_requires_ci_lower_bound_above_zero():
+    deploy = {**_BASE, "verdict": Verdict.DEPLOY_AGENT}
+    assert VerdictJSON(**deploy, accuracy_diff_ci=(0.01, 0.05)).verdict == Verdict.DEPLOY_AGENT
+    for ci in (None, (0.0, 0.05), (-0.01, 0.05)):
+        with pytest.raises(ValidationError):
+            VerdictJSON(**deploy, accuracy_diff_ci=ci)
+    # the other verdicts need no CI evidence
+    for v in (Verdict.USE_SIMPLER, Verdict.NEED_MORE_DATA, Verdict.INVALID):
+        assert VerdictJSON(**{**_BASE, "verdict": v}).verdict == v

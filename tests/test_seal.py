@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from agent_committee.data import from_jsonl_bytes, split_cases, write_split
+from agent_committee.data import (
+    from_jsonl_bytes,
+    sha256_hex,
+    split_cases,
+    to_jsonl_bytes,
+    write_split,
+)
 from agent_committee.schemas import Case
 from agent_committee.seal import SealError, check_unseal_conditions, load_test
 
@@ -35,6 +41,8 @@ def repo(tmp_path):
     arms = tmp_path / "src" / "agent_committee" / "arms"
     arms.mkdir(parents=True)
     (arms / "__init__.py").write_text("")
+    for name in ("llm.py", "data.py", "schemas.py"):
+        (tmp_path / "src" / "agent_committee" / name).write_text("x = 0\n")
     (tmp_path / ".gitignore").write_text("sealed/\n")
     cases = [Case(id=f"{x}{i}", text=f"t {x} {i}", label=x) for x in "ab" for i in range(10)]
     dev, test = split_cases(cases, 0.25, seed=1)
@@ -67,6 +75,50 @@ def test_refuses_tampered_sealed_file(repo):
     p.write_bytes(p.read_bytes() + b" ")
     with pytest.raises(SealError, match="SHA-256"):
         load_test(repo)
+
+
+@pytest.mark.parametrize("commit_the_change", [False, True])
+def test_replacing_both_sealed_file_and_hash_file_fails(repo, commit_the_change):
+    """Attacker swaps TEST and its hash together; the hash frozen at the tag still wins."""
+    git(repo, "tag", "arms-frozen")
+    fake = to_jsonl_bytes([Case(id="x", text="swapped", label="a")])
+    (repo / "sealed" / "test.jsonl").write_bytes(fake)
+    (repo / "data" / "test.sha256").write_text(sha256_hex(fake) + "\n")
+    if commit_the_change:
+        commit_all(repo, "swap test set and hash")
+    with pytest.raises(SealError):
+        load_test(repo)
+
+
+def test_load_test_compares_against_the_frozen_hash_even_if_diff_check_is_bypassed(
+    repo, monkeypatch
+):
+    git(repo, "tag", "arms-frozen")
+    monkeypatch.setattr("agent_committee.seal.check_unseal_conditions", lambda _repo: None)
+    fake = to_jsonl_bytes([Case(id="x", text="swapped", label="a")])
+    (repo / "sealed" / "test.jsonl").write_bytes(fake)
+    (repo / "data" / "test.sha256").write_text(sha256_hex(fake) + "\n")  # self-consistent forgery
+    with pytest.raises(SealError, match="differs from tag"):
+        load_test(repo)
+
+
+@pytest.mark.parametrize(
+    "rel",
+    ["src/agent_committee/llm.py", "src/agent_committee/data.py", "src/agent_committee/schemas.py"],
+)
+def test_refuses_if_core_module_changed_after_freeze(repo, rel):
+    git(repo, "tag", "arms-frozen")
+    (repo / rel).write_text("x = 1\n")
+    with pytest.raises(SealError, match="changed since"):
+        check_unseal_conditions(repo)
+
+
+def test_refuses_if_dev_data_changed_after_freeze(repo):
+    git(repo, "tag", "arms-frozen")
+    p = repo / "data" / "dev.jsonl"
+    p.write_bytes(p.read_bytes() + b"\n")
+    with pytest.raises(SealError, match="changed since"):
+        check_unseal_conditions(repo)
 
 
 def test_refuses_if_prereg_changed_after_freeze(repo):
