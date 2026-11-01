@@ -1,2 +1,1 @@
-def hello() -> str:
-    return "Hello from agent-committee!"
+"""agent-committee: decide whether an AI agent beats simpler alternatives."""
