@@ -21,6 +21,12 @@ class ArmName(StrEnum):
     AGENT = "agent"
 
 
+class EvidenceLevel(StrEnum):
+    REAL = "REAL"
+    SYNTHETIC_CHECKED = "SYNTHETIC_CHECKED"
+    SYNTHETIC = "SYNTHETIC"
+
+
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -34,7 +40,12 @@ class Case(_Frozen):
 
 
 class ArmPrediction(_Frozen):
-    """One arm's answer on one case. `pred=None` means unparseable output (scored wrong)."""
+    """One arm's answer on one case. `pred=None` means no answer (scored wrong).
+
+    No answer is unparseable output or a malformed tool call.
+    `own_tool_calls` (total tool calls the model made), `sent_back` and `malformed` feed the
+    agent quality floor; other arms keep the defaults.
+    """
 
     case_id: str
     arm: ArmName
@@ -42,6 +53,9 @@ class ArmPrediction(_Frozen):
     prompt_tokens: int = Field(ge=0, default=0)
     completion_tokens: int = Field(ge=0, default=0)
     latency_s: float = Field(ge=0, default=0.0)
+    own_tool_calls: int = Field(ge=0, default=0)
+    sent_back: bool = False
+    malformed: bool = False
 
 
 class PriceTable(_Frozen):
@@ -92,8 +106,34 @@ class DecisionPolicy(_Frozen):
     latency_in_decision: Literal[False] = False
 
 
+class LinearLayerConfig(_Frozen):
+    """The shared layer's frozen settings. `null_threshold` flags cases; it scores none."""
+
+    null_threshold: float = Field(ge=0, le=1)
+    shortlist_k: int = Field(ge=1)
+
+
+class ScorerSpec(_Frozen):
+    """The scenario's plain-code scorer. `target` is its dotted path; no LLM may sit behind it."""
+
+    name: str = Field(min_length=1)
+    target: str = Field(pattern=r"^[A-Za-z_][\w.]*:[A-Za-z_]\w*$")
+
+
+class QualityFloor(_Frozen):
+    """What the agent must reach before the sealed run, otherwise the verdict is INVALID."""
+
+    min_own_tool_rate: float = Field(ge=0, le=1)
+    max_send_back_rate: float = Field(ge=0, le=1)
+    max_points_below_linear: float = Field(ge=0, le=1)
+
+
 class Prereg(_Frozen):
-    """Contents of prereg.yaml. Committed before the sealed test set is unsealed."""
+    """Contents of prereg.yaml. Committed before the sealed test set is unsealed.
+
+    `linear`, `scorer` and `quality_floor` may stay unset while drafting; the pre-tag check and
+    the unseal guard both refuse a prereg that leaves any of them out.
+    """
 
     task: Literal["banking77"] = "banking77"
     metric: Literal["accuracy"] = "accuracy"
@@ -105,6 +145,9 @@ class Prereg(_Frozen):
     error_cost: ErrorCostRange
     price_tables: list[PriceTable]
     decision_policy: DecisionPolicy = DecisionPolicy()
+    linear: LinearLayerConfig | None = None
+    scorer: ScorerSpec | None = None
+    quality_floor: QualityFloor | None = None
 
     @model_validator(mode="after")
     def _three_unique_tables(self) -> Self:
@@ -124,12 +167,34 @@ class BreakEven(_Frozen):
     ci_high: float
 
 
+class AuditBundle(_Frozen):
+    """What a reader needs to retrace one verdict. Saved with every verdict.
+
+    `predictions_sha256` stays None only on an INVALID verdict reached before the paired run.
+    """
+
+    git_commit: str = Field(min_length=1)
+    prereg_sha256: str = Field(min_length=1)
+    dev_report_sha256: str = Field(min_length=1)
+    test_sha256: str = Field(min_length=1)
+    model_digest: str = Field(min_length=1)
+    layer_fingerprint: str = Field(min_length=1)
+    predictions_sha256: str | None = None
+
+
 class VerdictJSON(_Frozen):
     """Contents of results/verdict.json, written by the deterministic decision engine."""
 
     verdict: Verdict
+    evidence_level: EvidenceLevel
+    audit: AuditBundle
     reasons: list[str]
+    scorer: str | None = None  # None means no declared scorer, which is INVALID
+    quality_floor_passed: bool | None = None  # None means not checked, which is INVALID
     accuracy: dict[str, float]
+    flagged_rate: float | None = None
+    shortlist_coverage: float | None = None
+    flagged_accuracy: dict[str, float | None] = {}  # per arm; None if no case was flagged
     accuracy_diff: float | None = None
     accuracy_diff_ci: tuple[float, float] | None = None
     mcnemar_p: float | None = None
@@ -141,7 +206,14 @@ class VerdictJSON(_Frozen):
     def _finite_and_ordered(self) -> Self:
         """No NaN/inf anywhere numeric, and every CI must satisfy lo <= hi."""
         numbers: list[float] = [*self.accuracy.values(), *self.latency_s.values()]
-        for x in (self.accuracy_diff, self.mcnemar_p, self.aa_false_winner_rate):
+        for x in (
+            self.accuracy_diff,
+            self.mcnemar_p,
+            self.aa_false_winner_rate,
+            self.flagged_rate,
+            self.shortlist_coverage,
+            *self.flagged_accuracy.values(),
+        ):
             if x is not None:
                 numbers.append(x)
         if self.accuracy_diff_ci is not None:
@@ -173,4 +245,27 @@ class VerdictJSON(_Frozen):
             self.accuracy_diff_ci is None or self.accuracy_diff_ci[0] <= 0
         ):
             raise ValueError("DEPLOY_AGENT requires accuracy_diff_ci lower bound > 0")
+        return self
+
+    @model_validator(mode="after")
+    def _valid_verdicts_need_their_preconditions(self) -> Self:
+        """Any verdict but INVALID needs a declared scorer, a passed floor and saved predictions."""
+        if self.verdict == Verdict.INVALID:
+            return self
+        if self.scorer is None:
+            raise ValueError("a scenario without a declared scorer must be INVALID")
+        if self.quality_floor_passed is not True:
+            raise ValueError("an agent that did not pass the quality floor must be INVALID")
+        if self.audit.predictions_sha256 is None:
+            raise ValueError("audit.predictions_sha256 is required unless the verdict is INVALID")
+        return self
+
+    @model_validator(mode="after")
+    def _synthetic_alone_decides_nothing(self) -> Self:
+        """SYNTHETIC evidence shows an estimate and never picks a winner."""
+        if self.evidence_level == EvidenceLevel.SYNTHETIC:
+            if self.verdict in (Verdict.DEPLOY_AGENT, Verdict.USE_SIMPLER):
+                raise ValueError("SYNTHETIC evidence gives only NEED_MORE_DATA")
+            if self.verdict == Verdict.NEED_MORE_DATA and not self.accuracy:
+                raise ValueError("NEED_MORE_DATA on SYNTHETIC evidence must show the estimate")
         return self
