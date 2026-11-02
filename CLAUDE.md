@@ -10,10 +10,10 @@ Banking77 is the first task and proves the method.
 - Product: general verifier. Agents are plugged in; the system supplies baselines. First task: Banking77 intent classification (Hugging Face). ETL is out of scope.
 - Shared first step: word + character logistic regression, trained on the pool, threshold set on tune, then frozen. It returns Choice, Score and Null.
 - Arms (all use DEV data only):
-  1. Linear model alone, no LLM. Null counts as wrong.
+  1. Linear model alone, no LLM. It always answers with its Choice.
   2. Single prompt with the top-5 shortlist and few-shot examples from DEV.
   3. Hand-built LangGraph reference agent with the shortlist (tools: retrieve similar DEV examples, read label definitions; then decide). No label list is given.
-- Prompt and agent still answer Null cases. Accuracy on those cases is reported per arm.
+- Null is a flag for low-confidence cases (the lowest 10% on tune), not a score. All arms answer them, and accuracy on those cases is reported per arm.
 - Agent rules: a no-tool answer is sent back once, the last call must answer, a malformed tool call scores wrong. Maximum 4 model calls per case.
 - No RAG for now. `search` stays a single swappable tool.
 - Test set is **SEALED**: stored separately (`sealed/`, gitignored) with a SHA-256 hash committed in `data/test.sha256`.
