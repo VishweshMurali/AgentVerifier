@@ -6,8 +6,8 @@ from pathlib import Path
 ARMS = Path(__file__).resolve().parents[1] / "src" / "agent_committee" / "arms"
 ALLOWED_TOP = {
     "__future__", "argparse", "collections", "dataclasses", "enum", "functools", "hashlib",
-    "itertools", "json", "logging", "math", "numpy", "pathlib", "pydantic", "re", "sklearn",
-    "sys", "textwrap", "typing", "langgraph",
+    "itertools", "json", "logging", "math", "numpy", "pathlib", "pydantic", "re", "scipy",
+    "sklearn", "sys", "textwrap", "typing", "langgraph",
 }  # fmt: skip
 ALLOWED_PROJECT = {"agent_committee.schemas", "agent_committee.llm", "agent_committee.data"}
 BANNED_TEXT = [

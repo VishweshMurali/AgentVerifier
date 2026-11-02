@@ -13,3 +13,6 @@ MAX_PROMPT_CHARS = 14_000  # about 3,250 tokens at 4.3 chars/token; sum all mess
 K_SHOTS = 2  # few-shot examples per label in the single-prompt arm
 RETRIEVAL_K = 5  # neighbours returned by the agent's retrieve tool
 AGENT_MAX_TOOL_TURNS = 3  # at most 4 model calls per case
+
+SHORTLIST_K = 5  # labels the shared linear layer passes to the prompt and agent arms
+NULL_THRESHOLD = 0.0  # placeholder: set on tune, then fixed in prereg.yaml before the tag
