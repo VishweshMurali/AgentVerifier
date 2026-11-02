@@ -15,7 +15,6 @@ class Verdict(StrEnum):
 
 
 class ArmName(StrEnum):
-    TFIDF = "tfidf"  # retired with arms/tfidf.py
     LINEAR = "linear"
     PROMPT = "prompt"
     AGENT = "agent"

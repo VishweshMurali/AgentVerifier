@@ -1,6 +1,5 @@
 """Shared constants for the arms. Values measured by the C1 probe (see COORDINATION.md)."""
 
-TFIDF_SEED = 0
 TEMPERATURE = 0.0
 MODEL = "qwen2.5:7b"
 MODEL_DIGEST = "845dbda0ea48ed749caafd9e6037047aa19acfcfd82e704d7ca97d631a0b697e"

@@ -72,7 +72,7 @@ def test_case_rejects_extra_fields():
 def test_prediction_allows_unparseable_none_and_rejects_negative_tokens():
     assert ArmPrediction(case_id="1", arm=ArmName.AGENT, pred=None).pred is None
     with pytest.raises(ValidationError):
-        ArmPrediction(case_id="1", arm="tfidf", pred="a", prompt_tokens=-1)
+        ArmPrediction(case_id="1", arm="linear", pred="a", prompt_tokens=-1)
 
 
 def test_prereg_valid():
