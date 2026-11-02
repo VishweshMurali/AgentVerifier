@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_committee.arms.config import MODEL_DIGEST
+from agent_committee.arms.config import MODEL_DIGEST, NULL_THRESHOLD, SHORTLIST_K
 from agent_committee.data import (
     from_jsonl_bytes,
     sha256_hex,
@@ -24,10 +24,23 @@ from agent_committee.seal import (
     check_pretag,
     check_unseal_conditions,
     load_test,
+    rebuild_fingerprint,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "agent_committee"
+PREREG_SECTIONS = f"""
+linear:
+  null_threshold: {NULL_THRESHOLD}
+  shortlist_k: {SHORTLIST_K}
+scorer:
+  name: exact_label
+  target: agent_committee.scorers:exact_label
+quality_floor:
+  min_own_tool_rate: 0.9
+  max_send_back_rate: 0.1
+  max_points_below_linear: 0.05
+"""
 
 
 def git(repo, *args):
@@ -45,17 +58,27 @@ def commit_all(repo, msg="c"):
 
 
 @pytest.fixture
-def repo(tmp_path):
+def repo(tmp_path, monkeypatch):
     """A git repo: prereg.yaml, an arms package, a committed hash, a gitignored sealed file."""
+    # the fixture's DEV data is too small to split, so the rebuild itself is tested on the real pool
+    monkeypatch.setattr("agent_committee.seal.rebuild_fingerprint", lambda _repo: "fp")
     git(tmp_path, "init", "-b", "main")
     shutil.copy(ROOT / "prereg.yaml", tmp_path / "prereg.yaml")
+    with (tmp_path / "prereg.yaml").open("a", encoding="utf-8") as f:
+        f.write(PREREG_SECTIONS)
     arms = tmp_path / "src" / "agent_committee" / "arms"
     arms.mkdir(parents=True)
     (arms / "__init__.py").write_text("")
-    for name in ("base.py", "tfidf.py", "prompt.py", "agent.py"):
+    for name in ("base.py", "linear.py", "prompt.py", "agent.py"):
         (arms / name).write_text("x = 0\n")
     (arms / "dev_report.json").write_text(
-        json.dumps({"results": {"tfidf": {"accuracy": 0.9}}, "model_digest": MODEL_DIGEST})
+        json.dumps(
+            {
+                "results": {"linear": {"accuracy": 0.9}},
+                "model_digest": MODEL_DIGEST,
+                "layer": {"fingerprint": "fp"},
+            }
+        )
     )
     for name in ("llm.py", "data.py", "schemas.py", "prereg.py", "seal.py"):
         (tmp_path / "src" / "agent_committee" / name).write_text("x = 0\n")
@@ -289,3 +312,42 @@ def test_pretag_flags_missing_files_and_existing_tag(repo):
 def test_pretag_never_reads_the_sealed_file(repo):
     (repo / "sealed" / "test.jsonl").unlink()
     assert check_pretag(repo) == []
+
+
+def test_unseal_refuses_when_the_rebuilt_layer_differs(repo, monkeypatch):
+    git(repo, "tag", "arms-frozen")
+    monkeypatch.setattr("agent_committee.seal.rebuild_fingerprint", lambda _repo: "other")
+    with pytest.raises(SealError, match="does not match"):
+        check_unseal_conditions(repo)
+
+
+def test_pretag_flags_a_rebuilt_layer_that_differs(repo, monkeypatch):
+    monkeypatch.setattr("agent_committee.seal.rebuild_fingerprint", lambda _repo: "other")
+    assert any("does not match" in p for p in check_pretag(repo))
+
+
+def test_pretag_flags_a_report_with_no_fingerprint(repo):
+    report = {"results": {"linear": {}}, "model_digest": MODEL_DIGEST}
+    (repo / DEV_REPORT).write_text(json.dumps(report))
+    assert any("no layer fingerprint" in p for p in check_pretag(repo))
+
+
+def test_rebuild_fingerprint_is_stable_on_the_real_pool():
+    assert rebuild_fingerprint(ROOT) == rebuild_fingerprint(ROOT)
+
+
+def test_pretag_and_unseal_refuse_a_prereg_missing_a_section(repo):
+    shutil.copy(ROOT / "prereg.yaml", repo / "prereg.yaml")
+    commit_all(repo, "prereg without the new sections")
+    problems = check_pretag(repo)
+    for name in ("linear", "scorer", "quality_floor"):
+        assert any(f"does not set {name}" in p for p in problems)
+    git(repo, "tag", "arms-frozen")
+    with pytest.raises(SealError, match="does not set"):
+        check_unseal_conditions(repo)
+
+
+def test_pretag_flags_prereg_linear_settings_that_differ_from_config(repo):
+    prereg = repo / "prereg.yaml"
+    prereg.write_text(prereg.read_text().replace(str(NULL_THRESHOLD), "0.1"))
+    assert any("do not match arms/config" in p for p in check_pretag(repo))

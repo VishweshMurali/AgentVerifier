@@ -6,7 +6,9 @@ Unsealing requires ALL of:
  3. prereg.yaml is tracked and committed
  4. nothing in FROZEN_PATHS (prereg, arms/, core modules incl. this one, pyproject/uv.lock,
     DEV data, hashes, manifest) changed since the tag, tracked or untracked
- 5. sealed/test.jsonl matches the SHA-256 recorded in data/test.sha256 AS OF THE TAG
+ 5. prereg.yaml sets the linear layer, scorer and quality floor, and the layer matches arms/config
+ 6. the linear layer rebuilt from the pool has the fingerprint in the DEV report
+ 7. sealed/test.jsonl matches the SHA-256 recorded in data/test.sha256 AS OF THE TAG
 
 This is tamper-EVIDENT, not tamper-proof: the repo owner can still create the tag. What it
 guarantees that an honest run cannot unseal by accident and any edit after freezing is caught.
@@ -17,13 +19,17 @@ import json
 import subprocess
 from pathlib import Path
 
-from agent_committee.arms.config import MODEL_DIGEST
+from agent_committee.arms.config import MODEL_DIGEST, NULL_THRESHOLD, SHORTLIST_K
+from agent_committee.arms.linear import make_layer
+from agent_committee.arms.splits import make_arms_split
 from agent_committee.data import (
     SEALED_TEST_FILE,
     TEST_HASH_FILE,
     from_jsonl_bytes,
+    load_dev,
     sha256_hex,
 )
+from agent_committee.prereg import load_prereg
 from agent_committee.schemas import Case
 
 FREEZE_TAG = "arms-frozen"
@@ -32,7 +38,7 @@ TAG_REF = f"refs/tags/{FREEZE_TAG}"
 ARMS_PATH = "src/agent_committee/arms"
 DEV_REPORT = f"{ARMS_PATH}/dev_report.json"
 # Must exist at the tag on top of every FROZEN_PATHS entry, so an empty arms/ cannot pass.
-REQUIRED_ARM_FILES = [f"{ARMS_PATH}/{n}" for n in ("base.py", "tfidf.py", "prompt.py", "agent.py")]
+REQUIRED_ARM_FILES = [f"{ARMS_PATH}/{n}" for n in ("base.py", "linear.py", "prompt.py", "agent.py")]
 # Everything that must be byte-identical between the freeze tag and unsealing.
 FROZEN_PATHS = [
     PREREG_PATH,
@@ -60,6 +66,39 @@ class SealError(RuntimeError):
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=False)
+
+
+def rebuild_fingerprint(repo: Path) -> str:
+    """Fit the layer again from the committed DEV pool. Reads DEV only."""
+    pool = make_arms_split(load_dev(repo / "data")).pool
+    return make_layer(pool).fingerprint()
+
+
+def _layer_problems(repo: Path) -> list[str]:
+    """Is the frozen layer reproducible? Compares a fresh rebuild with the DEV report."""
+    try:
+        data = json.loads((repo / DEV_REPORT).read_text(encoding="utf-8"))
+        recorded = data["layer"]["fingerprint"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return [f"{DEV_REPORT} has no layer fingerprint"]
+    if rebuild_fingerprint(repo) != recorded:
+        return [f"linear layer rebuilt from the pool does not match {DEV_REPORT}"]
+    return []
+
+
+def _prereg_problems(repo: Path) -> list[str]:
+    """Sections the pre-registration must settle before the tag."""
+    prereg = load_prereg(repo / PREREG_PATH)
+    problems = [
+        f"{PREREG_PATH} does not set {name}"
+        for name in ("linear", "scorer", "quality_floor")
+        if getattr(prereg, name) is None
+    ]
+    if prereg.linear is not None and (
+        prereg.linear.null_threshold != NULL_THRESHOLD or prereg.linear.shortlist_k != SHORTLIST_K
+    ):
+        problems.append(f"{PREREG_PATH} linear settings do not match arms/config")
+    return problems
 
 
 def check_unseal_conditions(repo: str | Path = ".") -> None:
@@ -95,6 +134,11 @@ def check_unseal_conditions(repo: str | Path = ".") -> None:
     dirty = _git(repo, "status", "--porcelain", "--", *CLEAN_TREES)
     if dirty.stdout.strip():
         raise SealError(f"uncommitted changes in {CLEAN_TREES}:\n{dirty.stdout}")
+
+    # Last, because a rebuild takes seconds: settled prereg, then a reproducible layer.
+    problems = _prereg_problems(repo) or _layer_problems(repo)
+    if problems:
+        raise SealError("; ".join(problems))
 
 
 def load_test(
@@ -155,7 +199,9 @@ def check_pretag(repo: str | Path = ".") -> list[str]:
             problems.append(f"{DEV_REPORT} is not a report with results")
         elif data.get("model_digest") != MODEL_DIGEST or not MODEL_DIGEST:
             problems.append(f"{DEV_REPORT} model_digest does not match arms/config.MODEL_DIGEST")
-    return problems
+        else:
+            problems.extend(_layer_problems(repo))
+    return [*problems, *_prereg_problems(repo)]
 
 
 def main(argv: list[str] | None = None) -> int:
