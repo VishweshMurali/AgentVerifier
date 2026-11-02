@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 
+from agent_committee.arms import config
 from agent_committee.arms.base import Arm
 from agent_committee.arms.labels import build_label_book
 from agent_committee.arms.splits import ARMS_SPLIT_SEED, make_arms_split
@@ -43,6 +44,8 @@ def best_simpler(results: dict[str, dict]) -> str | None:
 
 def build_report(results: dict[str, dict], counts: dict[str, int]) -> dict:
     return {
+        "model": config.MODEL,
+        "model_digest": config.MODEL_DIGEST,
         "split_seed": ARMS_SPLIT_SEED,
         "split_counts": counts,
         "scored_on": "eval",

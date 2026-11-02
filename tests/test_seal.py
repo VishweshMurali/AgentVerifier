@@ -1,10 +1,12 @@
 import ast
+import json
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from agent_committee.arms.config import MODEL_DIGEST
 from agent_committee.data import (
     from_jsonl_bytes,
     sha256_hex,
@@ -15,8 +17,11 @@ from agent_committee.data import (
 from agent_committee.schemas import Case
 from agent_committee.seal import (
     ARMS_PATH,
+    DEV_REPORT,
     FROZEN_PATHS,
+    REQUIRED_ARM_FILES,
     SealError,
+    check_pretag,
     check_unseal_conditions,
     load_test,
 )
@@ -47,6 +52,11 @@ def repo(tmp_path):
     arms = tmp_path / "src" / "agent_committee" / "arms"
     arms.mkdir(parents=True)
     (arms / "__init__.py").write_text("")
+    for name in ("base.py", "tfidf.py", "prompt.py", "agent.py"):
+        (arms / name).write_text("x = 0\n")
+    (arms / "dev_report.json").write_text(
+        json.dumps({"results": {"tfidf": {"accuracy": 0.9}}, "model_digest": MODEL_DIGEST})
+    )
     for name in ("llm.py", "data.py", "schemas.py", "prereg.py", "seal.py"):
         (tmp_path / "src" / "agent_committee" / name).write_text("x = 0\n")
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
@@ -224,3 +234,58 @@ def test_only_data_and_seal_know_the_sealed_test_filename():
             continue
         assert "SEALED_TEST_FILE" not in path.read_text(encoding="utf-8"), path.name
         assert "sealed/" not in path.read_text(encoding="utf-8"), path.name
+
+
+@pytest.mark.parametrize("rel", [*REQUIRED_ARM_FILES, DEV_REPORT])
+def test_refuses_if_a_required_file_is_missing_at_the_tag(repo, rel):
+    git(repo, "rm", "-q", rel)
+    git(repo, "commit", "-m", "drop")
+    git(repo, "tag", "arms-frozen")
+    with pytest.raises(SealError, match="missing at tag"):
+        check_unseal_conditions(repo)
+
+
+def test_refuses_if_arms_directory_is_empty_at_the_tag(repo):
+    git(repo, "rm", "-rq", ARMS_PATH)
+    git(repo, "commit", "-m", "drop arms")
+    git(repo, "tag", "arms-frozen")
+    with pytest.raises(SealError, match="missing at tag"):
+        check_unseal_conditions(repo)
+
+
+def test_refuses_dirty_or_untracked_file_in_src_or_scripts(repo):
+    git(repo, "tag", "arms-frozen")
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "extra.py").write_text("x = 1\n")
+    with pytest.raises(SealError, match="uncommitted"):
+        check_unseal_conditions(repo)
+
+
+def test_branch_named_like_the_tag_cannot_stand_in_for_it(repo):
+    git(repo, "branch", "arms-frozen")
+    with pytest.raises(SealError, match="does not exist"):
+        check_unseal_conditions(repo)
+
+
+def test_pretag_ready_then_flags_problems(repo):
+    assert check_pretag(repo) == []
+    (repo / DEV_REPORT).write_text(json.dumps({"results": {"a": 1}, "model_digest": "other"}))
+    assert any("model_digest" in p for p in check_pretag(repo))
+    (repo / DEV_REPORT).write_text("not json")
+    assert any("not a report" in p for p in check_pretag(repo))
+    commit_all(repo, "bad report")
+    (repo / "src" / "agent_committee" / "arms" / "new.py").write_text("y = 1\n")
+    assert any("uncommitted" in p for p in check_pretag(repo))
+
+
+def test_pretag_flags_missing_files_and_existing_tag(repo):
+    git(repo, "rm", "-q", REQUIRED_ARM_FILES[0])
+    git(repo, "commit", "-m", "drop")
+    assert any("not committed at HEAD" in p for p in check_pretag(repo))
+    git(repo, "tag", "arms-frozen")
+    assert any("already exists" in p for p in check_pretag(repo))
+
+
+def test_pretag_never_reads_the_sealed_file(repo):
+    (repo / "sealed" / "test.jsonl").unlink()
+    assert check_pretag(repo) == []
