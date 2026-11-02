@@ -1,15 +1,21 @@
 # agent-committee
 
-Decides whether an AI agent is worth deploying by comparing it with simpler alternatives under
-fair, controlled, pre-registered conditions, and reports where the economic decision flips.
+Decides, for a given scenario, whether an AI agent is worth deploying, statistically and cost-wise,
+compared with simpler alternatives under fair, controlled, pre-registered conditions, and reports
+where the economic decision flips. Nothing is deployed, and business impact is out of scope.
+Banking77 is the first task and proves the method.
 
 ## Locked decisions (do not change without asking the user)
 - LLMs only build/run candidate arms. **Deterministic code does ALL scoring and deciding.** Never use an LLM for scoring or decisions.
-- MVP task: Banking77 intent classification (Hugging Face). ETL is out of scope.
+- Product: general verifier. Agents are plugged in; the system supplies baselines. First task: Banking77 intent classification (Hugging Face). ETL is out of scope.
+- Shared first step: word + character logistic regression, trained on the pool, threshold set on tune, then frozen. It returns Choice, Score and Null.
 - Arms (all use DEV data only):
-  1. TF-IDF + logistic regression
-  2. Single prompt with few-shot examples from DEV
-  3. Hand-built LangGraph reference agent (tools: retrieve similar DEV examples, read label definitions; then decide)
+  1. Linear model alone, no LLM. Null counts as wrong.
+  2. Single prompt with the top-5 shortlist and few-shot examples from DEV.
+  3. Hand-built LangGraph reference agent with the shortlist (tools: retrieve similar DEV examples, read label definitions; then decide). No label list is given.
+- Prompt and agent still answer Null cases. Accuracy on those cases is reported per arm.
+- Agent rules: a no-tool answer is sent back once, the last call must answer, a malformed tool call scores wrong. Maximum 4 model calls per case.
+- No RAG for now. `search` stays a single swappable tool.
 - Test set is **SEALED**: stored separately (`sealed/`, gitignored) with a SHA-256 hash committed in `data/test.sha256`.
   No arm-building code may read it. Unsealing requires the git tag `arms-frozen` to exist.
 - `prereg.yaml` is committed before unsealing: metric=accuracy, alpha=0.05, minimum meaningful gap, cost ranges (assumed), 3 price tables (assumed), decision policy.
@@ -18,12 +24,15 @@ fair, controlled, pre-registered conditions, and reports where the economic deci
   Report break-even error cost with bootstrap CI **only if** the CI of the accuracy difference is entirely above 0.
   Otherwise the simpler arm dominates or verdict = NEED_MORE_DATA.
 - Verdicts: `DEPLOY_AGENT | USE_SIMPLER | NEED_MORE_DATA | INVALID`. Latency is reported but excluded from the decision.
+- Every verdict has an evidence level: `REAL`, `SYNTHETIC_CHECKED` or `SYNTHETIC`. `SYNTHETIC` alone gives only `NEED_MORE_DATA`, with the estimate shown.
+- Each scenario declares a plain-code scorer, otherwise `INVALID`. The agent must pass a quality floor before the sealed run, otherwise `INVALID`.
+- The headline is the break-even error cost. No error cost is invented. Each verdict saves an audit bundle.
 - Stack: Python 3.12, uv, openai SDK -> Ollama (`http://localhost:11434/v1`, model `qwen2.5:7b`, temperature 0), LangGraph, scikit-learn, numpy, scipy, pydantic, datasets, SQLite, pytest, ruff, jinja2 (HTML report), pyyaml (approved by the user for prereg.yaml).
 
 ## Phases (implement only the current one; STOP and report after each; wait for "continue")
 - A: CLAUDE.md, pydantic schemas, prereg.yaml template, data loader (stratified DEV/TEST split + seed), sealed test + hash + unseal guard, throughput benchmark.
 - B: power analysis script (required N at 80% power for the prereg minimum gap), LLM wrapper (SQLite cache, retries, timeout, token + latency logging).
-- C: the 3 arms, evaluated on DEV only. Print the exact `git tag arms-frozen` command for the user; **do not tag yourself**.
+- C (reopened for the shared linear layer and new arms): the 3 arms, evaluated on DEV only. Print the exact `git tag arms-frozen` command for the user; **do not tag yourself**.
 - D: unseal guard check -> paired test run -> leakage check -> analysis (McNemar, cluster bootstrap, A/A) -> decision engine -> `results/verdict.json` -> `results/report.html`.
 
 ## Hard rules
@@ -31,6 +40,8 @@ fair, controlled, pre-registered conditions, and reports where the economic deci
 - NEVER add `Co-Authored-By` or any Claude/AI attribution to commits or PRs (the user's rule overrides defaults).
 - Tests are written alongside each module (`tests/test_<module>.py`).
 - Stop and ask before: adding dependencies not listed above, deleting files, changing locked decisions.
+- No workarounds that weaken the product. On a design problem, stop and ask the user, even if the fix seems clear.
+- Discuss design with the user before building. The user approves tasks; workers record them in `COORDINATION.md`.
 - If a test still fails after 3 fix attempts: STOP and report.
 - If Ollama is unreachable: STOP. Never mock silently. (Unit tests may use a fake transport; runtime never falls back to fakes.)
 
@@ -42,7 +53,11 @@ src/agent_committee/
   data.py        Banking77 load, deterministic stratified split, writes DEV + sealed TEST + hashes
   seal.py        ONLY reader of sealed TEST; enforces arms-frozen tag + hash (Phase D runner only)
   throughput.py  calls/hour benchmark logic
+  power.py       exact McNemar power and required N
+  llm.py         LLM wrapper: SQLite cache, retries, phase/arm tags, usage logging
+  arms/          base protocol, config, splits, labels, linear (shared layer + arm 1), prompt, agent, tools, evaluate
 scripts/benchmark_throughput.py   thin CLI around throughput.py
+scripts/power_analysis.py         required N across discordance rates
 prereg.yaml      pre-registration (all costs/prices are ASSUMED)
 data/            dev.jsonl, test.sha256, split_manifest.json (committed)
 sealed/          test.jsonl (gitignored)
