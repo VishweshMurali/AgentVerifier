@@ -1,51 +1,45 @@
-"""Arm 2: one prompt with static few-shot examples from the pool.
+"""Arm 2: one prompt built from the linear layer's shortlist.
 
-The same K medoid examples per label go into every prompt. They are not retrieved per case, which
-keeps this arm distinct from the agent.
+The prompt names the top candidate labels with K fixed examples each. Candidate examples are static
+per label, not retrieved per query, which keeps this arm distinct from the agent.
 """
 
 from agent_committee.arms.config import K_SHOTS, MODEL_DIGEST
 from agent_committee.arms.labels import LabelBook
+from agent_committee.arms.linear import LinearLayer
 from agent_committee.arms.parsing import guarded_chat, parse_answer
 from agent_committee.llm import LLMClient
 from agent_committee.schemas import ArmName, ArmPrediction, Case
 
 ANSWER_MAX_TOKENS = 32
 INSTRUCTIONS = (
-    "You classify banking customer queries into exactly one intent label. "
-    "Reply with one label from the list below, spelled exactly as shown, and nothing else. "
+    "You classify a banking customer query into exactly one intent label. "
+    "Reply with one label from the candidates below, spelled exactly as shown, and nothing else. "
     "Never invent a new label.\n"
+    "Candidates with examples (query => label):\n"
 )
 
 
-def build_system_prompt(book: LabelBook, k: int = K_SHOTS) -> str:
-    lines = [f"{text} => {info.label}" for info in book.infos for text in info.examples[:k]]
-    return (
-        INSTRUCTIONS
-        + "Examples (query => label):\n"
-        + "\n".join(lines)
-        + "\nValid labels:\n"
-        + "\n".join(book.labels)
-    )
+def build_system_prompt(book: LabelBook, shortlist: tuple[str, ...], k: int = K_SHOTS) -> str:
+    lines = [f"{text} => {label}" for label in shortlist for text in book.get(label).examples[:k]]
+    return INSTRUCTIONS + "\n".join(lines)
 
 
 class PromptArm:
     name = ArmName.PROMPT
 
-    def __init__(self, client: LLMClient, book: LabelBook) -> None:
+    def __init__(self, client: LLMClient, book: LabelBook, layer: LinearLayer) -> None:
         self._client = client
         self._book = book
-        self._system: str | None = None
+        self._layer = layer
 
     def fit(self, pool: list[Case]) -> None:
-        """The prompt comes from the label book, which was itself derived from the pool."""
-        self._system = build_system_prompt(self._book)
+        """Nothing to fit: the label book and the layer were both built from the pool."""
 
     def predict(self, case_id: str, text: str) -> ArmPrediction:
-        if self._system is None:
-            raise RuntimeError("fit() first")
+        shortlist = self._layer.decide(text).shortlist
         messages = [
-            {"role": "system", "content": self._system},
+            {"role": "system", "content": build_system_prompt(self._book, shortlist)},
             {"role": "user", "content": text},
         ]
         result = guarded_chat(
@@ -61,8 +55,10 @@ class PromptArm:
         )
 
 
-def make_arm(pool: list[Case], book: LabelBook, client: LLMClient | None = None) -> PromptArm:
+def make_arm(
+    pool: list[Case], book: LabelBook, layer: LinearLayer, client: LLMClient | None = None
+) -> PromptArm:
     client = client or LLMClient(phase="build", model_digest=MODEL_DIGEST)
-    arm = PromptArm(client, book)
+    arm = PromptArm(client, book, layer)
     arm.fit(pool)
     return arm

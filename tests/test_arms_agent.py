@@ -1,8 +1,14 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
-from agent_committee.arms.agent import AgentArm, build_system_prompt, make_arm
+from agent_committee.arms.agent import (
+    SEND_BACK,
+    AgentArm,
+    build_system_prompt,
+    make_arm,
+)
 from agent_committee.arms.agent_tools import READ_LABEL, SEARCH, TOOLS, ToolBox
 from agent_committee.arms.config import AGENT_MAX_TOOL_TURNS, MAX_PROMPT_CHARS
 from agent_committee.arms.labels import build_label_book
@@ -11,12 +17,11 @@ from agent_committee.arms.retrieval import Retriever
 from agent_committee.llm import LLMClient, LLMUnavailable
 from agent_committee.schemas import ArmName, Case
 
-POOL = [
-    Case(id=f"{label}{i}", text=f"{label} sample {i}", label=label)
-    for label in ("card_arrival", "lost_or_stolen_card")
-    for i in range(3)
-]
+LABELS = ("card_arrival", "lost_or_stolen_card", "card_delivery_estimate")
+POOL = [Case(id=f"{x}{i}", text=f"{x} sample {i}", label=x) for x in LABELS for i in range(3)]
 BOOK = build_label_book(POOL)
+SHORTLIST = LABELS[:2]
+LAYER = SimpleNamespace(decide=lambda text: SimpleNamespace(shortlist=SHORTLIST))
 
 
 def reply(content="", calls=None, finish="stop"):
@@ -49,53 +54,68 @@ class Script:
 
 
 def arm_with(transport):
-    return make_arm(POOL, BOOK, LLMClient(":memory:", phase="build", transport=transport))
+    return make_arm(POOL, BOOK, LAYER, LLMClient(":memory:", phase="build", transport=transport))
 
 
-def test_direct_valid_answer_costs_one_call():
-    script = Script(reply("card_arrival"))
-    pred = arm_with(script).predict("a", "where is my card")
+SEARCHED = reply(calls=[call(SEARCH, {"query": "card"})])
+
+
+def test_prompt_gives_the_shortlist_not_the_full_label_list():
+    prompt = build_system_prompt(SHORTLIST)
+    assert all(label in prompt for label in SHORTLIST)
+    assert LABELS[2] not in prompt
+
+
+def test_tool_then_answer_sums_usage_and_counts_own_tool_use():
+    script = Script(SEARCHED, reply("card_arrival"))
+    arm = arm_with(script)
+    pred = arm.predict("a", "x")
     assert pred.arm == ArmName.AGENT and pred.pred == "card_arrival"
-    assert len(script.requests) == 1
-
-
-def test_first_search_always_runs_and_costs_no_model_call():
-    script = Script(reply("card_arrival"))
-    arm_with(script).predict("a", "card_arrival sample")
-    messages = script.requests[0]["messages"]
-    assert [m["role"] for m in messages] == ["system", "user", "assistant", "tool"]
-    assert messages[2]["tool_calls"][0]["id"] == "call_0"
-    assert messages[3]["tool_call_id"] == "call_0" and "=> card_arrival" in messages[3]["content"]
-
-
-def test_model_tool_ids_continue_after_the_first_search():
-    script = Script(reply(calls=[call(SEARCH, {"query": "q"}, "x")]), reply("card_arrival"))
-    arm_with(script).predict("a", "x")
-    assert script.requests[1]["messages"][-1]["tool_call_id"] == "call_1"
-
-
-def test_invalid_direct_answer_goes_to_decide_without_tools():
-    script = Script(reply("hmm, not sure"), reply("lost_or_stolen_card"))
-    assert arm_with(script).predict("a", "x").pred == "lost_or_stolen_card"
-    assert "tools" not in script.requests[1]
-
-
-def test_tool_loop_then_answer_sums_usage():
-    script = Script(reply(calls=[call(SEARCH, {"query": "card"})]), reply("card_arrival"))
-    pred = arm_with(script).predict("a", "x")
-    assert pred.pred == "card_arrival"
     assert (pred.prompt_tokens, pred.completion_tokens) == (20, 4)
-    tool_message = script.requests[1]["messages"][-1]
-    assert tool_message["role"] == "tool" and "=> " in tool_message["content"]
+    assert arm.stats["own_tool_cases"] == 1 and arm.stats["sent_back_cases"] == 0
+    assert (pred.own_tool_calls, pred.sent_back, pred.malformed) == (1, False, False)
+    assert script.requests[1]["messages"][-1]["role"] == "tool"
 
 
-def test_tool_turns_are_capped_and_decide_has_no_tools():
+def test_no_search_runs_unless_the_model_asks():
+    script = Script(reply("card_arrival"), SEARCHED, reply("card_arrival"))
+    arm_with(script).predict("a", "x")
+    assert not any(m["role"] == "tool" for m in script.requests[0]["messages"])
+
+
+def test_answer_before_any_tool_is_sent_back_once():
+    script = Script(reply("card_arrival"), SEARCHED, reply("card_arrival"))
+    arm = arm_with(script)
+    assert arm.predict("a", "x").pred == "card_arrival"
+    assert script.requests[1]["messages"][-1]["content"] == SEND_BACK
+    assert arm.stats["sent_back_cases"] == 1 and arm.stats["own_tool_cases"] == 0
+
+
+def test_second_no_tool_answer_is_taken_as_given():
+    script = Script(reply("card_arrival"), reply("lost_or_stolen_card"))
+    assert arm_with(script).predict("a", "x").pred == "lost_or_stolen_card"
+    assert len(script.requests) == 2
+
+
+def test_label_outside_the_shortlist_is_allowed():
+    script = Script(SEARCHED, reply("card_delivery_estimate"))
+    assert arm_with(script).predict("a", "x").pred == "card_delivery_estimate"
+
+
+def test_invalid_answer_after_tools_goes_to_decide_without_tools():
+    script = Script(SEARCHED, reply("not sure"), reply("card_arrival"))
+    assert arm_with(script).predict("a", "x").pred == "card_arrival"
+    assert "tools" not in script.requests[-1]
+
+
+def test_model_calls_are_capped_and_the_last_must_answer():
     looping = [reply(calls=[call(SEARCH, {"query": f"q{i}"})]) for i in range(AGENT_MAX_TOOL_TURNS)]
     script = Script(*looping, reply("card_arrival"))
-    assert arm_with(script).predict("a", "x").pred == "card_arrival"
+    arm = arm_with(script)
+    assert arm.predict("a", "x").pred == "card_arrival"
     assert len(script.requests) == AGENT_MAX_TOOL_TURNS + 1
     assert "tools" not in script.requests[-1]
-    assert all("tools" in r for r in script.requests[:-1])
+    assert arm.stats["model_calls"] == AGENT_MAX_TOOL_TURNS + 1
 
 
 def test_random_model_tool_ids_are_normalised_for_stable_cache_keys():
@@ -110,12 +130,29 @@ def test_calls_per_turn_are_capped():
     many = [call(SEARCH, {"query": f"q{i}"}, f"id{i}") for i in range(9)]
     script = Script(reply(calls=many), reply("card_arrival"))
     arm_with(script).predict("a", "x")
-    # the deterministic first search, plus at most 3 from the model
-    assert sum(m["role"] == "tool" for m in script.requests[1]["messages"]) == 4
+    assert sum(m["role"] == "tool" for m in script.requests[1]["messages"]) == 3
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"id": "x"},
+        {"function": "nope"},
+        {"function": {"name": SEARCH}},
+        {"function": {"arguments": "{}"}},
+        {"function": {"name": SEARCH, "arguments": {"query": "not a string"}}},
+    ],
+)
+def test_malformed_tool_call_scores_wrong_and_does_not_stop_the_run(bad):
+    script = Script(reply(calls=[bad]))
+    arm = arm_with(script)
+    pred = arm.predict("a", "x")
+    assert pred.pred is None and pred.malformed
+    assert arm.stats["malformed_cases"] == 1
 
 
 def test_truncated_final_answer_is_none():
-    script = Script(reply("nope"), reply("card_arrival", finish="length"))
+    script = Script(SEARCHED, reply("card_arrival", finish="length"), reply("x", finish="length"))
     assert arm_with(script).predict("a", "x").pred is None
 
 
@@ -135,21 +172,28 @@ def test_oversized_prompt_is_refused():
 
 
 def test_predict_before_fit_fails():
-    arm = AgentArm(LLMClient(":memory:", phase="build", transport=Script()), BOOK)
+    arm = AgentArm(LLMClient(":memory:", phase="build", transport=Script()), BOOK, LAYER)
     with pytest.raises(RuntimeError):
         arm.predict("a", "x")
 
 
-def test_system_prompt_lists_every_label():
-    prompt = build_system_prompt(BOOK)
-    assert all(label in prompt for label in BOOK.labels)
+def test_search_returns_examples_for_shortlisted_labels_best_first():
+    box = ToolBox(Retriever(POOL), BOOK, LAYER)
+    lines = box.run(SEARCH, json.dumps({"query": "lost_or_stolen_card sample"})).splitlines()
+    assert lines[0].endswith("=> card_arrival")
+    assert {line.split(" => ")[1] for line in lines} == set(SHORTLIST)
 
 
-def test_tools_box_outputs_and_bad_calls():
-    box = ToolBox(Retriever(POOL), BOOK)
-    assert "=> card_arrival" in box.run(SEARCH, json.dumps({"query": "card arrival"}))
+def test_read_label_resolves_and_suggests_closest_real_labels():
+    box = ToolBox(Retriever(POOL), BOOK, LAYER)
     assert "card_arrival" in box.run(READ_LABEL, json.dumps({"label": "CARD ARRIVAL"}))
-    assert box.run(READ_LABEL, json.dumps({"label": "nope"})).startswith("Unknown label")
+    unknown = box.run(READ_LABEL, json.dumps({"label": "card_delivery_time"}))
+    assert unknown.startswith("Unknown label")
+    assert "card_delivery_estimate" in unknown.split("Closest labels: ")[1].split(", ")[0]
+
+
+def test_bad_tool_calls_return_readable_errors():
+    box = ToolBox(Retriever(POOL), BOOK, LAYER)
     assert box.run(SEARCH, "{bad").startswith("Invalid JSON")
     assert box.run(SEARCH, "[1]").startswith("Invalid arguments")
     assert box.run("other", "{}").startswith("Invalid call")
