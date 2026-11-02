@@ -15,4 +15,5 @@ RETRIEVAL_K = 5  # neighbours returned by the agent's retrieve tool
 AGENT_MAX_TOOL_TURNS = 3  # at most 4 model calls per case
 
 SHORTLIST_K = 5  # labels the shared linear layer passes to the prompt and agent arms
-NULL_THRESHOLD = 0.0  # placeholder: set on tune, then fixed in prereg.yaml before the tag
+# 10th percentile of the layer's top score on the 488 tune cases, computed once. A flag only.
+NULL_THRESHOLD = 0.486288

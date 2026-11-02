@@ -22,7 +22,7 @@ FINGERPRINT_DECIMALS = 6  # coefficients are floats; compare at a precision a re
 
 @dataclass(frozen=True)
 class Decision:
-    """`score` is the top label's probability. `null` means score fell below the threshold."""
+    """`score` is the top label's probability. `null` flags a low score; it never scores a case."""
 
     choice: str
     score: float
@@ -96,7 +96,7 @@ def make_layer(pool: list[Case]) -> LinearLayer:
 
 
 class LinearArm:
-    """Arm 1: the layer's choice with no LLM. A Null is no answer, so it scores wrong."""
+    """Arm 1: the layer's choice with no LLM. It always answers, flagged or not."""
 
     name = ArmName.LINEAR
 
@@ -108,7 +108,6 @@ class LinearArm:
             self._layer.fit(pool)
 
     def predict(self, case_id: str, text: str) -> ArmPrediction:
-        decision = self._layer.decide(text)
-        pred = None if decision.null else decision.choice
+        choice = self._layer.decide(text).choice
         # no LLM tokens; local latency is negligible and not clocked inside arms/
-        return ArmPrediction(case_id=case_id, arm=self.name, pred=pred)
+        return ArmPrediction(case_id=case_id, arm=self.name, pred=choice)

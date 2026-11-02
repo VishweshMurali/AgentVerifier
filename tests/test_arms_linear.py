@@ -59,7 +59,7 @@ def test_null_is_score_strictly_below_threshold():
     above = LinearLayer(threshold=score + 1e-6)
     above.fit(pool)
     d = above.decide("my card is lost")
-    assert d.null is True and d.choice == "lost"  # Null keeps the shortlist for the LLM arms
+    assert d.null is True and d.choice == "lost"  # a flag changes neither choice nor shortlist
 
 
 def test_fit_is_once_only_and_required():
@@ -94,10 +94,11 @@ def test_arm_answers_from_the_layer_with_zero_tokens():
     assert p.prompt_tokens == 0 and p.completion_tokens == 0
 
 
-def test_arm_gives_no_answer_on_null():
+def test_arm_answers_with_its_choice_even_when_flagged():
     layer = LinearLayer(threshold=1.1)
     layer.fit(_pool())
-    assert LinearArm(layer).predict("q", "my card is lost").pred is None
+    assert layer.decide("my card is lost").null is True
+    assert LinearArm(layer).predict("q", "my card is lost").pred == "lost"
 
 
 def test_arm_fit_fills_an_empty_layer_and_leaves_a_frozen_one():
