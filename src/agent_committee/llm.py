@@ -32,7 +32,7 @@ from openai import (
 )
 
 BASE_URL = "http://localhost:11434/v1"
-MODEL = "qwen2.5:7b"
+MODEL = "llama3.1:8b"
 TIMEOUT_S = 60.0
 MAX_RETRIES = 3
 BACKOFF_BASE_S = 1.0

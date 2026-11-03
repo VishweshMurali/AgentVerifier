@@ -46,6 +46,7 @@ FROZEN_PATHS = [
     "src/agent_committee/llm.py",
     "src/agent_committee/data.py",
     "src/agent_committee/schemas.py",
+    "src/agent_committee/scorers.py",
     "src/agent_committee/prereg.py",
     "src/agent_committee/seal.py",
     "pyproject.toml",

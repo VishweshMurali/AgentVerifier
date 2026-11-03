@@ -19,6 +19,7 @@ from agent_committee.arms.linear import Decision, LinearArm, LinearLayer, make_l
 from agent_committee.arms.splits import ARMS_SPLIT_SEED, make_arms_split
 from agent_committee.data import load_dev
 from agent_committee.schemas import Case
+from agent_committee.scorers import exact_label
 
 REPORT_PATH = Path(__file__).with_name("dev_report.json")
 SIMPLER = ("linear", "prompt")  # arms the agent has to beat
@@ -27,7 +28,7 @@ SIMPLER = ("linear", "prompt")  # arms the agent has to beat
 def score(arm: Arm, cases: list[Case], decisions: list[Decision]) -> dict:
     """One arm's results. `decisions` are the shared layer's, aligned with `cases`."""
     preds = [arm.predict(c.id, c.text) for c in cases]
-    right = [p.pred == c.label for p, c in zip(preds, cases, strict=True)]
+    right = [exact_label(p.pred, c.label) for p, c in zip(preds, cases, strict=True)]
     flagged = [ok for ok, d in zip(right, decisions, strict=True) if d.null]
     n = len(cases)
     return {

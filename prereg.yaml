@@ -43,3 +43,15 @@ decision_policy:
   require_point_estimate_at_least_min_gap: true
   inconclusive_verdict: NEED_MORE_DATA
   latency_in_decision: false                         # latency is reported, never decided on
+
+linear:                  # shared first step; must match arms/config
+  null_threshold: 0.486288
+  shortlist_k: 5
+
+scorer:                  # plain code, no LLM
+  name: exact_label
+  target: agent_committee.scorers:exact_label
+
+quality_floor:           # the agent works as an agent; accuracy is left to the comparison
+  min_own_tool_rate: 0.90
+  max_send_back_rate: 0.10

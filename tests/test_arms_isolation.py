@@ -9,7 +9,12 @@ ALLOWED_TOP = {
     "itertools", "json", "logging", "math", "numpy", "pathlib", "pydantic", "re", "scipy",
     "sklearn", "sys", "textwrap", "typing", "langgraph",
 }  # fmt: skip
-ALLOWED_PROJECT = {"agent_committee.schemas", "agent_committee.llm", "agent_committee.data"}
+ALLOWED_PROJECT = {
+    "agent_committee.schemas",
+    "agent_committee.llm",
+    "agent_committee.data",
+    "agent_committee.scorers",
+}
 BANNED_TEXT = [
     "seal", "importlib", "subprocess", "test.jsonl", "test.sha256", "SEALED_TEST_FILE",
     "__import__", "pickle",

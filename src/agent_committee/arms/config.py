@@ -1,8 +1,8 @@
 """Shared constants for the arms. Values measured by the C1 probe (see COORDINATION.md)."""
 
 TEMPERATURE = 0.0
-MODEL = "qwen2.5:7b"
-MODEL_DIGEST = "845dbda0ea48ed749caafd9e6037047aa19acfcfd82e704d7ca97d631a0b697e"
+MODEL = "llama3.1:8b"
+MODEL_DIGEST = "46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e"
 
 # Ollama silently truncates the head of any prompt over this many tokens and still reports a
 # smaller prompt_tokens, so truncation cannot be detected afterwards. Reject before sending.

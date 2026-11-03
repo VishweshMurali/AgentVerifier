@@ -13,7 +13,7 @@ from openai import APIConnectionError, OpenAI
 from agent_committee.schemas import Case
 
 BASE_URL = "http://localhost:11434/v1"
-MODEL = "qwen2.5:7b"
+MODEL = "llama3.1:8b"
 
 
 class OllamaUnreachable(RuntimeError):

@@ -27,7 +27,7 @@ Banking77 is the first task and proves the method.
 - Every verdict has an evidence level: `REAL`, `SYNTHETIC_CHECKED` or `SYNTHETIC`. `SYNTHETIC` alone gives only `NEED_MORE_DATA`, with the estimate shown.
 - Each scenario declares a plain-code scorer, otherwise `INVALID`. The agent must pass a quality floor before the sealed run, otherwise `INVALID`.
 - The headline is the break-even error cost. No error cost is invented. Each verdict saves an audit bundle.
-- Stack: Python 3.12, uv, openai SDK -> Ollama (`http://localhost:11434/v1`, model `qwen2.5:7b`, temperature 0), LangGraph, scikit-learn, numpy, scipy, pydantic, datasets, SQLite, pytest, ruff, jinja2 (HTML report), pyyaml (approved by the user for prereg.yaml).
+- Stack: Python 3.12, uv, openai SDK -> Ollama (`http://localhost:11434/v1`, model `llama3.1:8b`, temperature 0), LangGraph, scikit-learn, numpy, scipy, pydantic, datasets, SQLite, pytest, ruff, jinja2 (HTML report), pyyaml (approved by the user for prereg.yaml).
 
 ## Phases (implement only the current one; STOP and report after each; wait for "continue")
 - A: CLAUDE.md, pydantic schemas, prereg.yaml template, data loader (stratified DEV/TEST split + seed), sealed test + hash + unseal guard, throughput benchmark.

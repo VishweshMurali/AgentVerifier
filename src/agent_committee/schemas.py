@@ -120,11 +120,14 @@ class ScorerSpec(_Frozen):
 
 
 class QualityFloor(_Frozen):
-    """What the agent must reach before the sealed run, otherwise the verdict is INVALID."""
+    """What the agent must reach before the sealed run, otherwise the verdict is INVALID.
+
+    It checks that the agent works as an agent. Accuracy is left to the comparison, so an agent
+    that loses gets USE_SIMPLER, not INVALID.
+    """
 
     min_own_tool_rate: float = Field(ge=0, le=1)
     max_send_back_rate: float = Field(ge=0, le=1)
-    max_points_below_linear: float = Field(ge=0, le=1)
 
 
 class Prereg(_Frozen):

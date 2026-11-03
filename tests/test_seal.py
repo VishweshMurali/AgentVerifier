@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_committee.arms.config import MODEL_DIGEST, NULL_THRESHOLD, SHORTLIST_K
+from agent_committee.arms.config import MODEL_DIGEST, NULL_THRESHOLD
 from agent_committee.data import (
     from_jsonl_bytes,
     sha256_hex,
@@ -29,18 +29,6 @@ from agent_committee.seal import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "agent_committee"
-PREREG_SECTIONS = f"""
-linear:
-  null_threshold: {NULL_THRESHOLD}
-  shortlist_k: {SHORTLIST_K}
-scorer:
-  name: exact_label
-  target: agent_committee.scorers:exact_label
-quality_floor:
-  min_own_tool_rate: 0.9
-  max_send_back_rate: 0.1
-  max_points_below_linear: 0.05
-"""
 
 
 def git(repo, *args):
@@ -64,8 +52,6 @@ def repo(tmp_path, monkeypatch):
     monkeypatch.setattr("agent_committee.seal.rebuild_fingerprint", lambda _repo: "fp")
     git(tmp_path, "init", "-b", "main")
     shutil.copy(ROOT / "prereg.yaml", tmp_path / "prereg.yaml")
-    with (tmp_path / "prereg.yaml").open("a", encoding="utf-8") as f:
-        f.write(PREREG_SECTIONS)
     arms = tmp_path / "src" / "agent_committee" / "arms"
     arms.mkdir(parents=True)
     (arms / "__init__.py").write_text("")
@@ -80,7 +66,7 @@ def repo(tmp_path, monkeypatch):
             }
         )
     )
-    for name in ("llm.py", "data.py", "schemas.py", "prereg.py", "seal.py"):
+    for name in ("llm.py", "data.py", "schemas.py", "scorers.py", "prereg.py", "seal.py"):
         (tmp_path / "src" / "agent_committee" / name).write_text("x = 0\n")
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
     (tmp_path / "uv.lock").write_text("version = 1\n")
@@ -337,7 +323,8 @@ def test_rebuild_fingerprint_is_stable_on_the_real_pool():
 
 
 def test_pretag_and_unseal_refuse_a_prereg_missing_a_section(repo):
-    shutil.copy(ROOT / "prereg.yaml", repo / "prereg.yaml")
+    text = (ROOT / "prereg.yaml").read_text(encoding="utf-8")
+    (repo / "prereg.yaml").write_text(text.split("\nlinear:")[0] + "\n", encoding="utf-8")
     commit_all(repo, "prereg without the new sections")
     problems = check_pretag(repo)
     for name in ("linear", "scorer", "quality_floor"):

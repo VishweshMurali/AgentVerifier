@@ -196,11 +196,7 @@ def test_prereg_new_sections_are_optional_and_validated():
         _prereg_dict(
             linear={"null_threshold": 0.3, "shortlist_k": 5},
             scorer={"name": "exact_label", "target": "agent_committee.scorers:exact_label"},
-            quality_floor={
-                "min_own_tool_rate": 0.9,
-                "max_send_back_rate": 0.1,
-                "max_points_below_linear": 0.05,
-            },
+            quality_floor={"min_own_tool_rate": 0.9, "max_send_back_rate": 0.1},
         )
     )
     assert full.linear == LinearLayerConfig(null_threshold=0.3, shortlist_k=5)
@@ -214,9 +210,10 @@ def test_prereg_new_sections_are_optional_and_validated():
         (LinearLayerConfig, {"null_threshold": 0.5, "shortlist_k": 0}),
         (ScorerSpec, {"name": "", "target": "a.b:c"}),
         (ScorerSpec, {"name": "x", "target": "not a path"}),
+        (QualityFloor, {"min_own_tool_rate": 1.1, "max_send_back_rate": 0.1}),
         (
             QualityFloor,
-            {"min_own_tool_rate": 1.1, "max_send_back_rate": 0.1, "max_points_below_linear": 0.05},
+            {"min_own_tool_rate": 0.9, "max_send_back_rate": 0.1, "max_points_below_linear": 0.05},
         ),
     ],
 )
