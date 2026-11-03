@@ -66,7 +66,15 @@ def repo(tmp_path, monkeypatch):
             }
         )
     )
-    for name in ("llm.py", "data.py", "schemas.py", "scorers.py", "prereg.py", "seal.py"):
+    for name in (
+        "llm.py",
+        "data.py",
+        "schemas.py",
+        "scorers.py",
+        "checks.py",
+        "prereg.py",
+        "seal.py",
+    ):
         (tmp_path / "src" / "agent_committee" / name).write_text("x = 0\n")
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
     (tmp_path / "uv.lock").write_text("version = 1\n")
@@ -327,7 +335,7 @@ def test_pretag_and_unseal_refuse_a_prereg_missing_a_section(repo):
     (repo / "prereg.yaml").write_text(text.split("\nlinear:")[0] + "\n", encoding="utf-8")
     commit_all(repo, "prereg without the new sections")
     problems = check_pretag(repo)
-    for name in ("linear", "scorer", "quality_floor"):
+    for name in ("linear", "scorer", "quality_floor", "checks"):
         assert any(f"does not set {name}" in p for p in problems)
     git(repo, "tag", "arms-frozen")
     with pytest.raises(SealError, match="does not set"):

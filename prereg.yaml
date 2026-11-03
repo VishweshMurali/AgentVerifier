@@ -55,3 +55,16 @@ scorer:                  # plain code, no LLM
 quality_floor:           # the agent works as an agent; accuracy is left to the comparison
   min_own_tool_rate: 0.90
   max_send_back_rate: 0.10
+
+checks:                  # checks.py; a failed gating check binds the verdict, REPORT ones never do
+  max_tune_drop: 0.04            # gating, NEED_MORE_DATA: held-out minus tune CI lower bound > -0.04
+  null_rate_band: [0.07, 0.13]   # report: share of Null-flagged cases
+  leak_jaccard: 0.90             # char 5-gram Jaccard that counts a test text as a copy of DEV
+  max_leak_rate: 0.005           # gating, INVALID: copied share of test; copies are dropped from the primary result
+  min_test_n: 3028               # gating, NEED_MORE_DATA: test cases left after dropping copies (power.py, 15% discordance)
+  max_score_ks: 0.10             # gating: KS D on the linear top score, DEV pool vs new data
+  max_domain_auc: 0.60           # gating: AUC of a classifier telling DEV pool from new data
+  drift_alpha: 0.01              # drift counts only when the effect is over its limit AND p < 0.01 (small samples)
+  max_label_tv: 0.10             # report: label-mix total variation
+  max_false_alarm_rate: 0.05     # gating, INVALID: drift checks firing on random DEV halves
+  permutations: 10000            # per-label omnibus test

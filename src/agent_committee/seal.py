@@ -6,7 +6,7 @@ Unsealing requires ALL of:
  3. prereg.yaml is tracked and committed
  4. nothing in FROZEN_PATHS (prereg, arms/, core modules incl. this one, pyproject/uv.lock,
     DEV data, hashes, manifest) changed since the tag, tracked or untracked
- 5. prereg.yaml sets the linear layer, scorer and quality floor, and the layer matches arms/config
+ 5. prereg.yaml sets the linear layer, scorer, quality floor and checks; the layer matches config
  6. the linear layer rebuilt from the pool has the fingerprint in the DEV report
  7. sealed/test.jsonl matches the SHA-256 recorded in data/test.sha256 AS OF THE TAG
 
@@ -47,6 +47,7 @@ FROZEN_PATHS = [
     "src/agent_committee/data.py",
     "src/agent_committee/schemas.py",
     "src/agent_committee/scorers.py",
+    "src/agent_committee/checks.py",
     "src/agent_committee/prereg.py",
     "src/agent_committee/seal.py",
     "pyproject.toml",
@@ -92,7 +93,7 @@ def _prereg_problems(repo: Path) -> list[str]:
     prereg = load_prereg(repo / PREREG_PATH)
     problems = [
         f"{PREREG_PATH} does not set {name}"
-        for name in ("linear", "scorer", "quality_floor")
+        for name in ("linear", "scorer", "quality_floor", "checks")
         if getattr(prereg, name) is None
     ]
     if prereg.linear is not None and (

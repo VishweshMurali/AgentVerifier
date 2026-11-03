@@ -55,9 +55,12 @@ src/agent_committee/
   throughput.py  calls/hour benchmark logic
   power.py       exact McNemar power and required N
   llm.py         LLM wrapper: SQLite cache, retries, phase/arm tags, usage logging
+  scorers.py     plain-code scorers named by prereg.yaml (exact_label)
+  checks.py      pre-registered overfitting, leakage, drift and bias checks; effects bind the verdict
   arms/          base protocol, config, splits, labels, linear (shared layer + arm 1), prompt, agent, tools, evaluate
 scripts/benchmark_throughput.py   thin CLI around throughput.py
 scripts/power_analysis.py         required N across discordance rates
+scripts/validate_checks.py        checks the checks on DEV only (false alarms, leakage preview)
 prereg.yaml      pre-registration (all costs/prices are ASSUMED)
 data/            dev.jsonl, test.sha256, split_manifest.json (committed)
 sealed/          test.jsonl (gitignored)

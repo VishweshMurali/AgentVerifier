@@ -130,11 +130,54 @@ class QualityFloor(_Frozen):
     max_send_back_rate: float = Field(ge=0, le=1)
 
 
+class CheckEffect(StrEnum):
+    """What a failed check does to the verdict. REPORT never changes it."""
+
+    INVALID = "INVALID"
+    NEED_MORE_DATA = "NEED_MORE_DATA"
+    REPORT = "REPORT"
+
+
+class ChecksConfig(_Frozen):
+    """Limits for the overfitting, leakage, drift and bias checks in checks.py."""
+
+    max_tune_drop: float = Field(gt=0, lt=1)  # held-out minus tune CI lower bound must exceed -this
+    null_rate_band: tuple[float, float]  # flagged share expected near 0.10; report only
+    leak_jaccard: float = Field(gt=0, le=1)  # char 5-gram Jaccard that counts as a near-copy
+    max_leak_rate: float = Field(ge=0, lt=1)  # share of test copied from DEV above this -> INVALID
+    min_test_n: int = Field(ge=1)  # test cases left after dropping copies; below -> NEED_MORE_DATA
+    max_score_ks: float = Field(gt=0, le=1)  # KS D on the linear layer's top score
+    max_domain_auc: float = Field(gt=0.5, le=1)  # old-vs-new classifier AUC
+    drift_alpha: float = Field(gt=0, lt=1)  # drift needs both a large effect and p below this
+    max_label_tv: float = Field(gt=0, le=1)  # label-mix total variation; report only
+    max_false_alarm_rate: float = Field(gt=0, lt=1)  # drift checks on random DEV halves
+    permutations: int = Field(ge=100)
+
+    @model_validator(mode="after")
+    def _band_ordered(self) -> Self:
+        lo, hi = self.null_rate_band
+        if not 0 <= lo < hi <= 1:
+            raise ValueError("null_rate_band must satisfy 0 <= low < high <= 1")
+        return self
+
+
+class CheckResult(_Frozen):
+    """One check's outcome. `low`/`high` are the limits that `value` was held to."""
+
+    name: str = Field(min_length=1)
+    value: float
+    low: float | None = None
+    high: float | None = None
+    passed: bool
+    effect: CheckEffect
+    detail: str = ""
+
+
 class Prereg(_Frozen):
     """Contents of prereg.yaml. Committed before the sealed test set is unsealed.
 
-    `linear`, `scorer` and `quality_floor` may stay unset while drafting; the pre-tag check and
-    the unseal guard both refuse a prereg that leaves any of them out.
+    `linear`, `scorer`, `quality_floor` and `checks` may stay unset while drafting; the pre-tag
+    check and the unseal guard both refuse a prereg that leaves any of them out.
     """
 
     task: Literal["banking77"] = "banking77"
@@ -150,6 +193,7 @@ class Prereg(_Frozen):
     linear: LinearLayerConfig | None = None
     scorer: ScorerSpec | None = None
     quality_floor: QualityFloor | None = None
+    checks: ChecksConfig | None = None
 
     @model_validator(mode="after")
     def _three_unique_tables(self) -> Self:
@@ -203,11 +247,16 @@ class VerdictJSON(_Frozen):
     aa_false_winner_rate: float | None = None
     break_even: list[BreakEven] = []
     latency_s: dict[str, float] = {}  # reported only; never used in the decision
+    checks: list[CheckResult] = []
 
     @model_validator(mode="after")
     def _finite_and_ordered(self) -> Self:
         """No NaN/inf anywhere numeric, and every CI must satisfy lo <= hi."""
-        numbers: list[float] = [*self.accuracy.values(), *self.latency_s.values()]
+        numbers: list[float] = [
+            *self.accuracy.values(),
+            *self.latency_s.values(),
+            *(c.value for c in self.checks),
+        ]
         for x in (
             self.accuracy_diff,
             self.mcnemar_p,
@@ -260,6 +309,19 @@ class VerdictJSON(_Frozen):
             raise ValueError("an agent that did not pass the quality floor must be INVALID")
         if self.audit.predictions_sha256 is None:
             raise ValueError("audit.predictions_sha256 is required unless the verdict is INVALID")
+        return self
+
+    @model_validator(mode="after")
+    def _failed_checks_bind_the_verdict(self) -> Self:
+        """A failed INVALID check forces INVALID; a failed NEED_MORE_DATA check blocks a winner."""
+        effects = {c.effect for c in self.checks if not c.passed}
+        if CheckEffect.INVALID in effects and self.verdict != Verdict.INVALID:
+            raise ValueError("a failed INVALID check requires verdict INVALID")
+        if CheckEffect.NEED_MORE_DATA in effects and self.verdict in (
+            Verdict.DEPLOY_AGENT,
+            Verdict.USE_SIMPLER,
+        ):
+            raise ValueError("a failed NEED_MORE_DATA check rules out picking a winner")
         return self
 
     @model_validator(mode="after")
