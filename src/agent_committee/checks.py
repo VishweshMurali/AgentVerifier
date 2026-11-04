@@ -220,29 +220,32 @@ def per_label_bias(
     alpha: float,
     seed: int = 0,
 ) -> CheckResult:
-    """Does the agent-minus-simpler gap differ by label? Omnibus sign-flip test, then BH per label.
+    """Does the agent-minus-simpler gap differ by label? Label-shuffle omnibus test, then BH.
 
-    Report only: about 40 test cases per label gives power for large gaps only.
+    The statistic is the largest distance of a label's gap from the overall gap, so a gap shared
+    evenly by every label does not count. Per label, the agent's share of discordant wins is
+    tested against its overall share. Report only: about 40 test cases per label gives power for
+    large differences only.
     """
     d = np.asarray(agent_ok, dtype=float) - np.asarray(simpler_ok, dtype=float)
     names, idx = np.unique(np.asarray(labels), return_inverse=True)
     counts = np.bincount(idx, minlength=len(names))
 
-    def biggest(diffs: np.ndarray) -> float:
-        return float(np.max(np.abs(np.bincount(idx, weights=diffs, minlength=len(names)) / counts)))
+    def spread(groups: np.ndarray) -> float:
+        means = np.bincount(groups, weights=d, minlength=len(names)) / counts
+        return float(np.max(np.abs(means - d.mean())))
 
-    observed = biggest(d)
+    observed = spread(idx)
     rng = np.random.default_rng(seed)
-    hits = sum(
-        biggest(d * rng.choice((-1.0, 1.0), size=len(d))) >= observed - 1e-12
-        for _ in range(cfg.permutations)
-    )
+    hits = sum(spread(rng.permutation(idx)) >= observed - 1e-12 for _ in range(cfg.permutations))
     p = (1 + hits) / (1 + cfg.permutations)
+    win_share = np.sum(d == 1) / max(int(np.sum(d != 0)), 1)
     per_label = []
     for j in range(len(names)):
         wins = int(np.sum(d[idx == j] == 1))
         losses = int(np.sum(d[idx == j] == -1))
-        per_label.append(stats.binomtest(wins, wins + losses).pvalue if wins + losses else 1.0)
+        tested = 0 < win_share < 1 and wins + losses
+        per_label.append(stats.binomtest(wins, wins + losses, win_share).pvalue if tested else 1.0)
     flagged = [str(names[j]) for j in benjamini_hochberg(per_label, alpha)]
     return CheckResult(
         name="per_label_bias",
@@ -250,7 +253,10 @@ def per_label_bias(
         low=alpha,
         passed=p >= alpha,
         effect=CheckEffect.REPORT,
-        detail=f"max per-label gap {observed:.3f}; BH-significant labels: {flagged or 'none'}",
+        detail=(
+            f"overall gap {d.mean():+.3f}; largest label departure {observed:.3f}; "
+            f"BH-significant labels: {flagged or 'none'}"
+        ),
     )
 
 

@@ -115,9 +115,18 @@ def test_per_label_bias_finds_one_bad_label():
     a, b = rng.random(1000) > 0.1, rng.random(1000) > 0.1
     fair = checks.per_label_bias(a, b, labels, cfg, alpha=0.05)
     assert fair.passed and "none" in fair.detail
-    agent = [lab != "l3" for lab in labels]
-    bad = checks.per_label_bias(agent, [True] * 1000, labels, cfg, alpha=0.05)
+    agent = [ok and lab != "l3" for ok, lab in zip(a, labels, strict=True)]
+    bad = checks.per_label_bias(agent, b, labels, cfg, alpha=0.05)
     assert not bad.passed and "['l3']" in bad.detail and bad.effect == CheckEffect.REPORT
+
+
+def test_per_label_bias_ignores_a_gap_shared_by_every_label():
+    cfg = ChecksConfig(**{**CFG.model_dump(), "permutations": 500})
+    labels = [f"l{i // 200}" for i in range(2000)]  # each label holds two full cycles of 100
+    simpler = [i % 100 >= 10 for i in range(2000)]  # 90% right on every label
+    agent = [i % 100 >= 6 for i in range(2000)]  # 94% right: the same +4 points on every label
+    flat = checks.per_label_bias(agent, simpler, labels, cfg, alpha=0.05)
+    assert flat.passed and "none" in flat.detail
 
 
 def test_flagged_split():
