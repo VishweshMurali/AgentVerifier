@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent Verifier story</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#FFFFFF}
+a{color:#2242E8}a:hover{color:#1530B8}
+/* one scene = one screen, so the robot's evenly spaced stops land exactly on each scene */
+.scene{position:relative;height:100vh;min-height:600px;box-sizing:border-box;padding:90px 64px 110px;display:flex;flex-direction:column;justify-content:center;gap:24px;color:#0B0C10}
+.scene.robot-right{padding-right:520px}
+.scene.robot-left{padding-left:520px}
+.tint{background:linear-gradient(180deg,#FFFFFF 0%,#F1F3FF 16%,#F1F3FF 84%,#FFFFFF 100%)}
+.dark{background:linear-gradient(180deg,#FFFFFF 0%,#0B0C10 20%,#0B0C10 80%,#FFFFFF 100%);color:#FFFFFF}
+.center{align-items:center;text-align:center}
+.eyebrow{font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:2px;color:#6B7080;text-transform:uppercase}
+.big{margin:0;font-size:72px;line-height:1.02;font-weight:600;letter-spacing:-2px}
+.mid{margin:0;font-size:50px;line-height:1.06;font-weight:600;letter-spacing:-1.5px}
+.lead{margin:0;font-size:20px;line-height:1.55;color:#4A4E5C;max-width:560px}
+.card{background:#FFFFFF;border:1px solid rgba(20,24,40,.08);border-radius:24px;padding:28px;box-shadow:0 18px 50px rgba(20,24,40,.08);max-width:560px;width:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:18px}
+.stat{display:grid;grid-template-columns:120px 1fr 80px;gap:16px;align-items:center;font-size:18px}
+.bar{height:8px;background:rgba(20,24,40,.07);border-radius:4px;overflow:hidden}
+.fill{height:8px;border-radius:4px;transform-origin:left center}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.chip{font:inherit;font-size:14px;padding:10px 14px;min-height:44px;border-radius:999px;border:1px solid rgba(20,24,40,.15);background:#FFFFFF;color:#0B0C10;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;box-sizing:border-box}
+.chip:hover{border-color:#2242E8;color:#2242E8}
+.chip.on{background:#2242E8;border-color:#2242E8;color:#FFFFFF}
+.chip.primary{background:#0B0C10;color:#FFFFFF;border-color:#0B0C10}
+.reply{margin-top:10px;padding-top:10px;border-top:1px solid rgba(20,24,40,.08);color:#2A2D36}
+.steps{margin:10px 0 0;padding-left:18px;line-height:1.7;font-size:14px;color:#2A2D36}
+.timeline{position:fixed;left:0;right:0;bottom:18px;z-index:4;display:flex;justify-content:center;pointer-events:none}
+.timeline>div{pointer-events:auto;display:flex;gap:2px;align-items:center;width:max-content;background:#FFFFFF;border:1px solid rgba(20,24,40,.08);border-radius:999px;padding:2px 16px 2px 12px;box-shadow:0 8px 24px rgba(20,24,40,.1)}
+.timeline a{display:block;padding:20px 5px}
+.timeline a span{display:block;width:16px;height:3px;border-radius:2px;background:rgba(20,24,40,.18);transition:width .3s,background .3s}
+.timeline a.on span{width:30px;background:#2242E8}
+.timeline a:hover span{background:#2242E8}
+.scene-name{font-size:13px;color:#4A4E5C;padding-left:10px;white-space:nowrap}
+
+/* ---------- the robot's single speech bubble: travels with it, hidden mid-flight ---------- */
+.say{position:absolute;bottom:calc(100% + 10px);width:270px;pointer-events:auto;background:#FFFFFF;color:#0B0C10;border:1px solid rgba(20,24,40,.1);border-radius:22px;padding:16px 18px;font-size:16px;line-height:1.45;box-shadow:0 16px 40px rgba(11,12,16,.14);text-align:left;box-sizing:border-box}
+.say::after{content:"";position:absolute;bottom:-9px;width:16px;height:16px;background:#FFFFFF;border-right:1px solid rgba(20,24,40,.1);border-bottom:1px solid rgba(20,24,40,.1);transform:rotate(45deg)}
+.side-right .say{right:70px}
+.side-right .say::after{right:50px}
+.side-left .say{left:70px}
+.side-left .say::after{left:50px}
+
+/* ---------- robot: idle life ---------- */
+@keyframes hover{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+@keyframes sway{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
+@keyframes jet{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.95;transform:scale(1.15)}}
+@keyframes blink{0%,90%,100%{transform:scaleY(1)}93%{transform:scaleY(.08)}}
+@keyframes wave{0%,100%{transform:rotate(0)}20%{transform:rotate(-62deg)}40%{transform:rotate(-30deg)}60%{transform:rotate(-62deg)}80%{transform:rotate(0)}}
+@keyframes arm-float{0%,100%{transform:rotate(6deg)}50%{transform:rotate(-4deg)}}
+@keyframes arm-float-r{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(4deg)}}
+@keyframes antenna{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(8deg)}}
+@keyframes lamp{0%,100%{opacity:.5}50%{opacity:1}}
+@keyframes wake{0%,55%{transform:scaleY(.06)}75%{transform:scaleY(1.15)}100%{transform:scaleY(1)}}
+@keyframes lamp-on{0%,50%{opacity:0}100%{opacity:1}}
+@keyframes nod{0%,100%{transform:translateY(0)}25%{transform:translateY(7px)}50%{transform:translateY(0)}75%{transform:translateY(7px)}}
+@keyframes proud{0%,100%{transform:translateY(0)}50%{transform:translateY(-22px)}}
+.r-hover{animation:hover 3.4s ease-in-out infinite}
+.r-sway{transform-box:fill-box;transform-origin:50% 100%;animation:sway 5s ease-in-out infinite}
+.r-jet{transform-box:fill-box;transform-origin:center;animation:jet 1.7s ease-in-out infinite}
+.r-eye{transform-box:fill-box;transform-origin:center;animation:blink 4.6s infinite}
+.r-arm{transform-box:fill-box;transform-origin:80% 15%;animation:arm-float 3.4s ease-in-out infinite;transition:transform .6s}
+.r-wave{transform-box:fill-box;transform-origin:20% 15%;animation:arm-float-r 3.4s ease-in-out infinite;transition:transform .6s}
+.r-antenna{transform-box:fill-box;transform-origin:50% 100%;animation:antenna 2.6s ease-in-out infinite}
+.r-lamp{animation:lamp 1.8s ease-in-out infinite}
+.r-wake{transform-box:fill-box;transform-origin:center;animation:wake 1.6s cubic-bezier(.3,1.4,.5,1) .3s both}
+.r-lamp-on{animation:lamp-on 1.4s ease-out .2s both}
+.r-head{transform-box:fill-box;transform-origin:50% 100%;transition:transform .7s cubic-bezier(.3,1.5,.5,1)}
+.eyes{opacity:0;transition:opacity .35s,transform .5s}
+.eyes-open{opacity:1}
+/* ---------- robot: moods, one per scene ---------- */
+.mood-hello .eyes-open,.mood-proud .eyes-open,.mood-curious .eyes-open,.mood-sad .eyes-open{opacity:0}
+.mood-hello .eyes-smile,.mood-proud .eyes-smile{opacity:1}
+.mood-hello .r-wave{animation:wave 2.2s ease-in-out infinite}
+.mood-curious .eyes-wide{opacity:1}
+.mood-curious .r-head{transform:rotate(13deg)}
+.mood-thinking .r-head{transform:rotate(-9deg)}
+.mood-thinking .eyes-open{transform:translate(-3px,-6px)}
+.mood-nod .r-head{animation:nod 1.4s ease-in-out infinite}
+.mood-sad .eyes-sad{opacity:1}
+.mood-sad .r-head{transform:rotate(7deg) translateY(12px)}
+.mood-sad .r-arm{animation:none;transform:rotate(14deg)}
+.mood-sad .r-wave{animation:none;transform:rotate(-14deg)}
+.mood-sad .r-jet{opacity:.25}
+.mood-sad .r-sway{animation-duration:9s}
+.mood-point .r-arm{animation:none;transform:rotate(72deg)}
+.mood-point .r-head{transform:rotate(-6deg)}
+.mood-proud .r-hover{animation:proud 1.1s ease-in-out infinite}
+.mood-proud .r-wave{animation:wave 2.2s ease-in-out infinite}
+
+/* ---------- robot: flight, scaled to the window ---------- */
+.robot{position:fixed;left:0;top:0;z-index:3;width:260px;pointer-events:none;transform:translateX(calc(100vw - 380px))}
+.r-fly-y{position:relative;transform:translateY(calc(100vh - 360px))}
+.r-body{filter:drop-shadow(0 24px 30px rgba(20,24,40,.16))}
+.r-ground{position:absolute;left:70px;top:0;width:120px;height:20px;border-radius:50%;background:radial-gradient(closest-side,rgba(20,24,40,.32),rgba(20,24,40,0));transform:translateY(calc(100vh - 40px))}
+.r-bank{transform-box:fill-box;transform-origin:center}
+.r-look{transform:translateX(-8px)}
+/* stops every 12.5%: a small wind-up before leaving, an overshoot past the stop, then settle */
+@keyframes fly-x{
+0%{transform:translateX(calc(100vw - 380px))}2%{transform:translateX(calc(100vw - 356px))}11%{transform:translateX(96px)}12.5%{transform:translateX(120px)}
+14.5%{transform:translateX(96px)}23.5%{transform:translateX(calc(100vw - 356px))}25%{transform:translateX(calc(100vw - 380px))}
+27%{transform:translateX(calc(100vw - 356px))}36%{transform:translateX(96px)}37.5%{transform:translateX(120px)}
+39.5%{transform:translateX(96px)}48.5%{transform:translateX(calc(100vw - 356px))}50%{transform:translateX(calc(100vw - 380px))}
+52%{transform:translateX(calc(100vw - 356px))}61%{transform:translateX(96px)}62.5%{transform:translateX(120px)}
+64.5%{transform:translateX(96px)}73.5%{transform:translateX(calc(100vw - 356px))}75%{transform:translateX(calc(100vw - 380px))}
+77%{transform:translateX(calc(100vw - 356px))}86%{transform:translateX(96px)}87.5%{transform:translateX(120px)}
+89.5%{transform:translateX(96px)}98.5%{transform:translateX(calc(100vw - 356px))}100%{transform:translateX(calc(100vw - 380px))}}
+/* arcs of different heights so no two flights look the same */
+@keyframes fly-y{0%,12.5%,25%,37.5%,50%,62.5%,75%,87.5%,100%{transform:translateY(calc(100vh - 360px))}
+6.25%{transform:translateY(10vh)}18.75%{transform:translateY(calc(100vh - 290px))}31.25%{transform:translateY(22vh)}43.75%{transform:translateY(calc(100vh - 270px))}
+56.25%{transform:translateY(6vh)}68.75%{transform:translateY(calc(100vh - 300px))}81.25%{transform:translateY(16vh)}93.75%{transform:translateY(calc(100vh - 280px))}}
+@keyframes ground{0%,12.5%,25%,37.5%,50%,62.5%,75%,87.5%,100%{opacity:1;transform:translateY(calc(100vh - 40px)) scale(1)}
+6.25%,31.25%,56.25%,81.25%{opacity:.25;transform:translateY(calc(100vh - 40px)) scale(.45)}18.75%,43.75%,68.75%,93.75%{opacity:.8;transform:translateY(calc(100vh - 40px)) scale(.85)}}
+@keyframes bank{0%,12.5%,25%,37.5%,50%,62.5%,75%,87.5%,100%{transform:rotate(0) scale(1)}
+4%,29%,54%,79%{transform:rotate(6deg) scale(1)}6.25%,31.25%,56.25%,81.25%{transform:rotate(-14deg) scale(.82)}
+16.5%,41.5%,66.5%,91.5%{transform:rotate(-6deg) scale(1)}18.75%,43.75%,68.75%,93.75%{transform:rotate(12deg) scale(.9)}}
+@keyframes look{0%,25%,50%,75%,100%{transform:translateX(-8px)}12.5%,37.5%,62.5%,87.5%{transform:translateX(8px)}}
+/* the bubble shows only while the robot is parked at a scene */
+@keyframes say-vis{0%,1.5%,11%,14%,23.5%,26.5%,36%,39%,48.5%,51.5%,61%,64%,73.5%,76.5%,86%,89%,98.5%,100%{opacity:1;visibility:visible}
+3%,9.5%,15.5%,22%,28%,34.5%,40.5%,47%,53%,59.5%,65.5%,72%,78%,84.5%,90.5%,97%{opacity:0;visibility:hidden}}
+
+/* ---------- content beats, tied to each scene entering view ---------- */
+@keyframes rise{from{opacity:0;transform:translateY(36px)}to{opacity:1;transform:none}}
+@keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes land{from{opacity:0;transform:scale(1.7);filter:blur(10px)}to{opacity:1;transform:none;filter:none}}
+@supports (animation-timeline: view()){
+.beat{animation:rise linear both;animation-timeline:view();animation-range:entry 5% cover 30%}
+.beat-2{animation:rise linear both;animation-timeline:view();animation-range:entry 15% cover 38%}
+.beat-3{animation:rise linear both;animation-timeline:view();animation-range:entry 25% cover 45%}
+.fill{animation:grow linear both;animation-timeline:view();animation-range:entry 30% cover 50%}
+.land{animation:land linear both;animation-timeline:view();animation-range:entry 20% cover 45%}
+}
+@supports (animation-timeline: scroll()){
+.robot{animation:fly-x linear both;animation-timeline:scroll(root)}
+.r-fly-y{animation:fly-y ease-in-out both;animation-timeline:scroll(root)}
+.r-ground{animation:ground ease-in-out both;animation-timeline:scroll(root)}
+.r-bank{animation:bank linear both;animation-timeline:scroll(root)}
+.r-look{animation:look linear both;animation-timeline:scroll(root)}
+.say{animation:say-vis linear both;animation-timeline:scroll(root)}
+}
+/* Idle motion stays on with reduced motion, only slower; scroll motion follows the reader. */
+@media (prefers-reduced-motion: reduce){.r-hover{animation-duration:7s}.r-sway{animation-duration:10s}.r-arm,.r-wave{animation-duration:7s}.r-antenna{animation-duration:5s}}
+/* phones: the robot docks small in the corner, stops flying, and talks from there */
+@media (max-width: 900px){.scene{height:auto;min-height:100vh}.scene.robot-right,.scene.robot-left{padding:100px 24px 260px}.big{font-size:46px}.mid{font-size:34px}.robot{width:110px;animation:none !important;transform:translateX(calc(100vw - 130px))}.r-fly-y{animation:none !important;transform:translateY(calc(100vh - 210px))}.r-ground{display:none}.say{width:230px;right:30px !important;left:auto !important;animation:none !important}.say::after{right:24px !important;left:auto !important}.scene-name{display:none}}
+</style>
+</helmet>
+<div style="font-family: 'Space Grotesk', system-ui, sans-serif">
+
+<header style="position: fixed; top: 0; left: 0; right: 0; z-index: 4; padding: 20px 32px; display: flex; justify-content: space-between; align-items: center; gap: 16px; pointer-events: none">
+<span style="font-weight: 700; font-size: 17px; background: #FFFFFF; padding: 8px 14px; border-radius: 999px; pointer-events: auto">Agent Verifier<span style="color: #2242E8">.</span></span>
+<a href="#s7" style="pointer-events: auto; text-decoration: none; color: #FFFFFF; background: #2242E8; border-radius: 999px; padding: 12px 18px; font-size: 14px">Verify an agent</a>
+</header>
+
+<div class="robot mood-{{mood}} side-{{side}}">
+<div class="r-ground" aria-hidden="true"></div>
+<div class="r-fly-y">
+
+<div class="say" role="status" aria-live="polite">
+<sc-if value="{{isS1}}" hint-placeholder-val="{{ true }}">Hi! I'm your verifier. Scroll down and I'll fly you through your agent's results.</sc-if>
+<sc-if value="{{isS2}}" hint-placeholder-val="{{ false }}">Quick question: which one do you think wins?
+<div class="chips"><button type="button" class="{{chipLinear}}" onClick="{{pickLinear}}">Linear</button><button type="button" class="{{chipPrompt}}" onClick="{{pickPrompt}}">Prompt</button><button type="button" class="{{chipAgent}}" onClick="{{pickAgent}}">My agent</button></div>
+<sc-if value="{{guessed}}" hint-placeholder-val="{{ false }}"><div class="reply">{{guessReply}}</div></sc-if>
+</sc-if>
+<sc-if value="{{isS3}}" hint-placeholder-val="{{ false }}">I froze 7 checks and 3 price tables before looking at a single answer.</sc-if>
+<sc-if value="{{isS4}}" hint-placeholder-val="{{ false }}">{{scorePayoff}}</sc-if>
+<sc-if value="{{isS5}}" hint-placeholder-val="{{ false }}">Everything checks out. One note: <b>0.61%</b> of cases were copies, and I already removed them.<div class="chips"><button type="button" class="chip" onClick="{{toggleChecks}}">{{checksLabel}}</button></div></sc-if>
+<sc-if value="{{isS6}}" hint-placeholder-val="{{ false }}">Oh. That's the gap. Want to see what it costs you?<div class="chips"><a href="#s7" class="chip primary">Yes, show me</a></div></sc-if>
+<sc-if value="{{isS7}}" hint-placeholder-val="{{ false }}">At {{costLabel}} a mistake, your agent costs <b>{{gap}}</b> more per case. Drag the slider to try your own number.</sc-if>
+<sc-if value="{{isS8}}" hint-placeholder-val="{{ false }}">Want to watch how it went wrong?<div class="chips"><button type="button" class="chip" onClick="{{toggleReplay}}">{{replayLabel}}</button></div>
+<sc-if value="{{replayOpen}}" hint-placeholder-val="{{ false }}"><ol class="steps"><li>Linear's shortlist puts <b>card_arrival</b> first.</li><li>The agent searches “waiting for card after 1 week”.</li><li>Search returns <b>card_arrival</b> on top.</li><li>The agent answers <b style="color: #A84C08">card_delivery_estimate</b>.</li></ol></sc-if>
+</sc-if>
+<sc-if value="{{isS9}}" hint-placeholder-val="{{ false }}">{{recapLine}}<div class="chips"><button type="button" class="chip primary" onClick="{{onDownload}}">Download audit bundle</button></div><sc-if value="{{downloaded}}" hint-placeholder-val="{{ false }}"><div class="reply">In the real product this saves the bundle: commit, model, data hashes and every prediction.</div></sc-if></sc-if>
+</div>
+
+<div class="r-body" aria-hidden="true">
+<svg viewBox="0 0 200 260" style="width: 100%; height: auto; overflow: visible">
+<defs>
+<radialGradient id="pearl" cx="36%" cy="28%" r="85%"><stop offset="0" stop-color="#FFFFFF"></stop><stop offset=".55" stop-color="#EEF0F5"></stop><stop offset="1" stop-color="#AEB4C4"></stop></radialGradient>
+<linearGradient id="visor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1D2030"></stop><stop offset="1" stop-color="#05060B"></stop></linearGradient>
+<radialGradient id="jet-glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#6FB6FF" stop-opacity=".9"></stop><stop offset="1" stop-color="#6FB6FF" stop-opacity="0"></stop></radialGradient>
+<filter id="soft-glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3" result="b"></feGaussianBlur><feMerge><feMergeNode in="b"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter>
+</defs>
+<g class="r-bank">
+<g class="r-hover">
+<ellipse class="r-jet" cx="100" cy="236" rx="34" ry="14" fill="url(#jet-glow)"></ellipse>
+<g class="r-sway">
+<g class="r-arm"><path d="M44 140 C 26 150, 22 176, 32 196 C 38 204, 48 200, 48 190 C 46 172, 50 156, 58 146 Z" fill="url(#pearl)"></path></g>
+<g class="r-wave"><path d="M156 140 C 174 150, 178 176, 168 196 C 162 204, 152 200, 152 190 C 154 172, 150 156, 142 146 Z" fill="url(#pearl)"></path></g>
+<path d="M58 132 C 58 118, 142 118, 142 132 L 136 200 C 132 226, 68 226, 64 200 Z" fill="url(#pearl)"></path>
+<ellipse cx="82" cy="146" rx="14" ry="6" fill="#FFFFFF" opacity=".8"></ellipse>
+<circle class="r-lamp" cx="100" cy="176" r="5" fill="#2242E8"></circle>
+<g class="r-head">
+<g class="r-antenna"><line x1="100" y1="8" x2="100" y2="26" stroke="#C7CBD6" stroke-width="3.5" stroke-linecap="round"></line><g class="r-lamp-on"><circle class="r-lamp" cx="100" cy="7" r="5.5" fill="#D6620A"></circle></g></g>
+<ellipse cx="100" cy="72" rx="74" ry="50" fill="url(#pearl)"></ellipse>
+<ellipse cx="72" cy="40" rx="24" ry="9" fill="#FFFFFF" opacity=".9"></ellipse>
+<ellipse cx="100" cy="78" rx="56" ry="32" fill="url(#visor)"></ellipse>
+<g class="r-look"><g class="r-wake" filter="url(#soft-glow)">
+<g class="eyes eyes-open"><ellipse class="r-eye" cx="80" cy="78" rx="10" ry="12" fill="#5CE1E6"></ellipse><ellipse class="r-eye" cx="120" cy="78" rx="10" ry="12" fill="#5CE1E6"></ellipse></g>
+<g class="eyes eyes-wide"><ellipse class="r-eye" cx="80" cy="77" rx="12.5" ry="15" fill="#5CE1E6"></ellipse><ellipse class="r-eye" cx="120" cy="77" rx="12.5" ry="15" fill="#5CE1E6"></ellipse><circle cx="84" cy="72" r="3.5" fill="#FFFFFF"></circle><circle cx="124" cy="72" r="3.5" fill="#FFFFFF"></circle></g>
+<g class="eyes eyes-smile"><path d="M70 82 Q 80 70, 90 82" fill="none" stroke="#5CE1E6" stroke-width="5" stroke-linecap="round"></path><path d="M110 82 Q 120 70, 130 82" fill="none" stroke="#5CE1E6" stroke-width="5" stroke-linecap="round"></path></g>
+<g class="eyes eyes-sad"><ellipse cx="80" cy="84" rx="10" ry="5" fill="#5CE1E6" transform="rotate(-16 80 84)"></ellipse><ellipse cx="120" cy="84" rx="10" ry="5" fill="#5CE1E6" transform="rotate(16 120 84)"></ellipse></g>
+</g></g>
+</g>
+</g>
+</g>
+</g>
+</svg>
+</div>
+</div>
+</div>
+
+<nav class="timeline" aria-label="Scenes"><div>
+<sc-for list="{{scenes}}" as="sc" hint-placeholder-count="9"><a href="{{sc.href}}" aria-label="{{sc.label}}" title="{{sc.label}}" class="{{sc.cls}}"><span></span></a></sc-for>
+<span class="scene-name">{{sceneName}}</span>
+</div></nav>
+
+<section id="s1" class="scene robot-right">
+<span class="eyebrow beat">Agent Verifier</span>
+<h1 class="big beat-2">Is your agent worth deploying?</h1>
+<p class="lead beat-3">A fair race against simpler models on the same cases. Plain code decides, never an AI.</p>
+</section>
+
+<section id="s2" class="scene robot-left tint">
+<span class="eyebrow beat">01 · The contenders</span>
+<h2 class="mid beat-2">Three contenders. Same 1,472 cases.</h2>
+<p class="lead beat-3"><b style="color: #2242E8">Linear</b>, no LLM. <b>Prompt</b>, one LLM call. <b style="color: #A84C08">Your agent</b>, searches then decides.</p>
+</section>
+
+<section id="s3" class="scene robot-right">
+<span class="eyebrow beat">02 · Fair rules</span>
+<h2 class="mid beat-2">The rules are locked before the test.</h2>
+<p class="lead beat-3">Metric, thresholds, checks and prices are written down first, so nobody can move the goalposts.</p>
+</section>
+
+<section id="s4" class="scene robot-left tint">
+<span class="eyebrow beat">03 · The scores</span>
+<h2 class="mid beat-2">How each one did.</h2>
+<div class="beat-3" style="display: flex; flex-direction: column; gap: 22px; max-width: 600px">
+<div class="stat"><span>Linear</span><div class="bar"><div class="fill" style="width: 90%; background: #2242E8"></div></div><b style="text-align: right">90.0%</b></div>
+<div class="stat"><span>Your agent</span><div class="bar"><div class="fill" style="width: 82.5%; background: #D6620A"></div></div><b style="text-align: right">82.5%</b></div>
+<div class="stat"><span>Prompt</span><div class="bar"><div class="fill" style="width: 74.9%; background: #8A8FA0"></div></div><b style="text-align: right">74.9%</b></div>
+</div>
+</section>
+
+<section id="s5" class="scene robot-right">
+<span class="eyebrow beat">04 · Integrity</span>
+<h2 class="mid beat-2">6 of 7 checks passed.</h2>
+<p class="lead beat-3">No drift, no overfitting, and the agent really used its tools.</p>
+<sc-if value="{{checksOpen}}" hint-placeholder-val="{{ false }}">
+<ul style="margin: 0; padding-left: 20px; line-height: 1.9; font-size: 16px; color: #4A4E5C">
+<li>Agent uses its tools: 100%</li><li>Overfitting gap: 0.2 pts</li><li>Confidence drift: D 0.03</li><li>Data drift: AUC 0.50</li><li>False alarms: 0 in 100</li><li>Null-flag rate: 8.8%</li><li>Copies removed: 0.61%</li>
+</ul>
+</sc-if>
+</section>
+
+<section id="s6" class="scene robot-left dark center">
+<span class="eyebrow beat" style="color: #9FA6B2">05 · The reveal</span>
+<div class="land" style="font-size: 180px; line-height: .95; font-weight: 600; letter-spacing: -6px">−7.5<span style="font-size: 52px; color: #9FA6B2; letter-spacing: 0"> pts</span></div>
+<p class="lead beat-3" style="color: #C9CBCF">Your agent trails the simpler model. This is the DEV preview; the sealed test decides.</p>
+</section>
+
+<section id="s7" class="scene robot-right center">
+<span class="eyebrow beat">06 · Your call</span>
+<h2 class="mid beat-2">What does one wrong answer cost you?</h2>
+<div class="card beat-3">
+<label for="cost" style="display: flex; justify-content: space-between; align-items: baseline; font-size: 16px; color: #4A4E5C"><span>Cost per wrong answer</span><b style="color: #0B0C10; font-size: 26px">{{costLabel}}</b></label>
+<input id="cost" type="range" min="0.5" max="20" step="0.5" value="{{cost}}" onChange="{{onCost}}" style="width: 100%; accent-color: #2242E8; min-height: 44px">
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; text-align: left">
+<div><div style="font-size: 14px; color: #4A4E5C">Linear, per case</div><div style="font-size: 34px; font-weight: 600">{{linCost}}</div></div>
+<div><div style="font-size: 14px; color: #4A4E5C">Your agent, per case</div><div style="font-size: 34px; font-weight: 600; color: #A84C08">{{agentCost}}</div></div>
+</div>
+</div>
+</section>
+
+<section id="s8" class="scene robot-left tint">
+<span class="eyebrow beat">07 · One case</span>
+<h2 class="mid beat-2">“I am still waiting for my card after 1 week. Is this ok?”</h2>
+<p class="lead beat-3">Search found the right answer. The agent picked another.</p>
+</section>
+
+<section id="s9" class="scene robot-right">
+<span class="eyebrow beat">08 · The recap</span>
+<h2 class="mid beat-2">On DEV, the simpler model wins.</h2>
+<p class="lead beat-3">More accurate (90.0% vs 82.5%) and cheaper at every error cost. The sealed test of 3,267 cases gives the final verdict.</p>
+<p class="lead beat-3" style="font-family: 'JetBrains Mono', monospace; font-size: 14px">commit 9144467 · model 46e0c10c · layer f5292dc4</p>
+</section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":8100}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { active: 's1', guess: null, cost: 5, checksOpen: false, replayOpen: false, downloaded: false };
+  }
+
+  componentDidMount() {
+    const sections = document.querySelectorAll('section.scene');
+    this.observer = new IntersectionObserver((entries) => {
+      entries.forEach((e) => { if (e.isIntersecting) this.setState({ active: e.target.id }); });
+    }, { threshold: 0.55 });
+    sections.forEach((s) => this.observer.observe(s));
+  }
+
+  componentWillUnmount() {
+    if (this.observer) this.observer.disconnect();
+  }
+
+  renderVals() {
+    const s = this.state;
+    const ids = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9'];
+    const moods = { s1: 'hello', s2: 'curious', s3: 'thinking', s4: 'thinking', s5: 'nod', s6: 'sad', s7: 'point', s8: 'curious', s9: 'proud' };
+    const names = { s1: 'The question', s2: 'Contenders', s3: 'Fair rules', s4: 'Scores', s5: 'Integrity', s6: 'The reveal', s7: 'Your call', s8: 'One case', s9: 'Recap' };
+    const leftScenes = { s2: true, s4: true, s6: true, s8: true };
+    const scenes = ids.map((id) => ({ href: '#' + id, label: names[id], cls: id === s.active ? 'on' : '' }));
+    // expected cost per case = inference cost + error rate x error cost (cloud-small prices, assumed)
+    const lin = 0.0999 * s.cost;
+    const agent = 0.000205 + 0.1746 * s.cost;
+    const money = (x) => '$' + x.toFixed(2);
+    const picked = { linear: 'Linear', prompt: 'Prompt', agent: 'your agent' };
+    const replies = {
+      linear: 'Linear, the quiet one. Bold pick! Keep scrolling and we’ll see.',
+      prompt: 'Prompt, the single call. Interesting! Keep scrolling and we’ll see.',
+      agent: 'Rooting for your agent, nice. Keep scrolling and we’ll see.',
+    };
+    const payoffs = {
+      linear: 'You picked Linear, and you were right: 90.0% beats your agent’s 82.5%.',
+      prompt: 'You picked Prompt, but it came last at 74.9%. Linear won with 90.0%.',
+      agent: 'You picked your agent. It got 82.5%, but Linear won with 90.0%.',
+    };
+    const chip = (k) => 'chip' + (s.guess === k ? ' on' : '');
+    const vals = {
+      mood: moods[s.active] || 'hello',
+      side: leftScenes[s.active] ? 'left' : 'right',
+      scenes,
+      sceneName: names[s.active],
+      chipLinear: chip('linear'), chipPrompt: chip('prompt'), chipAgent: chip('agent'),
+      pickLinear: () => this.setState({ guess: 'linear' }),
+      pickPrompt: () => this.setState({ guess: 'prompt' }),
+      pickAgent: () => this.setState({ guess: 'agent' }),
+      guessed: !!s.guess,
+      guessReply: s.guess ? replies[s.guess] : '',
+      scorePayoff: s.guess ? payoffs[s.guess] : 'Linear got 90.0%. Your agent got 82.5%. Hmm.',
+      checksOpen: s.checksOpen,
+      checksLabel: s.checksOpen ? 'Hide checks' : 'Show all checks',
+      toggleChecks: () => this.setState({ checksOpen: !s.checksOpen }),
+      cost: s.cost,
+      costLabel: money(s.cost),
+      onCost: (e) => this.setState({ cost: Number(e.target.value) }),
+      linCost: money(lin),
+      agentCost: money(agent),
+      gap: money(agent - lin),
+      replayOpen: s.replayOpen,
+      replayLabel: s.replayOpen ? 'Hide the replay' : 'Replay it',
+      toggleReplay: () => this.setState({ replayOpen: !s.replayOpen }),
+      recapLine: s.guess ? 'You guessed ' + picked[s.guess] + '. Want the full audit bundle for your team?' : 'Want the full audit bundle for your team?',
+      downloaded: s.downloaded,
+      onDownload: () => this.setState({ downloaded: true }),
+    };
+    ids.forEach((id, i) => { vals['isS' + (i + 1)] = s.active === id; });
+    return vals;
+  }
+}
+</script>
+</body>
+</html>
