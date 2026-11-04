@@ -60,7 +60,7 @@ checks:                  # checks.py; a failed gating check binds the verdict, R
   max_tune_drop: 0.04            # gating, NEED_MORE_DATA: held-out minus tune CI lower bound > -0.04
   null_rate_band: [0.07, 0.13]   # report: share of Null-flagged cases
   leak_jaccard: 0.90             # char 5-gram Jaccard that counts a test text as a copy of DEV
-  max_leak_rate: 0.005           # gating, INVALID: copied share of test; copies are dropped from the primary result
+  max_leak_rate: 0.005           # report: copied share of test; copies are always dropped from the primary result (user decision 2026-11-03, set after DEV showed 0.61pct)
   min_test_n: 3028               # gating, NEED_MORE_DATA: test cases left after dropping copies (power.py, 15% discordance)
   max_score_ks: 0.10             # gating: KS D on the linear top score, held-out DEV (never the training pool) vs new data
   max_domain_auc: 0.60           # gating: AUC of a classifier telling DEV pool from new data

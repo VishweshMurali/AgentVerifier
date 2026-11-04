@@ -144,7 +144,7 @@ class ChecksConfig(_Frozen):
     max_tune_drop: float = Field(gt=0, lt=1)  # held-out minus tune CI lower bound must exceed -this
     null_rate_band: tuple[float, float]  # flagged share expected near 0.10; report only
     leak_jaccard: float = Field(gt=0, le=1)  # char 5-gram Jaccard that counts as a near-copy
-    max_leak_rate: float = Field(ge=0, lt=1)  # share of test copied from DEV above this -> INVALID
+    max_leak_rate: float = Field(ge=0, lt=1)  # copied share of test to report; copies are dropped
     min_test_n: int = Field(ge=1)  # test cases left after dropping copies; below -> NEED_MORE_DATA
     max_score_ks: float = Field(gt=0, le=1)  # KS D on the linear layer's top score
     max_domain_auc: float = Field(gt=0.5, le=1)  # old-vs-new classifier AUC

@@ -16,6 +16,7 @@ from agent_committee.arms.linear import make_layer
 from agent_committee.arms.splits import make_arms_split
 from agent_committee.data import load_dev
 from agent_committee.prereg import load_prereg
+from agent_committee.schemas import CheckEffect
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -57,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     for c in split.eval:
         if c.id in copied:
             print(f"  eval copy of pool: {c.text!r} => {c.label}")
-    return 0 if all(r.passed for r in results if r.name != "leakage") else 1
+    return 0 if all(r.passed for r in results if r.effect != CheckEffect.REPORT) else 1
 
 
 if __name__ == "__main__":

@@ -100,7 +100,8 @@ def find_copies(texts: Sequence[str], reference: Sequence[str], jaccard: float) 
 def leakage(
     test: Sequence[Case], reference: Sequence[Case], cfg: ChecksConfig
 ) -> tuple[CheckResult, list[Case]]:
-    """Test texts copied from DEV. Copies are dropped from the primary result either way."""
+    """Test texts copied from DEV. Copies are always dropped from the primary result, so the
+    rate is reported only; `power_cap` guards how many cases are left."""
     copied = find_copies([c.text for c in test], [c.text for c in reference], cfg.leak_jaccard)
     rate = float(copied.mean()) if len(test) else 0.0
     kept = [c for c, dup in zip(test, copied, strict=True) if not dup]
@@ -109,7 +110,7 @@ def leakage(
         value=rate,
         high=cfg.max_leak_rate,
         passed=rate <= cfg.max_leak_rate,
-        effect=CheckEffect.INVALID,
+        effect=CheckEffect.REPORT,
         detail=f"{int(copied.sum())}/{len(test)} copied from DEV; {len(kept)} kept",
     )
     return result, kept

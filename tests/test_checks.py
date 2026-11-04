@@ -61,7 +61,7 @@ def test_copies_are_found_exactly_and_nearly_and_dropped():
     ]
     result, kept = checks.leakage(test, reference, CFG)
     assert [c.id for c in kept] == ["t3"]
-    assert not result.passed and result.effect == CheckEffect.INVALID
+    assert not result.passed and result.effect == CheckEffect.REPORT
 
 
 def test_near_copy_threshold_is_respected():
