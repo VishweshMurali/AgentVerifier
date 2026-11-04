@@ -44,17 +44,25 @@ def newcombe_diff(k1: int, n1: int, k2: int, n2: int) -> tuple[float, float, flo
 
 
 def tune_gap(
-    arm: str, tune_correct: int, tune_n: int, held_correct: int, held_n: int, cfg: ChecksConfig
+    arm: str,
+    tune_correct: int,
+    tune_n: int,
+    held_correct: int,
+    held_n: int,
+    cfg: ChecksConfig,
+    reference: str = "tune",
 ) -> CheckResult:
-    """Overfitting to settings picked on tune: held-out accuracy may not fall clearly below it."""
+    """Overfitting to settings picked on `reference` data: held-out accuracy may not fall clearly
+    below it. Phase D passes the DEV eval scores as the reference and the sealed test as held-out.
+    """
     d, lo, hi = newcombe_diff(held_correct, held_n, tune_correct, tune_n)
     return CheckResult(
-        name=f"tune_gap[{arm}]",
+        name=f"{reference}_gap[{arm}]",
         value=lo,
         low=-cfg.max_tune_drop,
         passed=lo > -cfg.max_tune_drop,
         effect=CheckEffect.NEED_MORE_DATA,
-        detail=f"held-out minus tune {d:+.4f}, 95% CI [{lo:+.4f}, {hi:+.4f}]",
+        detail=f"held-out minus {reference} {d:+.4f}, 95% CI [{lo:+.4f}, {hi:+.4f}]",
     )
 
 

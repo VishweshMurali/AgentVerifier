@@ -50,6 +50,12 @@ FROZEN_PATHS = [
     "src/agent_committee/checks.py",
     "src/agent_committee/prereg.py",
     "src/agent_committee/seal.py",
+    # the Phase D code that turns the paired run into a verdict is frozen with everything else
+    "src/agent_committee/runner.py",
+    "src/agent_committee/analysis.py",
+    "src/agent_committee/decision.py",
+    "src/agent_committee/report.py",
+    "src/agent_committee/templates",
     "pyproject.toml",
     "uv.lock",
     "data/dev.jsonl",

@@ -57,6 +57,10 @@ src/agent_committee/
   llm.py         LLM wrapper: SQLite cache, retries, phase/arm tags, usage logging
   scorers.py     plain-code scorers named by prereg.yaml (exact_label)
   checks.py      pre-registered overfitting, leakage, drift and bias checks; effects bind the verdict
+  analysis.py    exact McNemar, paired case bootstrap, A/A on the full winner rule
+  decision.py    decision engine: verdict rules, break-even, VerdictJSON
+  runner.py      Phase D runner, the ONLY sealed-test reader; `--rehearse` runs it on DEV instead
+  report.py      results/report.html from verdict.json (templates/report.html.j2)
   arms/          base protocol, config, splits, labels, linear (shared layer + arm 1), prompt, agent, tools, evaluate
 scripts/benchmark_throughput.py   thin CLI around throughput.py
 scripts/power_analysis.py         required N across discordance rates
@@ -71,3 +75,5 @@ tests/
 - Tests: `uv run pytest`   Lint: `uv run ruff check . && uv run ruff format --check .`
 - Build split (once): `uv run python -m agent_committee.data`
 - Benchmark: `uv run python scripts/benchmark_throughput.py`
+- Rehearse Phase D on DEV (never opens TEST): `uv run python -m agent_committee.runner --rehearse`
+- The one sealed run (after the user's `arms-frozen` tag): `uv run python -m agent_committee.runner`

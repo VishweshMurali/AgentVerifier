@@ -213,6 +213,21 @@ class BreakEven(_Frozen):
     ci_high: float
 
 
+class ArmResult(_Frozen):
+    """One arm's measured results on the paired cases. Latency is reported, never decided on."""
+
+    name: str = Field(min_length=1)
+    n: int = Field(ge=1)
+    correct: int = Field(ge=0)
+    accuracy: float = Field(ge=0, le=1)
+    prompt_tokens_mean: float = Field(ge=0)
+    completion_tokens_mean: float = Field(ge=0)
+    latency_s_mean: float = Field(ge=0)
+    flagged_accuracy: float | None = None
+    # USD per case for each price table, inference only
+    inference_cost: dict[str, float] = {}
+
+
 class AuditBundle(_Frozen):
     """What a reader needs to retrace one verdict. Saved with every verdict.
 
@@ -248,6 +263,20 @@ class VerdictJSON(_Frozen):
     break_even: list[BreakEven] = []
     latency_s: dict[str, float] = {}  # reported only; never used in the decision
     checks: list[CheckResult] = []
+    # what was compared, and on how many cases (after dropping copies of DEV)
+    agent_arm: str | None = None
+    simpler_arm: str | None = None
+    n_cases: int | None = None
+    n_dropped: int | None = None
+    mcnemar_counts: tuple[int, int] | None = None  # (agent-only right, simpler-only right)
+    arms: list[ArmResult] = []
+    error_cost_range: tuple[float, float] | None = None
+    # True only for a dress rehearsal on DEV data: then this is not a verdict on the sealed test
+    rehearsal: bool = False
+    # the pre-registered thresholds this verdict was judged against
+    alpha: float | None = None
+    ci_level: float | None = None
+    min_gap: float | None = None
 
     @model_validator(mode="after")
     def _finite_and_ordered(self) -> Self:

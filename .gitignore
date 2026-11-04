@@ -13,3 +13,6 @@ sealed/
 
 # Local multi-agent coordination notes: never uploaded
 COORDINATION.md
+
+# Phase D dress rehearsals on DEV: local only, never a verdict
+results/rehearsal/

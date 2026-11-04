@@ -74,8 +74,14 @@ def repo(tmp_path, monkeypatch):
         "checks.py",
         "prereg.py",
         "seal.py",
+        "runner.py",
+        "analysis.py",
+        "decision.py",
+        "report.py",
     ):
         (tmp_path / "src" / "agent_committee" / name).write_text("x = 0\n")
+    (tmp_path / "src" / "agent_committee" / "templates").mkdir()
+    (tmp_path / "src" / "agent_committee" / "templates" / "report.html.j2").write_text("x\n")
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
     (tmp_path / "uv.lock").write_text("version = 1\n")
     (tmp_path / ".gitignore").write_text("sealed/\n")
@@ -141,6 +147,8 @@ def test_load_test_compares_against_the_frozen_hash_even_if_diff_check_is_bypass
 def test_refuses_if_any_frozen_file_changed_after_freeze(repo, rel):
     git(repo, "tag", "arms-frozen")
     p = repo / rel
+    if p.is_dir():  # a frozen folder: edit a file inside it
+        p = next(f for f in sorted(p.rglob("*")) if f.is_file())
     assert p.is_file(), f"fixture must contain frozen file {rel}"
     p.write_bytes(p.read_bytes() + b"\n# edit after freeze\n")
     with pytest.raises(SealError, match="changed since"):
@@ -328,6 +336,14 @@ def test_pretag_flags_a_report_with_no_fingerprint(repo):
 
 def test_rebuild_fingerprint_is_stable_on_the_real_pool():
     assert rebuild_fingerprint(ROOT) == rebuild_fingerprint(ROOT)
+
+
+def test_decision_code_is_frozen_with_the_arms(repo):
+    git(repo, "tag", "arms-frozen")
+    (repo / "src" / "agent_committee" / "decision.py").write_text("x = 1\n")
+    commit_all(repo, "loosen the rules after the freeze")
+    with pytest.raises(SealError, match="frozen paths changed"):
+        check_unseal_conditions(repo)
 
 
 def test_pretag_and_unseal_refuse_a_prereg_missing_a_section(repo):

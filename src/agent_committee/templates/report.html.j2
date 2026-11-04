@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verdict report: {{ verdict }}</title>
+<style>
+  :root {
+    --ink: #0B0C10;
+    --muted: #4A4D57;
+    --line: #D5D7DD;
+    --soft: #F4F5F7;
+    --simpler: #2242E8;
+    --agent: #A84C08;
+    --fail: #A3141E;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #FFFFFF;
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1, h2 { line-height: 1.2; }
+  h2 { font-size: 1.25rem; margin: 40px 0 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .label { color: var(--muted); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.06em; margin: 0; }
+  .verdict { font-size: clamp(2rem, 9vw, 3.5rem); font-weight: 800; margin: 4px 0 12px; overflow-wrap: anywhere; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0; padding: 0; list-style: none; }
+  .facts li { margin: 0; }
+  .facts b { font-weight: 600; }
+  .agent { color: var(--agent); font-weight: 600; }
+  .simpler { color: var(--simpler); font-weight: 600; }
+  .muted { color: var(--muted); }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9375rem; }
+  caption { text-align: left; color: var(--muted); padding-bottom: 8px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; background: var(--soft); }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.failed td { background: #FDF1F1; }
+  .fail-tag { color: var(--fail); font-weight: 700; }
+  dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+  dl.kv dt { color: var(--muted); }
+  dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+  .mono, code { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; font-size: 0.875rem; }
+  .headline { font-size: 1.125rem; }
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; }
+  @media (max-width: 560px) {
+    dl.kv { grid-template-columns: 1fr; gap: 2px; }
+    dl.kv dd { margin-bottom: 8px; }
+  }
+</style>
+</head>
+<body>
+<main>
+<header>
+  {% if v.rehearsal %}
+  <p class="label" style="color: #A3141E; font-weight: 700">REHEARSAL on DEV data, not the sealed test. This is not a verdict.</p>
+  {% endif %}
+  <p class="label">Verdict</p>
+  <h1 class="verdict">{{ verdict }}</h1>
+  <ul class="facts">
+    <li><b>Evidence level:</b> {{ evidence }}</li>
+    <li><b>Comparison:</b>
+      <span class="agent">{{ v.agent_arm if v.agent_arm is not none else "n/a" }}</span>
+      vs
+      <span class="simpler">{{ v.simpler_arm if v.simpler_arm is not none else "n/a" }}</span>
+    </li>
+    <li><b>Cases:</b> {{ v.n_cases if v.n_cases is not none else "n/a" }}</li>
+    <li><b>Copies of DEV removed:</b> {{ v.n_dropped if v.n_dropped is not none else "n/a" }}</li>
+  </ul>
+</header>
+
+<section aria-labelledby="h-headline">
+  <h2 id="h-headline">Break-even error cost</h2>
+  {% if v.break_even %}
+  <p class="headline">The agent pays for its extra cost when one wrong answer costs more than:</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th scope="col">Price table</th><th scope="col" class="n">Break-even (USD)</th><th scope="col" class="n">CI low (USD)</th><th scope="col" class="n">CI high (USD)</th></tr></thead>
+    <tbody>
+    {% for b in v.break_even %}
+      <tr><th scope="row">{{ b.price_table }}</th><td class="n">{{ b.value | usd }}</td><td class="n">{{ b.ci_low | usd }}</td><td class="n">{{ b.ci_high | usd }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="headline">No break-even error cost is reported. It is shown only when the agent wins under every pre-registered rule; the reasons below say which rule was not met.</p>
+  {% endif %}
+</section>
+
+<section aria-labelledby="h-reasons">
+  <h2 id="h-reasons">Reasons</h2>
+  {% if v.reasons %}
+  <ul>
+  {% for r in v.reasons %}
+    <li>{{ r }}</li>
+  {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">No reasons were recorded.</p>
+  {% endif %}
+</section>
+
+<section aria-labelledby="h-comparison">
+  <h2 id="h-comparison">Comparison</h2>
+  <dl class="kv">
+    <dt>Accuracy difference (agent minus simpler)</dt>
+    <dd>{{ v.accuracy_diff | num }}</dd>
+    <dt>Accuracy difference CI</dt>
+    <dd>{% if v.accuracy_diff_ci is not none %}{{ v.accuracy_diff_ci[0] | num }} to {{ v.accuracy_diff_ci[1] | num }}{% else %}n/a{% endif %}</dd>
+    <dt>Exact McNemar p</dt>
+    <dd>{{ v.mcnemar_p | num }}</dd>
+    <dt>McNemar discordant counts</dt>
+    <dd>{% if v.mcnemar_counts is not none %}agent only right: {{ v.mcnemar_counts[0] }}, simpler only right: {{ v.mcnemar_counts[1] }}{% else %}n/a{% endif %}</dd>
+    <dt>A/A false-winner rate</dt>
+    <dd>{{ v.aa_false_winner_rate | num }}</dd>
+    <dt>Flagged (low-confidence) share</dt>
+    <dd>{{ v.flagged_rate | num }}</dd>
+    <dt>Shortlist coverage</dt>
+    <dd>{{ v.shortlist_coverage | num }}</dd>
+    <dt>Scorer</dt>
+    <dd>{{ v.scorer if v.scorer is not none else "n/a" }}</dd>
+    <dt>Quality floor passed</dt>
+    <dd>{{ "n/a" if v.quality_floor_passed is none else ("yes" if v.quality_floor_passed else "no") }}</dd>
+  </dl>
+</section>
+
+<section aria-labelledby="h-arms">
+  <h2 id="h-arms">Arms</h2>
+  {% if arm_rows %}
+  <div class="scroll">
+  <table>
+    <caption>
+      Costs are USD per case. Expected cost = inference cost + (1 - accuracy) x error cost,
+      at error cost {{ error_low | usd }} (low) and {{ error_high | usd }} (high).
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Arm</th>
+        <th scope="col" class="n">Accuracy</th>
+        <th scope="col" class="n">Accuracy on flagged cases</th>
+        <th scope="col" class="n">Mean prompt tokens</th>
+        <th scope="col" class="n">Mean completion tokens</th>
+        {% for t in tables %}
+        <th scope="col" class="n">Inference cost ({{ t }})</th>
+        <th scope="col" class="n">Expected cost, low error cost ({{ t }})</th>
+        <th scope="col" class="n">Expected cost, high error cost ({{ t }})</th>
+        {% endfor %}
+        <th scope="col" class="n">Mean latency, s (reported only, not used in the decision)</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for row in arm_rows %}
+      <tr>
+        <th scope="row"><span class="{{ row.role }}">{{ row.arm.name }}</span>{% if row.role %} <span class="muted">({{ row.role }})</span>{% endif %}</th>
+        <td class="n">{{ row.arm.accuracy | num }}</td>
+        <td class="n">{{ row.arm.flagged_accuracy | num }}</td>
+        <td class="n">{{ row.arm.prompt_tokens_mean | num(1) }}</td>
+        <td class="n">{{ row.arm.completion_tokens_mean | num(1) }}</td>
+        {% for i in range(tables | length) %}
+        <td class="n">{{ row.costs[i] | usd }}</td>
+        <td class="n">{{ row.expected[i][0] | usd }}</td>
+        <td class="n">{{ row.expected[i][1] | usd }}</td>
+        {% endfor %}
+        <td class="n">{{ row.arm.latency_s_mean | num(3) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">No arm results were recorded.</p>
+  {% endif %}
+</section>
+
+<section aria-labelledby="h-checks">
+  <h2 id="h-checks">Checks</h2>
+  {% if checks %}
+  <div class="scroll">
+  <table>
+    <caption>A failed check with effect INVALID or NEED_MORE_DATA binds the verdict; REPORT checks never change it.</caption>
+    <thead>
+      <tr>
+        <th scope="col">Check</th>
+        <th scope="col" class="n">Value</th>
+        <th scope="col" class="n">Low limit</th>
+        <th scope="col" class="n">High limit</th>
+        <th scope="col">Effect</th>
+        <th scope="col">Passed</th>
+        <th scope="col">Detail</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for row in checks %}
+      <tr{% if row.gating_failure %} class="failed"{% endif %}>
+        <th scope="row">{{ row.check.name }}</th>
+        <td class="n">{{ row.check.value | num }}</td>
+        <td class="n">{{ row.check.low | num }}</td>
+        <td class="n">{{ row.check.high | num }}</td>
+        <td>{{ row.check.effect.value }}</td>
+        <td>{% if row.check.passed %}yes{% elif row.gating_failure %}<span class="fail-tag">FAILED, binds the verdict</span>{% else %}no (report only){% endif %}</td>
+        <td>{{ row.check.detail }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">No checks were recorded.</p>
+  {% endif %}
+</section>
+
+<section aria-labelledby="h-audit">
+  <h2 id="h-audit">Audit bundle</h2>
+  <dl class="kv">
+  {% for key, value in audit.items() %}
+    <dt>{{ key }}</dt>
+    <dd class="mono">{{ value if value is not none else "n/a" }}</dd>
+  {% endfor %}
+  </dl>
+</section>
+
+<footer>
+  <p>Prices and error costs are assumptions taken from prereg.yaml, not quotes or measured costs.</p>
+  <p>This verdict was produced by deterministic code, not by an AI. This page only presents it.</p>
+</footer>
+</main>
+</body>
+</html>
