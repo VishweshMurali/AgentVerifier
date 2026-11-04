@@ -63,8 +63,10 @@ evenly spaced stops land on each scene. No scroll snapping.
 Before the sealed run these come from `src/agent_committee/arms/dev_report.json` and are labelled
 "DEV preview"; afterwards from `results/verdict.json`.
 
+## Stack (approved by the user 2026-11-04)
+React + Vite + TypeScript. Any further front-end dependency (chart, animation or state library)
+still needs the user's approval first.
+
 ## Not decided yet (needs the user's approval)
-- Front-end stack. The prototype is plain HTML, CSS and a small script; the build needs a framework
-  and tooling (proposed: React + Vite + TypeScript), which are new dependencies.
 - How the page gets the data (read the JSON files at build time, or a small API).
 - Whether the robot is upgraded to a 3D (Spline) or Rive animation later.
