@@ -164,11 +164,18 @@ def test_llm_outage_stops_the_run():
         arm_with(down).predict("a", "x")
 
 
-def test_oversized_prompt_is_refused():
+def test_oversized_prompt_is_never_sent_and_scores_wrong():
     script = Script()
-    with pytest.raises(PromptTooLong):
-        arm_with(script).predict("a", "x" * (MAX_PROMPT_CHARS + 1))
+    arm = arm_with(script)
+    pred = arm.predict("a", "x" * (MAX_PROMPT_CHARS + 1))
+    assert pred.pred is None and pred.too_long
     assert script.requests == []
+    assert arm.stats["too_long_cases"] == 1
+
+
+def test_guard_still_refuses_the_call_itself():
+    with pytest.raises(PromptTooLong):
+        arm_with(Script())._invoke(("card_arrival",), "x" * (MAX_PROMPT_CHARS + 1))
 
 
 def test_predict_before_fit_fails():

@@ -20,7 +20,7 @@ from agent_committee.arms.agent_tools import TOOLS, ToolBox
 from agent_committee.arms.config import AGENT_MAX_TOOL_TURNS, MODEL_DIGEST
 from agent_committee.arms.labels import LabelBook
 from agent_committee.arms.linear import LinearLayer
-from agent_committee.arms.parsing import guarded_chat, parse_answer
+from agent_committee.arms.parsing import PromptTooLong, guarded_chat, parse_answer
 from agent_committee.arms.retrieval import Retriever
 from agent_committee.llm import LLMClient, LLMResult
 from agent_committee.schemas import ArmName, ArmPrediction, Case
@@ -197,7 +197,33 @@ class AgentArm:
         if self._tools is None:
             raise RuntimeError("fit() first")
         shortlist = self._layer.decide(text).shortlist
-        final = self._graph.invoke(
+        try:
+            final = self._invoke(shortlist, text)
+        except PromptTooLong:
+            # the conversation outgrew the model's context: scored wrong and counted, not a crash
+            self.stats.update(cases=1, too_long_cases=1)
+            return ArmPrediction(case_id=case_id, arm=self.name, pred=None, too_long=True)
+        self.stats.update(
+            cases=1,
+            model_calls=final["model_calls"],
+            own_tool_cases=int(final["own_first_tool"]),
+            sent_back_cases=int(final["sent_back"]),
+            malformed_cases=int(final["malformed"]),
+        )
+        return ArmPrediction(
+            case_id=case_id,
+            arm=self.name,
+            pred=final["answer"],
+            prompt_tokens=final["prompt_tokens"],
+            completion_tokens=final["completion_tokens"],
+            latency_s=final["latency_s"],
+            own_tool_calls=final["n_calls"],
+            sent_back=final["sent_back"],
+            malformed=final["malformed"],
+        )
+
+    def _invoke(self, shortlist: tuple[str, ...], text: str) -> dict[str, Any]:
+        return self._graph.invoke(
             {
                 "messages": [
                     {"role": "system", "content": build_system_prompt(shortlist)},
@@ -217,24 +243,6 @@ class AgentArm:
                 "completion_tokens": 0,
                 "latency_s": 0.0,
             }
-        )
-        self.stats.update(
-            cases=1,
-            model_calls=final["model_calls"],
-            own_tool_cases=int(final["own_first_tool"]),
-            sent_back_cases=int(final["sent_back"]),
-            malformed_cases=int(final["malformed"]),
-        )
-        return ArmPrediction(
-            case_id=case_id,
-            arm=self.name,
-            pred=final["answer"],
-            prompt_tokens=final["prompt_tokens"],
-            completion_tokens=final["completion_tokens"],
-            latency_s=final["latency_s"],
-            own_tool_calls=final["n_calls"],
-            sent_back=final["sent_back"],
-            malformed=final["malformed"],
         )
 
 

@@ -103,6 +103,7 @@ def run_arms(
                 "own_tool_calls": p.own_tool_calls,
                 "sent_back": p.sent_back,
                 "malformed": p.malformed,
+                "too_long": p.too_long,
             }
             for p, ok in zip(preds, correct, strict=True)
         ]

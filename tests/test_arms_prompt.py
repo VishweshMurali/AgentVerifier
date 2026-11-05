@@ -78,6 +78,13 @@ def test_predict_returns_the_label_with_usage_and_never_sees_gold(split, book, l
     assert seen[0]["temperature"] == 0.0
 
 
+def test_oversized_prompt_is_never_sent_and_scores_wrong(split, book, layer):
+    seen = []
+    arm = make_arm(split.pool, book, layer, client(fake(seen=seen)))
+    pred = arm.predict("a", "x" * (MAX_PROMPT_CHARS + 1))
+    assert pred.pred is None and pred.too_long and seen == []
+
+
 def test_unknown_or_truncated_answers_score_none(split, book, layer):
     arm = make_arm(split.pool, book, layer, client(fake("no idea")))
     assert arm.predict("a", "x").pred is None

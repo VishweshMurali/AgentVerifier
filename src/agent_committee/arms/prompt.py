@@ -7,7 +7,7 @@ per label, not retrieved per query, which keeps this arm distinct from the agent
 from agent_committee.arms.config import K_SHOTS, MODEL_DIGEST
 from agent_committee.arms.labels import LabelBook
 from agent_committee.arms.linear import LinearLayer
-from agent_committee.arms.parsing import guarded_chat, parse_answer
+from agent_committee.arms.parsing import PromptTooLong, guarded_chat, parse_answer
 from agent_committee.llm import LLMClient
 from agent_committee.schemas import ArmName, ArmPrediction, Case
 
@@ -42,9 +42,13 @@ class PromptArm:
             {"role": "system", "content": build_system_prompt(self._book, shortlist)},
             {"role": "user", "content": text},
         ]
-        result = guarded_chat(
-            self._client, messages, arm=self.name.value, max_tokens=ANSWER_MAX_TOKENS
-        )
+        try:
+            result = guarded_chat(
+                self._client, messages, arm=self.name.value, max_tokens=ANSWER_MAX_TOKENS
+            )
+        except PromptTooLong:
+            # never sent, so the model cannot answer it: scored wrong and counted, not a crash
+            return ArmPrediction(case_id=case_id, arm=self.name, pred=None, too_long=True)
         return ArmPrediction(
             case_id=case_id,
             arm=self.name,

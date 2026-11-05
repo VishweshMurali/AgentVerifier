@@ -55,6 +55,8 @@ class ArmPrediction(_Frozen):
     own_tool_calls: int = Field(ge=0, default=0)
     sent_back: bool = False
     malformed: bool = False
+    # the prompt would pass the model's context limit, so it was never sent; scored wrong
+    too_long: bool = False
 
 
 class PriceTable(_Frozen):
