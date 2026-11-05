@@ -51,7 +51,34 @@ on the page, without the user setting anything up.
   has a provider slot for it (frontend/src/data/index.ts).
 - Suggested order: Langfuse first (self-hostable, keeps data local), LangSmith second.
 
+## Product focus: outside review (2026-11-05)
+The review's verdict: a strong idea as a focused tool, much weaker as "evaluate any agent".
+- The buyer's question: is this agent worth paying for when something simpler might do? A
+  break-even answer ("it pays off only if each avoided mistake is worth at least $3") is
+  actionable, and so is a credible "keep the simpler system". The Banking77 run is that second case.
+- First customer: a team already deciding whether to deploy an agent on a high-volume, measurable
+  task (support routing, structured extraction) that has a candidate agent, historical examples
+  and a rough cost per mistake.
+- The hard part is enough representative, correctly labelled cases. More baselines do not fix
+  that, and synthetic data makes demos easier without making the decision more reliable.
+- What is ours: the decision workflow (a credible cheap comparator, a fair test, where the
+  economics flip). Cost-aware evaluation itself has precedent ("AI Agents That Matter").
+- Defer until the first use case proves out: the automatic recommender, a general intake chat and
+  tracing integrations (the LangSmith and Langfuse section above).
+- Validation that counts: a team changes a real deployment decision because of the report, then
+  comes back to evaluate its next agent.
+
+Our check against the project:
+- Agrees with what we have: plain-code scorer, strong cheap baseline, break-even headline,
+  verdicts that can refuse, and SYNTHETIC evidence alone never picking a winner.
+- Labelled data is the binding constraint ("Where it fails" item 2: about 3,000 cases for a
+  2-point gap). This raises "Fewer cases needed" (sequential testing) and makes help with
+  labelling (spot checks, label-quality checks) a likely next need.
+- Reorders the list: Cascade arm, cost per type of mistake and the plug-in interface serve the
+  first customer directly; monitoring and tracing move later.
+- Next step it implies: one real team's routing or extraction task, fresh labelled cases, and a
+  report built for their deployment review.
+
 ## Also planned
-- One-command check of everything, an end-to-end test, and GitHub CI (approved 2026-11-05,
-  waiting until the user finishes reviewing).
-- Free hosting of the static page: GitHub Pages deployed by that CI (suggested, not yet approved).
+- Done 2026-11-05: one-command check, end-to-end test, GitHub CI, and the static page on GitHub
+  Pages (https://vishweshmurali.github.io/AgentVerifier/).
