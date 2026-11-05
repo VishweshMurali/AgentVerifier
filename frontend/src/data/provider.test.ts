@@ -29,7 +29,7 @@ test('loads and validates the real story.json', async () => {
   const f = fakeFetch(good());
   const story = await new StaticJsonProvider('./data/story.json', f.fetch).load();
   assert.deepEqual(f.urls, ['./data/story.json']);
-  assert.equal(story.source, 'rehearsal');
+  assert.equal(story.source, 'sealed');
   assert.equal(story.verdict.agent_arm, 'agent');
   assert.equal(story.verdict.arms.length, 3);
 });

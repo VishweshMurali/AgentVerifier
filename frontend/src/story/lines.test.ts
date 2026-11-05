@@ -1,10 +1,11 @@
 import test from 'node:test';
+// Fixed DEV rehearsal data, so these copy tests do not change when the live story.json does.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { Story, StoryCase } from '../data/types.ts';
 import * as L from './lines.ts';
 
-const story = JSON.parse(readFileSync(new URL('../../public/data/story.json', import.meta.url), 'utf8')) as Story;
+const story = JSON.parse(readFileSync(new URL('../fixtures/story.rehearsal.json', import.meta.url), 'utf8')) as Story;
 
 const arms = [
   { name: 'agent', accuracy: 0.8242 },

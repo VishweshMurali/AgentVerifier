@@ -1,201 +1,200 @@
 {
-  "source": "rehearsal",
+  "source": "sealed",
   "verdict": {
-    "verdict": "NEED_MORE_DATA",
+    "verdict": "USE_SIMPLER",
     "evidence_level": "REAL",
     "audit": {
-      "git_commit": "eb25fd13d095490b3c0084ff4227557ff3acb6f8",
+      "git_commit": "9217cce7d22c2de6ca699676c7275c0296aab5fa",
       "prereg_sha256": "1b83181605925cdb899559b67b728e45d9c4eb6cc7da7a48b31ebd3b97596501",
       "dev_report_sha256": "ee6c1a7376d9fd74eea80e70e2591278c897954257292b0b36ae3503b0d026b5",
-      "test_sha256": "rehearsal: DEV eval split, sealed test not opened",
+      "test_sha256": "d10c80b02189dd2f52c5255a6331a05ce5d64804604011741652937cedaa9514",
       "model_digest": "46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e",
       "layer_fingerprint": "f5292dc4d5ae11888bc8e6ddc2f5645519a9bf833362fbe1846e672bc849563d",
-      "predictions_sha256": "3d5b8ff4227846b401f9768b92cd5ed722d71a369c4546ffad2b589b6c466570"
+      "predictions_sha256": "2c3a3f591e10f3f56f59b41210afca22f01a6e0bc843e7e6f92e19ce4accc708"
     },
     "reasons": [
-      "REHEARSAL on the DEV eval split, not the sealed test: this is not a verdict.",
-      "Check failed: power_cap (1462 test cases after dropping copies; power needs 3028).",
+      "A gain of 0.02 or more is ruled out (CI -0.074 to -0.049), and linear costs no more per case under every price table.",
       "No break-even error cost: the accuracy difference CI is not entirely above 0."
     ],
     "scorer": "exact_label",
     "quality_floor_passed": true,
     "accuracy": {
-      "agent": 0.8242134062927496,
-      "linear": 0.899452804377565,
-      "prompt": 0.7476060191518468
+      "agent": 0.8354978354978355,
+      "linear": 0.8970315398886828,
+      "prompt": 0.756338899196042
     },
-    "flagged_rate": 0.08891928864569083,
-    "shortlist_coverage": 0.9801641586867305,
+    "flagged_rate": 0.09987631416202845,
+    "shortlist_coverage": 0.9826839826839827,
     "flagged_accuracy": {
-      "agent": 0.45384615384615384,
-      "linear": 0.5076923076923077,
-      "prompt": 0.43846153846153846
+      "agent": 0.541795665634675,
+      "linear": 0.48606811145510836,
+      "prompt": 0.43343653250773995
     },
-    "accuracy_diff": -0.07523939808481532,
+    "accuracy_diff": -0.061533704390847245,
     "accuracy_diff_ci": [
-      -0.09370725034199727,
-      -0.05677154582763338
+      -0.07421150278293136,
+      -0.04916512059369202
     ],
-    "mcnemar_p": 3.412138380396935e-15,
-    "aa_false_winner_rate": 0.049,
+    "mcnemar_p": 1.5674938169791788e-22,
+    "aa_false_winner_rate": 0.004,
     "break_even": [],
     "latency_s": {
-      "agent": 1.9225420474009527,
+      "agent": 1.8694426134199273,
       "linear": 0.0,
-      "prompt": 0.416807977701764
+      "prompt": 0.4101567086580209
     },
     "checks": [
       {
         "name": "leakage",
-        "value": 0.006793478260869565,
+        "value": 0.011311525527361662,
         "low": null,
         "high": 0.005,
         "passed": false,
         "effect": "REPORT",
-        "detail": "10/1472 copied from DEV; 1462 kept"
+        "detail": "37/3271 copied from DEV; 3234 kept"
       },
       {
         "name": "power_cap",
-        "value": 1462.0,
+        "value": 3234.0,
         "low": 3028.0,
         "high": null,
-        "passed": false,
+        "passed": true,
         "effect": "NEED_MORE_DATA",
-        "detail": "1462 test cases after dropping copies; power needs 3028"
+        "detail": "3234 test cases after dropping copies; power needs 3028"
       },
       {
         "name": "quality_floor",
-        "value": 1.0,
+        "value": 0.9993815708101422,
         "low": 0.9,
         "high": null,
         "passed": true,
         "effect": "INVALID",
-        "detail": "own tool use 1.000, send-backs 0.000"
+        "detail": "own tool use 0.999, send-backs 0.001"
       },
       {
         "name": "dev_gap[linear]",
-        "value": -0.02249392171346374,
+        "value": -0.02110743736275934,
         "low": -0.04,
         "high": null,
         "passed": true,
         "effect": "NEED_MORE_DATA",
-        "detail": "held-out minus dev -0.0007, 95% CI [-0.0225, +0.0211]"
+        "detail": "held-out minus dev -0.0031, 95% CI [-0.0211, +0.0161]"
       },
       {
         "name": "dev_gap[prompt]",
-        "value": -0.0324389843467384,
+        "value": -0.018566693613115675,
         "low": -0.04,
         "high": null,
         "passed": true,
         "effect": "NEED_MORE_DATA",
-        "detail": "held-out minus dev -0.0010, 95% CI [-0.0324, +0.0304]"
+        "detail": "held-out minus dev +0.0077, 95% CI [-0.0186, +0.0347]"
       },
       {
         "name": "dev_gap[agent]",
-        "value": -0.02872563336953461,
+        "value": -0.01265287880729181,
         "low": -0.04,
         "high": null,
         "passed": true,
         "effect": "NEED_MORE_DATA",
-        "detail": "held-out minus dev -0.0012, 95% CI [-0.0287, +0.0263]"
+        "detail": "held-out minus dev +0.0101, 95% CI [-0.0127, +0.0338]"
       },
       {
         "name": "null_rate",
-        "value": 0.08891928864569083,
+        "value": 0.09987631416202845,
         "low": 0.07,
         "high": 0.13,
         "passed": true,
         "effect": "REPORT",
-        "detail": "130/1462 flagged, binomial p=0.163 against 0.1"
+        "detail": "323/3234 flagged, binomial p=1.000 against 0.1"
       },
       {
         "name": "score_drift",
-        "value": 0.03253459218227894,
+        "value": 0.022572665429808292,
         "low": null,
         "high": 0.1,
         "passed": true,
         "effect": "INVALID",
-        "detail": "KS D=0.0325, p=0.818"
+        "detail": "KS D=0.0226, p=0.553"
       },
       {
         "name": "domain_auc",
-        "value": 0.4879235591688369,
+        "value": 0.4998969415951441,
         "low": null,
         "high": 0.6,
         "passed": true,
         "effect": "INVALID",
-        "detail": "5-fold AUC=0.4879, p=0.929, 7852 DEV vs 1462 new"
+        "detail": "5-fold AUC=0.4999, p=0.507, 7852 DEV vs 3234 new"
       },
       {
         "name": "label_mix",
-        "value": 0.010206431848290506,
+        "value": 0.008646588353305477,
         "low": null,
         "high": 0.1,
         "passed": true,
         "effect": "REPORT",
-        "detail": "total variation 0.0102"
+        "detail": "total variation 0.0086"
       },
       {
         "name": "false_alarm_rate",
-        "value": 0.02,
+        "value": 0.0,
         "low": null,
         "high": 0.05,
         "passed": true,
         "effect": "INVALID",
-        "detail": "2/100 random halves raised drift"
+        "detail": "0/100 random halves raised drift"
       },
       {
         "name": "per_label_bias",
-        "value": 0.014598540145985401,
+        "value": 0.0005999400059994001,
         "low": 0.05,
         "high": null,
         "passed": false,
         "effect": "REPORT",
-        "detail": "overall gap -0.075; largest label departure 0.383; BH-significant labels: none"
+        "detail": "overall gap -0.062; largest label departure 0.335; BH-significant labels: ['transfer_timing']"
       },
       {
         "name": "flagged_split",
-        "value": 0.023481173481173484,
+        "value": 0.13027238413490838,
         "low": null,
         "high": null,
-        "passed": true,
+        "passed": false,
         "effect": "REPORT",
-        "detail": "flagged minus unflagged gap +0.0235, CI [-0.0741, +0.1174]"
+        "detail": "flagged minus unflagged gap +0.1303, CI [+0.0690, +0.1906]"
       }
     ],
     "agent_arm": "agent",
     "simpler_arm": "linear",
-    "n_cases": 1462,
-    "n_dropped": 10,
+    "n_cases": 3234,
+    "n_dropped": 37,
     "mcnemar_counts": [
-      46,
-      156
+      114,
+      313
     ],
     "arms": [
       {
         "name": "agent",
-        "n": 1462,
-        "correct": 1205,
-        "accuracy": 0.8242134062927496,
-        "prompt_tokens_mean": 688.7708618331053,
-        "completion_tokens_mean": 26.41108071135431,
-        "latency_s_mean": 1.9225420474009527,
-        "flagged_accuracy": 0.45384615384615384,
+        "n": 3234,
+        "correct": 2702,
+        "accuracy": 0.8354978354978355,
+        "prompt_tokens_mean": 684.691094619666,
+        "completion_tokens_mean": 26.04452690166976,
+        "latency_s_mean": 1.8694426134199273,
+        "flagged_accuracy": 0.541795665634675,
         "inference_cost": {
-          "local_amortized": 3.7079651162790696e-05,
-          "cloud_small": 0.0002052065663474692,
-          "cloud_large": 0.002462478796169631
+          "local_amortized": 3.683900742115029e-05,
+          "cloud_small": 0.00020372843228200373,
+          "cloud_large": 0.0024447411873840448
         }
       },
       {
         "name": "linear",
-        "n": 1462,
-        "correct": 1315,
-        "accuracy": 0.899452804377565,
+        "n": 3234,
+        "correct": 2901,
+        "accuracy": 0.8970315398886828,
         "prompt_tokens_mean": 0.0,
         "completion_tokens_mean": 0.0,
         "latency_s_mean": 0.0,
-        "flagged_accuracy": 0.5076923076923077,
+        "flagged_accuracy": 0.48606811145510836,
         "inference_cost": {
           "local_amortized": 0.0,
           "cloud_small": 0.0,
@@ -204,17 +203,17 @@
       },
       {
         "name": "prompt",
-        "n": 1462,
-        "correct": 1093,
-        "accuracy": 0.7476060191518468,
-        "prompt_tokens_mean": 227.50820793433653,
-        "completion_tokens_mean": 4.884404924760602,
-        "latency_s_mean": 0.416807977701764,
-        "flagged_accuracy": 0.43846153846153846,
+        "n": 3234,
+        "correct": 2446,
+        "accuracy": 0.756338899196042,
+        "prompt_tokens_mean": 227.22881880024738,
+        "completion_tokens_mean": 4.965986394557823,
+        "latency_s_mean": 0.4101567086580209,
+        "flagged_accuracy": 0.43343653250773995,
         "inference_cost": {
-          "local_amortized": 1.1863850889192887e-05,
-          "cloud_small": 6.298255813953489e-05,
-          "cloud_large": 0.0007557906976744187
+          "local_amortized": 1.1858039579468154e-05,
+          "cloud_small": 6.301468769325913e-05,
+          "cloud_large": 0.0007561762523191095
         }
       }
     ],
@@ -222,7 +221,7 @@
       0.5,
       20.0
     ],
-    "rehearsal": true,
+    "rehearsal": false,
     "alpha": 0.05,
     "ci_level": 0.95,
     "min_gap": 0.02

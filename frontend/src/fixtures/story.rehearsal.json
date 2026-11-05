@@ -1,0 +1,272 @@
+{
+  "source": "rehearsal",
+  "verdict": {
+    "verdict": "NEED_MORE_DATA",
+    "evidence_level": "REAL",
+    "audit": {
+      "git_commit": "eb25fd13d095490b3c0084ff4227557ff3acb6f8",
+      "prereg_sha256": "1b83181605925cdb899559b67b728e45d9c4eb6cc7da7a48b31ebd3b97596501",
+      "dev_report_sha256": "ee6c1a7376d9fd74eea80e70e2591278c897954257292b0b36ae3503b0d026b5",
+      "test_sha256": "rehearsal: DEV eval split, sealed test not opened",
+      "model_digest": "46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e",
+      "layer_fingerprint": "f5292dc4d5ae11888bc8e6ddc2f5645519a9bf833362fbe1846e672bc849563d",
+      "predictions_sha256": "3d5b8ff4227846b401f9768b92cd5ed722d71a369c4546ffad2b589b6c466570"
+    },
+    "reasons": [
+      "REHEARSAL on the DEV eval split, not the sealed test: this is not a verdict.",
+      "Check failed: power_cap (1462 test cases after dropping copies; power needs 3028).",
+      "No break-even error cost: the accuracy difference CI is not entirely above 0."
+    ],
+    "scorer": "exact_label",
+    "quality_floor_passed": true,
+    "accuracy": {
+      "agent": 0.8242134062927496,
+      "linear": 0.899452804377565,
+      "prompt": 0.7476060191518468
+    },
+    "flagged_rate": 0.08891928864569083,
+    "shortlist_coverage": 0.9801641586867305,
+    "flagged_accuracy": {
+      "agent": 0.45384615384615384,
+      "linear": 0.5076923076923077,
+      "prompt": 0.43846153846153846
+    },
+    "accuracy_diff": -0.07523939808481532,
+    "accuracy_diff_ci": [
+      -0.09370725034199727,
+      -0.05677154582763338
+    ],
+    "mcnemar_p": 3.412138380396935e-15,
+    "aa_false_winner_rate": 0.049,
+    "break_even": [],
+    "latency_s": {
+      "agent": 1.9225420474009527,
+      "linear": 0.0,
+      "prompt": 0.416807977701764
+    },
+    "checks": [
+      {
+        "name": "leakage",
+        "value": 0.006793478260869565,
+        "low": null,
+        "high": 0.005,
+        "passed": false,
+        "effect": "REPORT",
+        "detail": "10/1472 copied from DEV; 1462 kept"
+      },
+      {
+        "name": "power_cap",
+        "value": 1462.0,
+        "low": 3028.0,
+        "high": null,
+        "passed": false,
+        "effect": "NEED_MORE_DATA",
+        "detail": "1462 test cases after dropping copies; power needs 3028"
+      },
+      {
+        "name": "quality_floor",
+        "value": 1.0,
+        "low": 0.9,
+        "high": null,
+        "passed": true,
+        "effect": "INVALID",
+        "detail": "own tool use 1.000, send-backs 0.000"
+      },
+      {
+        "name": "dev_gap[linear]",
+        "value": -0.02249392171346374,
+        "low": -0.04,
+        "high": null,
+        "passed": true,
+        "effect": "NEED_MORE_DATA",
+        "detail": "held-out minus dev -0.0007, 95% CI [-0.0225, +0.0211]"
+      },
+      {
+        "name": "dev_gap[prompt]",
+        "value": -0.0324389843467384,
+        "low": -0.04,
+        "high": null,
+        "passed": true,
+        "effect": "NEED_MORE_DATA",
+        "detail": "held-out minus dev -0.0010, 95% CI [-0.0324, +0.0304]"
+      },
+      {
+        "name": "dev_gap[agent]",
+        "value": -0.02872563336953461,
+        "low": -0.04,
+        "high": null,
+        "passed": true,
+        "effect": "NEED_MORE_DATA",
+        "detail": "held-out minus dev -0.0012, 95% CI [-0.0287, +0.0263]"
+      },
+      {
+        "name": "null_rate",
+        "value": 0.08891928864569083,
+        "low": 0.07,
+        "high": 0.13,
+        "passed": true,
+        "effect": "REPORT",
+        "detail": "130/1462 flagged, binomial p=0.163 against 0.1"
+      },
+      {
+        "name": "score_drift",
+        "value": 0.03253459218227894,
+        "low": null,
+        "high": 0.1,
+        "passed": true,
+        "effect": "INVALID",
+        "detail": "KS D=0.0325, p=0.818"
+      },
+      {
+        "name": "domain_auc",
+        "value": 0.4879235591688369,
+        "low": null,
+        "high": 0.6,
+        "passed": true,
+        "effect": "INVALID",
+        "detail": "5-fold AUC=0.4879, p=0.929, 7852 DEV vs 1462 new"
+      },
+      {
+        "name": "label_mix",
+        "value": 0.010206431848290506,
+        "low": null,
+        "high": 0.1,
+        "passed": true,
+        "effect": "REPORT",
+        "detail": "total variation 0.0102"
+      },
+      {
+        "name": "false_alarm_rate",
+        "value": 0.02,
+        "low": null,
+        "high": 0.05,
+        "passed": true,
+        "effect": "INVALID",
+        "detail": "2/100 random halves raised drift"
+      },
+      {
+        "name": "per_label_bias",
+        "value": 0.014598540145985401,
+        "low": 0.05,
+        "high": null,
+        "passed": false,
+        "effect": "REPORT",
+        "detail": "overall gap -0.075; largest label departure 0.383; BH-significant labels: none"
+      },
+      {
+        "name": "flagged_split",
+        "value": 0.023481173481173484,
+        "low": null,
+        "high": null,
+        "passed": true,
+        "effect": "REPORT",
+        "detail": "flagged minus unflagged gap +0.0235, CI [-0.0741, +0.1174]"
+      }
+    ],
+    "agent_arm": "agent",
+    "simpler_arm": "linear",
+    "n_cases": 1462,
+    "n_dropped": 10,
+    "mcnemar_counts": [
+      46,
+      156
+    ],
+    "arms": [
+      {
+        "name": "agent",
+        "n": 1462,
+        "correct": 1205,
+        "accuracy": 0.8242134062927496,
+        "prompt_tokens_mean": 688.7708618331053,
+        "completion_tokens_mean": 26.41108071135431,
+        "latency_s_mean": 1.9225420474009527,
+        "flagged_accuracy": 0.45384615384615384,
+        "inference_cost": {
+          "local_amortized": 3.7079651162790696e-05,
+          "cloud_small": 0.0002052065663474692,
+          "cloud_large": 0.002462478796169631
+        }
+      },
+      {
+        "name": "linear",
+        "n": 1462,
+        "correct": 1315,
+        "accuracy": 0.899452804377565,
+        "prompt_tokens_mean": 0.0,
+        "completion_tokens_mean": 0.0,
+        "latency_s_mean": 0.0,
+        "flagged_accuracy": 0.5076923076923077,
+        "inference_cost": {
+          "local_amortized": 0.0,
+          "cloud_small": 0.0,
+          "cloud_large": 0.0
+        }
+      },
+      {
+        "name": "prompt",
+        "n": 1462,
+        "correct": 1093,
+        "accuracy": 0.7476060191518468,
+        "prompt_tokens_mean": 227.50820793433653,
+        "completion_tokens_mean": 4.884404924760602,
+        "latency_s_mean": 0.416807977701764,
+        "flagged_accuracy": 0.43846153846153846,
+        "inference_cost": {
+          "local_amortized": 1.1863850889192887e-05,
+          "cloud_small": 6.298255813953489e-05,
+          "cloud_large": 0.0007557906976744187
+        }
+      }
+    ],
+    "error_cost_range": [
+      0.5,
+      20.0
+    ],
+    "rehearsal": true,
+    "alpha": 0.05,
+    "ci_level": 0.95,
+    "min_gap": 0.02
+  },
+  "price_tables": [
+    {
+      "name": "local_amortized",
+      "input_usd_per_mtok": 0.05,
+      "output_usd_per_mtok": 0.1,
+      "assumed": true
+    },
+    {
+      "name": "cloud_small",
+      "input_usd_per_mtok": 0.25,
+      "output_usd_per_mtok": 1.25,
+      "assumed": true
+    },
+    {
+      "name": "cloud_large",
+      "input_usd_per_mtok": 3.0,
+      "output_usd_per_mtok": 15.0,
+      "assumed": true
+    }
+  ],
+  "default_price_table": "cloud_small",
+  "rules": {
+    "alpha": 0.05,
+    "min_gap": 0.02,
+    "checks": 13,
+    "price_tables": 3
+  },
+  "case": {
+    "id": "b77-test-00074",
+    "text": "Where do I need to go in the app to enter my card info?",
+    "gold": "card_linking",
+    "linear": "card_linking",
+    "shortlist": [
+      "card_linking",
+      "order_physical_card",
+      "country_support",
+      "verify_source_of_funds",
+      "edit_personal_details"
+    ],
+    "search_query": "enter card info in app",
+    "agent": "order_physical_card"
+  }
+}
