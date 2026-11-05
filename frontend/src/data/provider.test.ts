@@ -88,6 +88,6 @@ test('the api provider reads the story and status from the server', async () => 
   const story = await p.load();
   assert.equal(story.verdict.n_cases, good().verdict.n_cases);
   assert.deepEqual(f.urls, ['http://127.0.0.1:8000/api/story']);
-  await assert.rejects(new ApiProvider('', fakeFetch({}).fetch).status(), StoryDataError);
+  await assert.rejects(new ApiProvider('', fakeFetch({}).fetch).status(), /expected shape/);
   await assert.rejects(new ApiProvider('', fakeFetch({}, 404).fetch).load(), /HTTP 404/);
 });
