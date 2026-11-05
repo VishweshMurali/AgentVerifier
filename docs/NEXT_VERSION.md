@@ -25,6 +25,20 @@ structured output (schema checks).
 7. Cost covers model calls only: not build/maintenance effort, latency or user experience.
 8. Narrow conclusion: it is about this agent on this model, not agents in general.
 
+## Known defects in v1 (found 2026-11-05, frozen, not fixed)
+Both are in files frozen under `arms-frozen`, so the Banking77 sealed run used them as they are.
+1. Leakage check overstates overlap (`checks.find_copies`). The 5-gram vectorizer is fit on DEV
+   only, so test 5-grams unseen in DEV are dropped and the union is too small. Example: "lost card
+   the" vs "lost card the top" has true Jaccard 0.69 but is flagged at 0.90; 445 of 4,000 random
+   pairs were misjudged, always towards flagging. Effect: some of the 37 cases dropped as copies
+   may not be copies. This only removes cases, so it cannot make an arm look better. Fix: fit the
+   vectorizer on both sides, or compute exact set Jaccard.
+2. Decision rule picks the agent on accuracy alone (`decision.decide`, line 198). DEPLOY_AGENT can
+   be given even when the agent costs more across the whole pre-registered error-cost range; cost
+   only shows up as the break-even. No effect on Banking77, where the agent trails. Fix: require
+   the agent's expected cost to be lower somewhere in the range, otherwise NEED_MORE_DATA or
+   USE_SIMPLER.
+
 ## Improvements, most valuable first
 1. Cascade arm: Linear answers confident cases, the agent only the flagged ones (the Null flag
    exists already).
