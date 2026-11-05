@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { StaticJsonProvider, StoryDataError, validateStory, type FetchLike } from './provider.ts';
+import { ApiProvider, StaticJsonProvider, StoryDataError, validateStory, type FetchLike } from './provider.ts';
 
 const raw = readFileSync(new URL('../../public/data/story.json', import.meta.url), 'utf8');
 const good = () => JSON.parse(raw) as Record<string, any>;
@@ -80,4 +80,14 @@ test('not an object, HTTP error and bad JSON are readable errors', async () => {
     throw new Error('offline');
   };
   await assert.rejects(new StaticJsonProvider('./x.json', down).load(), /Could not reach \.\/x\.json: offline/);
+});
+
+test('the api provider reads the story and status from the server', async () => {
+  const f = fakeFetch(good());
+  const p = new ApiProvider('http://127.0.0.1:8000/', f.fetch);
+  const story = await p.load();
+  assert.equal(story.verdict.n_cases, good().verdict.n_cases);
+  assert.deepEqual(f.urls, ['http://127.0.0.1:8000/api/story']);
+  await assert.rejects(new ApiProvider('', fakeFetch({}).fetch).status(), StoryDataError);
+  await assert.rejects(new ApiProvider('', fakeFetch({}, 404).fetch).load(), /HTTP 404/);
 });

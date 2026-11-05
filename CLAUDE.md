@@ -27,7 +27,7 @@ Banking77 is the first task and proves the method.
 - Every verdict has an evidence level: `REAL`, `SYNTHETIC_CHECKED` or `SYNTHETIC`. `SYNTHETIC` alone never picks a winner: it gives `NEED_MORE_DATA` with the estimate shown, or `INVALID` when the run itself is broken (no scorer, failed floor, failed INVALID check).
 - Each scenario declares a plain-code scorer, otherwise `INVALID`. The agent must pass a quality floor before the sealed run, otherwise `INVALID`.
 - The headline is the break-even error cost. No error cost is invented. Each verdict saves an audit bundle.
-- Stack: Python 3.12, uv, openai SDK -> Ollama (`http://localhost:11434/v1`, model `llama3.1:8b`, temperature 0), LangGraph, scikit-learn, numpy, scipy, pydantic, datasets, SQLite, pytest, ruff, jinja2 (HTML report), pyyaml (approved by the user for prereg.yaml). Front end: React + Vite + TypeScript (approved 2026-11-04), built to the locked design in `design/frontend/SPEC.md`.
+- Stack: Python 3.12, uv, openai SDK -> Ollama (`http://localhost:11434/v1`, model `llama3.1:8b`, temperature 0), LangGraph, scikit-learn, numpy, scipy, pydantic, datasets, SQLite, pytest, ruff, jinja2 (HTML report), pyyaml (approved by the user for prereg.yaml). Front end: React + Vite + TypeScript (approved 2026-11-04), built to the locked design in `design/frontend/SPEC.md`. Local server: FastAPI + uvicorn (approved 2026-11-04), in `server/` with its own pyproject.
 
 ## Phases (implement only the current one; STOP and report after each; wait for "continue")
 - A: CLAUDE.md, pydantic schemas, prereg.yaml template, data loader (stratified DEV/TEST split + seed), sealed test + hash + unseal guard, throughput benchmark.
@@ -62,6 +62,7 @@ src/agent_committee/
   runner.py      Phase D runner, the ONLY sealed-test reader; `--rehearse` runs it on DEV instead
   report.py      results/report.html from verdict.json (templates/report.html.j2)
   arms/          base protocol, config, splits, labels, linear (shared layer + arm 1), prompt, agent, tools, evaluate
+server/          FastAPI local API + page (own uv project; never imports seal or runner)
 scripts/benchmark_throughput.py   thin CLI around throughput.py
 scripts/power_analysis.py         required N across discordance rates
 scripts/validate_checks.py        checks the checks on DEV only (false alarms, leakage preview)
@@ -77,3 +78,4 @@ tests/
 - Benchmark: `uv run python scripts/benchmark_throughput.py`
 - Rehearse Phase D on DEV (never opens TEST): `uv run python -m agent_committee.runner --rehearse`
 - The one sealed run (after the user's `arms-frozen` tag): `uv run python -m agent_committee.runner`
+- Local server + live page: `npm --prefix frontend run build:server` then `uv run --project server python -m verifier_server` (http://127.0.0.1:8000); tests `uv run --project server pytest server/tests`

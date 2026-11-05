@@ -1,10 +1,12 @@
 // Data providers: where the story's data comes from. Pure logic, no DOM, so node:test can run it.
-import type { Story } from './types.ts';
+import type { LiveStatus, Story } from './types.ts';
 
 export interface DataProvider {
   /** Short name shown in errors, for example "static". */
   name: string;
   load(): Promise<Story>;
+  /** Live project status, when the provider is connected to the local server. */
+  status?(): Promise<LiveStatus>;
 }
 
 /** The part of fetch the providers use, so tests can pass a fake. */
@@ -148,21 +150,51 @@ export class StaticJsonProvider implements DataProvider {
   }
 
   async load(): Promise<Story> {
-    let res: Awaited<ReturnType<FetchLike>>;
-    try {
-      res = await this.fetchImpl(this.url);
-    } catch (err) {
-      throw new StoryDataError(`Could not reach ${this.url}: ${err instanceof Error ? err.message : String(err)}`);
+    return validateStory(await fetchJson(this.fetchImpl, this.url));
+  }
+}
+
+/** GET a URL and parse JSON, turning every failure into one readable StoryDataError. */
+export async function fetchJson(fetchImpl: FetchLike, url: string): Promise<unknown> {
+  let res: Awaited<ReturnType<FetchLike>>;
+  try {
+    res = await fetchImpl(url);
+  } catch (err) {
+    throw new StoryDataError(`Could not reach ${url}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!res.ok) {
+    throw new StoryDataError(`Could not load ${url}: HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''}`);
+  }
+  try {
+    return await res.json();
+  } catch {
+    throw new StoryDataError(`${url} is not valid JSON`);
+  }
+}
+
+/**
+ * Reads the story and the live status from the local server (server/, FastAPI). `base` is the
+ * server's origin, or '' when the page is served by the server itself.
+ */
+export class ApiProvider implements DataProvider {
+  readonly name = 'api';
+  private readonly base: string;
+  private readonly fetchImpl: FetchLike;
+
+  constructor(base = '', fetchImpl?: FetchLike) {
+    this.base = base.replace(/\/+$/, '');
+    this.fetchImpl = fetchImpl ?? ((u: string) => fetch(u));
+  }
+
+  async load(): Promise<Story> {
+    return validateStory(await fetchJson(this.fetchImpl, `${this.base}/api/story`));
+  }
+
+  async status(): Promise<LiveStatus> {
+    const body = await fetchJson(this.fetchImpl, `${this.base}/api/status`);
+    if (typeof body !== 'object' || body === null || !('sealed_run' in body)) {
+      throw new StoryDataError('/api/status does not have the expected shape');
     }
-    if (!res.ok) {
-      throw new StoryDataError(`Could not load ${this.url}: HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ''}`);
-    }
-    let body: unknown;
-    try {
-      body = await res.json();
-    } catch {
-      throw new StoryDataError(`${this.url} is not valid JSON`);
-    }
-    return validateStory(body);
+    return body as LiveStatus;
   }
 }

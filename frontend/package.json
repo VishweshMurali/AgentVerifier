@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"src/**/*.test.ts\""
+    "test": "node --test \"src/**/*.test.ts\"",
+    "build:server": "tsc --noEmit && vite build --mode server --outDir dist-server"
   },
   "dependencies": {
     "react": "19.3.1",

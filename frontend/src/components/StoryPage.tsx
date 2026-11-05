@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Arm, Story } from '../data/types.ts';
+import type { Arm, LiveStatus, Story } from '../data/types.ts';
+import { liveLine } from '../story/live.ts';
 import { costGap, defaultErrorCost, expectedCost, sliderStep } from '../story/cost.ts';
 import { num, pct, tableLabel, usd } from '../story/format.ts';
 import * as L from '../story/lines.ts';
@@ -17,7 +18,7 @@ const LANE_RGB: Record<string, [number, number, number]> = { linear: [31, 110, 1
 const AGENT_RGB: [number, number, number] = [37, 48, 49];
 const FILL_CLASS: Record<string, string> = { linear: 'fill-lin', prompt: 'fill-prm' };
 
-export function StoryPage({ story }: { story: Story }) {
+export function StoryPage({ story, live = null }: { story: Story; live?: LiveStatus | null }) {
   const v = story.verdict;
   const active = useActiveScene(SCENE_IDS);
   const inView = useScenesInView(SCENE_IDS);
@@ -205,6 +206,12 @@ export function StoryPage({ story }: { story: Story }) {
         <span className="brand glass">
           Agent Verifier<span className="t-teal">.</span>
         </span>
+        {live && (
+          <span className="live glass" role="status" title="Live status from the local server">
+            <i className={live.ollama ? 'on' : 'off'} aria-hidden="true" />
+            {liveLine(live)}
+          </span>
+        )}
         <div className="top-actions">
           <button type="button" className="pill glass" aria-pressed={night} onClick={() => setNight(!night)}>
             {night ? 'Day' : 'Night'}

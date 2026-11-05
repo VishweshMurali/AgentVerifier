@@ -33,6 +33,11 @@ a { color: #1F6E73; } a:hover { color: #17555A; }
 .top-actions{display:flex;gap:10px;align-items:center;pointer-events:none}
 .cta{pointer-events:auto;text-decoration:none;color:#FFFFFF;background:#1F6E73;border-radius:999px;padding:12px 18px;font-size:14px}
 .cta:hover{color:#FFFFFF;background:#17555A}
+/* live status from the local server (added; only with the api provider) */
+.live{pointer-events:auto;display:inline-flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:#3D4B4C;padding:9px 14px;border-radius:999px;margin-right:auto;margin-left:12px;max-width:52vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.live i{flex:none;width:8px;height:8px;border-radius:50%;background:#8FA3A4}
+.live i.on{background:#2FB5BB;box-shadow:0 0 8px rgba(47,181,187,.8)}
+.night .live{color:#B8CACB}
 
 .stats{display:flex;flex-direction:column;gap:22px;max-width:760px;width:100%}
 .stat{display:grid;grid-template-columns:130px 1fr 130px;gap:16px;align-items:center;font-size:20px}
@@ -232,6 +237,8 @@ a { color: #1F6E73; } a:hover { color: #17555A; }
 .say::after{right:24px !important;left:auto !important}
 .scene-name{display:none}
 .hud,.frame{display:none}
+.top{flex-wrap:wrap}
+.live{order:3;margin:0;max-width:100%;flex-basis:100%;box-sizing:border-box;font-size:11px}
 .top{padding:14px 16px;gap:8px}
 .gap-num{font-size:110px;letter-spacing:-4px}
 .gap-pts{font-size:36px}

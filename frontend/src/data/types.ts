@@ -105,3 +105,19 @@ export interface Story {
   rules: Rules;
   case: StoryCase | null;
 }
+
+/** GET /api/status from the local server (server/), when the page runs against it. */
+export interface LiveStatus {
+  ollama: boolean;
+  sealed_run: {
+    state: 'not_started' | 'started_not_finished' | 'finished' | string;
+    started_at_commit: string | null;
+    verdict: { mtime: number } | null;
+    /** Test cases before copies of DEV text are dropped. */
+    test_cases: number | null;
+    /** Run-phase answers cached so far, per arm. */
+    answers_cached: Record<string, number>;
+  };
+  rehearsal: { verdict: { mtime: number } | null };
+  job: { id: string; kind: string; state: string } | null;
+}
