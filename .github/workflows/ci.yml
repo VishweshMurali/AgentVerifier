@@ -1,0 +1,38 @@
+# Runs the one-command check (scripts/check.py) on every push and pull request.
+# No Ollama, no LLM cache, no sealed/ folder: the tests use fake transports and fixture data.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.1"
+          enable-cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Check everything
+        run: uv run python scripts/check.py

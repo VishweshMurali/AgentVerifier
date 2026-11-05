@@ -35,9 +35,12 @@ def create_app(
     story: StoryService | None = None,
     jobs: JobManager | None = None,
     serve_page: bool = True,
+    page_dir: Path | None = None,
+    with_case: bool = True,
 ) -> FastAPI:
     paths = Paths(root)
-    stories = story or StoryService(paths)
+    # the export code always comes from this checkout; `root` only says where the data lives
+    stories = story or StoryService(paths, with_case=with_case, script_root=ROOT)
     manager = jobs or JobManager(root)
     app = FastAPI(title="Agent Verifier", docs_url="/api/docs", openapi_url="/api/openapi.json")
     # refuse other Host names (DNS rebinding); "testserver" is the test client's
@@ -81,6 +84,7 @@ def create_app(
             raise HTTPException(404, "no such job")
         return job.view()
 
-    if serve_page and paths.dist.is_dir():
-        app.mount("/", StaticFiles(directory=paths.dist, html=True), name="page")
+    page = page_dir or paths.dist
+    if serve_page and page.is_dir():
+        app.mount("/", StaticFiles(directory=page, html=True), name="page")
     return app

@@ -66,6 +66,7 @@ server/          FastAPI local API + page (own uv project; never imports seal or
 scripts/benchmark_throughput.py   thin CLI around throughput.py
 scripts/power_analysis.py         required N across discordance rates
 scripts/validate_checks.py        checks the checks on DEV only (false alarms, leakage preview)
+scripts/check.py                  one-command check of everything (CI: .github/workflows/ci.yml)
 prereg.yaml      pre-registration (all costs/prices are ASSUMED)
 data/            dev.jsonl, test.sha256, split_manifest.json (committed)
 sealed/          test.jsonl (gitignored)
@@ -73,6 +74,7 @@ tests/
 ```
 
 ## Commands
+- Check everything (what CI runs): `uv run python scripts/check.py` (`--no-install`, `--fast`)
 - Tests: `uv run pytest`   Lint: `uv run ruff check . && uv run ruff format --check .`
 - Build split (once): `uv run python -m agent_committee.data`
 - Benchmark: `uv run python scripts/benchmark_throughput.py`
