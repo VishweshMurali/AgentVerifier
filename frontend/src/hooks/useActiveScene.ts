@@ -25,3 +25,38 @@ export function useActiveScene(ids: readonly string[]): string {
 
   return active;
 }
+
+/**
+ * Scenes currently on screen (at least a fifth visible). A scene's content rises in when it
+ * enters and resets when it leaves, so the reveals replay on every visit, on every browser.
+ */
+export function useScenesInView(ids: readonly string[]): ReadonlySet<string> {
+  const [seen, setSeen] = useState<ReadonlySet<string>>(() => new Set());
+
+  useEffect(() => {
+    const sections = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+    if (typeof IntersectionObserver === 'undefined') {
+      setSeen(new Set(ids));
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setSeen((prev) => {
+          const next = new Set(prev);
+          for (const e of entries) {
+            if (e.intersectionRatio >= 0.2) next.add(e.target.id);
+            else if (!e.isIntersecting) next.delete(e.target.id);
+          }
+          return next;
+        });
+      },
+      { threshold: [0, 0.2] },
+    );
+    sections.forEach((s) => observer.observe(s));
+    return () => observer.disconnect();
+  }, [ids]);
+
+  return seen;
+}
