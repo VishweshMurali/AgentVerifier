@@ -35,6 +35,23 @@ structured output (schema checks).
 6. Per-segment results: by intent or difficulty, not one overall number.
 7. Monitoring: rerun the checks on live traffic (e.g. LangSmith) and alert when the decision flips.
 
+## Cost monitoring with LangSmith and Langfuse (user's idea, 2026-11-05)
+Goal: every model call's tokens and cost are captured automatically and shown on a dashboard and
+on the page, without the user setting anything up.
+- One tracing interface in the LLM wrapper with switchable backends (LangSmith, Langfuse, off),
+  picked by env variables. LangGraph traces natively to LangSmith; the openai SDK has drop-in
+  wrappers for both.
+- Ollama calls cost $0 to the tracers: load the prereg price tables as custom model prices, so
+  dashboards and the verdict use the same numbers.
+- The verdict never reads cost from a tracer (external, can change). Deterministic code keeps
+  using our own token log; a new check compares our token counts with the tracer's.
+- Privacy: traces carry the prompts. Sealed-run cases must not go to a cloud service, so either
+  self-host Langfuse (Docker, open source) or turn tracing off or redact prompts in the sealed run.
+- llm.py is frozen until the sealed run, so this waits for the next version. The front end already
+  has a provider slot for it (frontend/src/data/index.ts).
+- Suggested order: Langfuse first (self-hostable, keeps data local), LangSmith second.
+
 ## Also planned
 - One-command check of everything, an end-to-end test, and GitHub CI (approved 2026-11-05,
   waiting until the user finishes reviewing).
+- Free hosting of the static page: GitHub Pages deployed by that CI (suggested, not yet approved).
