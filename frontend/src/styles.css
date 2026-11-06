@@ -212,17 +212,24 @@ a { color: #1F6E73; } a:hover { color: #17555A; }
 .in .fill{transform:scaleX(1)}
 .land{opacity:0;transform:scale(1.7);filter:blur(10px);transition:opacity 1s cubic-bezier(.2,.8,.2,1) .2s,transform 1s cubic-bezier(.2,.8,.2,1) .2s,filter 1s ease .2s}
 .in .land{opacity:1;transform:none;filter:none}
-/* headlines reveal word by word as the scene comes in */
-.w{display:inline-block;opacity:0;transform:translateY(.5em);filter:blur(8px);transition:opacity .7s cubic-bezier(.2,.8,.2,1),transform .7s cubic-bezier(.2,.8,.2,1),filter .7s ease;transition-delay:calc(.1s + var(--i) * .07s)}
+/* headlines: each word rises out of a mask with a small turn, then settles with a soft overshoot */
+.wm{display:inline-block;overflow:hidden;vertical-align:top;padding:.14em .06em .18em;margin:-.14em -.06em -.18em}
+.w{display:inline-block;transform-origin:0 100%;opacity:0;transform:translateY(112%) rotate(5deg);filter:blur(6px);transition:opacity .5s ease,transform .95s cubic-bezier(.16,1.12,.3,1),filter .7s ease;transition-delay:calc(.12s + var(--i) * .08s)}
 .in .w{opacity:1;transform:none;filter:none}
-/* the first headline types in on load instead, since it is already on screen */
-.w.now{animation:wordin 1s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(1.2s + var(--i) * .1s)}
+/* the first headline plays on load instead, since it is already on screen */
+@keyframes wordup{from{opacity:0;transform:translateY(112%) rotate(5deg);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
+.w.now{transition:none;animation:wordup 1.1s cubic-bezier(.16,1.12,.3,1) both;animation-delay:calc(1.1s + var(--i) * .1s)}
+/* eyebrow rule draws itself, lead text sharpens into focus */
+.eyebrow::before{transform:scaleX(0);transform-origin:left;transition:transform .8s cubic-bezier(.2,.8,.2,1) .1s}
+.in .eyebrow::before{transform:scaleX(1)}
+.lead.beat-3{filter:blur(6px);letter-spacing:.02em;transition:opacity 1s cubic-bezier(.2,.8,.2,1) .55s,transform 1s cubic-bezier(.2,.8,.2,1) .55s,filter 1s ease .55s,letter-spacing 1.2s ease .55s}
+.in .lead.beat-3{filter:none;letter-spacing:0}
 /* Idle motion stays on with reduced motion, only slower; reveals stay, without blur. */
 @media (prefers-reduced-motion: reduce){
 .r-hover{animation-duration:7s}.r-sway{animation-duration:10s}.r-arm,.r-wave{animation-duration:7s}.r-antenna{animation-duration:5s}
 .scan{animation:none;display:none}
-.w,.land{filter:none !important}
-.w.now{animation:none;opacity:1;transform:none}
+.w,.land,.lead.beat-3{filter:none !important}
+.w.now{animation:none;opacity:1;transform:none}.eyebrow::before{transform:none}
 }
 /* phones: the robot docks small in the corner, stops flying, and talks from there */
 @media (max-width: 900px){

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { prefersReducedMotion } from '../motion/flight.ts';
 import { startRibbon, type Flyer, type Lane } from '../motion/ribbon.ts';
 
-/** A headline split into words that rise in one after another (see .w in styles.css). */
+/** A headline split into words that rise out of a mask one after another (see .wm and .w in styles.css). */
 export function Words({ text, now = false }: { text: string; now?: boolean }) {
   const words = text.split(/\s+/).filter(Boolean);
   return (
@@ -12,12 +12,48 @@ export function Words({ text, now = false }: { text: string; now?: boolean }) {
       {words.map((w, i) => (
         <span key={i}>
           {i > 0 && ' '}
-          <span className={`w${now ? ' now' : ''}`} style={{ '--i': i } as CSSProperties}>
-            {w}
+          <span className="wm">
+            <span className={`w${now ? ' now' : ''}`} style={{ '--i': i } as CSSProperties}>
+              {w}
+            </span>
           </span>
         </span>
       ))}
     </>
+  );
+}
+
+const GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+/** A small label that decodes left to right from random characters each time `run` turns true. */
+export function Decode({ text, run, className = '' }: { text: string; run: boolean; className?: string }) {
+  const still = prefersReducedMotion();
+  const [shown, setShown] = useState(text);
+  useEffect(() => {
+    if (still || !run) {
+      setShown(text);
+      return;
+    }
+    let raf = 0;
+    const t0 = performance.now() + 150;
+    const step = (now: number) => {
+      const p = Math.min(1, Math.max(0, (now - t0) / 800));
+      const keep = Math.floor(p * text.length);
+      setShown(
+        [...text]
+          .map((c, i) => (i < keep || c === ' ' || c === '·' ? c : GLYPHS[Math.floor(Math.random() * GLYPHS.length)]))
+          .join(''),
+      );
+      if (p < 1) raf = requestAnimationFrame(step);
+      else setShown(text);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [run, text, still]);
+  return (
+    <span className={className} aria-label={text}>
+      <span aria-hidden="true">{shown}</span>
+    </span>
   );
 }
 

@@ -8,7 +8,7 @@ import { SCENE_IDS, SCENES, sceneById, type Mood } from '../story/scenes.ts';
 import { useActiveScene, useScenesInView } from '../hooks/useActiveScene.ts';
 import { prefersReducedMotion, startSmoothWheel } from '../motion/flight.ts';
 import type { Flyer, Lane } from '../motion/ribbon.ts';
-import { Background, CountUp, Words } from './Motion.tsx';
+import { Background, CountUp, Decode, Words } from './Motion.tsx';
 import { RichText } from './Rich.tsx';
 import { Robot } from './Robot.tsx';
 import { Timeline } from './Timeline.tsx';
@@ -230,7 +230,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
 
       <main>
         <section id="s1" className={sceneCls('s1', 'robot-right')} aria-labelledby="s1-h">
-          <span className="eyebrow beat">Agent Verifier</span>
+          <Decode className="eyebrow beat" text="Agent Verifier" run={inView.has('s1')} />
           <h1 id="s1-h" className="big">
             <Words text="Is your agent worth deploying?" now />
           </h1>
@@ -238,7 +238,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
         </section>
 
         <section id="s2" className={sceneCls('s2', 'robot-left')} aria-labelledby="s2-h">
-          <span className="eyebrow beat">01 · The contenders</span>
+          <Decode className="eyebrow beat" text="01 · The contenders" run={inView.has('s2')} />
           <h2 id="s2-h" className="mid">
             <Words text={L.contendersHeading(v.arms.length, v.n_cases)} />
           </h2>
@@ -259,7 +259,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
         </section>
 
         <section id="s3" className={sceneCls('s3', 'robot-right')} aria-labelledby="s3-h">
-          <span className="eyebrow beat">02 · Fair rules</span>
+          <Decode className="eyebrow beat" text="02 · Fair rules" run={inView.has('s3')} />
           <h2 id="s3-h" className="mid">
             <Words text="The rules are locked before the test." />
           </h2>
@@ -267,7 +267,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
         </section>
 
         <section id="s4" className={sceneCls('s4', 'robot-left')} aria-labelledby="s4-h">
-          <span className="eyebrow beat">03 · The scores</span>
+          <Decode className="eyebrow beat" text="03 · The scores" run={inView.has('s4')} />
           <h2 id="s4-h" className="mid">
             <Words text="How each one did." />
           </h2>
@@ -297,7 +297,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
         </section>
 
         <section id="s5" className={sceneCls('s5', 'robot-right')} aria-labelledby="s5-h">
-          <span className="eyebrow beat">04 · Integrity</span>
+          <Decode className="eyebrow beat" text="04 · Integrity" run={inView.has('s5')} />
           <h2 id="s5-h" className="mid">
             <Words text={L.checksHeading(checks)} />
           </h2>
@@ -321,7 +321,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
 
         <section id="s6" className={sceneCls('s6', 'robot-left center')} aria-labelledby="s6-h">
           <div className="scan" aria-hidden="true" />
-          <span className="eyebrow beat">05 · The reveal</span>
+          <Decode className="eyebrow beat" text="05 · The reveal" run={inView.has('s6')} />
           <div id="s6-h" className="land gap-num" role="text" aria-label={`${L.revealNumber(v.accuracy_diff)} points`}>
             <span aria-hidden="true">
               <CountUp value={gapPts} prefix={gapSign} run={inView.has('s6')} />
@@ -335,7 +335,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
         </section>
 
         <section id="s7" className={sceneCls('s7', 'robot-right center')} aria-labelledby="s7-h">
-          <span className="eyebrow beat">06 · Your call</span>
+          <Decode className="eyebrow beat" text="06 · Your call" run={inView.has('s7')} />
           <h2 id="s7-h" className="mid">
             <Words text="What does one wrong answer cost you?" />
           </h2>
@@ -387,7 +387,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
         </section>
 
         <section id="s8" className={sceneCls('s8', 'robot-left')} aria-labelledby="s8-h">
-          <span className="eyebrow beat">07 · One case</span>
+          <Decode className="eyebrow beat" text="07 · One case" run={inView.has('s8')} />
           <h2 id="s8-h" className={`mid${story.case ? '' : ' muted'}`}>
             <Words text={L.caseHeading(story.case)} />
           </h2>
@@ -395,7 +395,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
         </section>
 
         <section id="s9" className={sceneCls('s9', 'robot-right')} aria-labelledby="s9-h">
-          <span className="eyebrow beat">08 · The recap</span>
+          <Decode className="eyebrow beat" text="08 · The recap" run={inView.has('s9')} />
           <h2 id="s9-h" className="mid">
             <Words text={L.recapHeading(story)} />
           </h2>
