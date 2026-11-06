@@ -173,7 +173,35 @@ def test_agent_that_skips_its_tools_is_invalid(tmp_path):
     assert v.quality_floor_passed is False
 
 
-def test_rehearsal_never_imports_the_seal_up_front():
+def test_importing_the_runner_does_not_import_the_seal():
+    import subprocess
     import sys
 
-    assert "agent_committee.seal" not in sys.modules or "seal" not in vars(runner)
+    code = "import sys, agent_committee.runner; print('agent_committee.seal' in sys.modules)"
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert done.stdout.strip() == "False"
+
+
+def test_only_the_sealed_branch_imports_the_seal():
+    """The one `seal` import sits in the else-branch of `if args.rehearse`, nowhere else."""
+    import ast
+
+    tree = ast.parse(open(runner.__file__, encoding="utf-8").read())
+
+    def imports_seal(n):
+        if isinstance(n, ast.Import):
+            return any(a.name.endswith(".seal") or a.name == "seal" for a in n.names)
+        if isinstance(n, ast.ImportFrom):
+            return (n.module or "").endswith("seal") or any(a.name == "seal" for a in n.names)
+        return False
+
+    branches = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.If) and ast.unparse(n.test) == "args.rehearse"
+    ]
+    assert len(branches) == 2  # choosing the cases, then the rehearsal note
+    choose = branches[0]
+    in_else = {id(n) for b in choose.orelse for n in ast.walk(b) if imports_seal(n)}
+    everywhere = {id(n) for n in ast.walk(tree) if imports_seal(n)}
+    assert in_else and everywhere == in_else

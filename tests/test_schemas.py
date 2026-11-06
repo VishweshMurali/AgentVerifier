@@ -267,3 +267,49 @@ def test_synthetic_alone_can_only_be_need_more_data_or_invalid():
 def test_synthetic_checked_can_reach_a_real_verdict():
     checked = {**_BASE, "evidence_level": EvidenceLevel.SYNTHETIC_CHECKED}
     assert VerdictJSON(**checked).verdict == Verdict.USE_SIMPLER
+
+
+def _check(effect, passed=False):
+    from agent_committee.schemas import CheckResult
+
+    return CheckResult(name=f"c_{effect}", value=1.0, passed=passed, effect=effect)
+
+
+@pytest.mark.parametrize(
+    "verdict", [Verdict.DEPLOY_AGENT, Verdict.USE_SIMPLER, Verdict.NEED_MORE_DATA]
+)
+def test_a_failed_invalid_check_forces_invalid(verdict):
+    from agent_committee.schemas import CheckEffect
+
+    failed = [_check(CheckEffect.INVALID)]
+    ci = {"accuracy_diff_ci": (0.01, 0.05)}
+    with pytest.raises(ValidationError, match="failed INVALID check"):
+        VerdictJSON(**{**_BASE, "verdict": verdict}, checks=failed, **ci)
+    assert VerdictJSON(**{**_BASE, "verdict": Verdict.INVALID}, checks=failed, **ci)
+
+
+def test_a_failed_need_more_data_check_rules_out_a_winner():
+    from agent_committee.schemas import CheckEffect
+
+    failed = [_check(CheckEffect.NEED_MORE_DATA)]
+    ci = {"accuracy_diff_ci": (0.01, 0.05)}
+    for verdict in (Verdict.DEPLOY_AGENT, Verdict.USE_SIMPLER):
+        with pytest.raises(ValidationError, match="rules out picking a winner"):
+            VerdictJSON(**{**_BASE, "verdict": verdict}, checks=failed, **ci)
+    for verdict in (Verdict.NEED_MORE_DATA, Verdict.INVALID):
+        assert VerdictJSON(**{**_BASE, "verdict": verdict}, checks=failed, **ci)
+
+
+def test_report_only_and_passed_checks_never_bind_the_verdict():
+    from agent_committee.schemas import CheckEffect
+
+    checks = [
+        _check(CheckEffect.REPORT),
+        _check(CheckEffect.INVALID, passed=True),
+        _check(CheckEffect.NEED_MORE_DATA, passed=True),
+    ]
+    for verdict in (Verdict.DEPLOY_AGENT, Verdict.USE_SIMPLER):
+        v = VerdictJSON(
+            **{**_BASE, "verdict": verdict}, checks=checks, accuracy_diff_ci=(0.01, 0.05)
+        )
+        assert v.verdict == verdict

@@ -11,7 +11,8 @@ Every number comes from the pipeline's own files and deterministic code. Nothing
 agent_committee.seal or the runner, and nothing reads the sealed test.
 """
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .jobs import JobBusy, JobManager
 from .status import Paths, ollama_up, project_status
-from .story import StoryService
+from .story import StoryService, VerdictUnreadable
 
 ROOT = Path(__file__).resolve().parents[3]
 # Writes need this header: a cross-site page cannot send it without a CORS preflight, which fails.
@@ -37,16 +38,27 @@ def create_app(
     serve_page: bool = True,
     page_dir: Path | None = None,
     with_case: bool = True,
+    testing: bool = False,
 ) -> FastAPI:
     paths = Paths(root)
     # the export code always comes from this checkout; `root` only says where the data lives
     stories = story or StoryService(paths, with_case=with_case, script_root=ROOT)
     manager = jobs or JobManager(root)
-    app = FastAPI(title="Agent Verifier", docs_url="/api/docs", openapi_url="/api/openapi.json")
-    # refuse other Host names (DNS rebinding); "testserver" is the test client's
-    app.add_middleware(
-        TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"]
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        manager.shutdown()  # a rehearsal never outlives the server
+
+    app = FastAPI(
+        title="Agent Verifier",
+        docs_url="/api/docs",
+        openapi_url="/api/openapi.json",
+        lifespan=lifespan,
     )
+    # refuse other Host names (DNS rebinding); "testserver" (the test client's) only in tests
+    hosts = ["127.0.0.1", "localhost"] + (["testserver"] if testing else [])
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -58,6 +70,8 @@ def create_app(
             return stories.get()
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
+        except VerdictUnreadable as exc:
+            raise HTTPException(503, f"the verdict cannot be shown yet: {exc}") from exc
 
     @app.get("/api/status")
     def get_status() -> dict[str, Any]:

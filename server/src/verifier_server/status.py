@@ -57,32 +57,49 @@ def ollama_up(url: str = OLLAMA_TAGS, timeout: float = 1.5) -> bool:
         return False
 
 
-def run_progress(cache: Path) -> dict[str, int]:
-    """Run-phase answers cached so far, per arm. Counts only; no row content is read."""
+def run_progress(cache: Path) -> tuple[dict[str, int], str | None]:
+    """Run-phase answers cached so far, per arm, and the read error if the cache could not be read
+    (e.g. locked by a writer), so "unreadable" never looks like "0 answers". Counts only; no row
+    content is read."""
     if not cache.exists():
-        return {}
-    con = sqlite3.connect(f"file:{cache.as_posix()}?mode=ro", uri=True)
+        return {}, None
     try:
-        rows = con.execute(
-            "SELECT arm, COUNT(*) FROM cache WHERE phase = 'run' GROUP BY arm"
-        ).fetchall()
-    except sqlite3.Error:
-        return {}
-    finally:
-        con.close()
-    return {str(arm): int(n) for arm, n in rows}
+        con = sqlite3.connect(f"file:{cache.as_posix()}?mode=ro", uri=True, timeout=0.5)
+        try:
+            rows = con.execute(
+                "SELECT arm, COUNT(*) FROM cache WHERE phase = 'run' GROUP BY arm"
+            ).fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        return {}, f"could not read the LLM cache: {exc}"
+    return {str(arm): int(n) for arm, n in rows}, None
 
 
 def _file(path: Path) -> dict[str, Any] | None:
-    if not path.exists():
+    try:
+        return {"mtime": path.stat().st_mtime}
+    except OSError:
         return None
-    return {"mtime": path.stat().st_mtime}
+
+
+def _manifest(path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # missing, or partly written
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _marker_commit(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
 
 
 def project_status(paths: Paths, ollama: bool) -> dict[str, Any]:
-    manifest = (
-        json.loads(paths.manifest.read_text(encoding="utf-8")) if paths.manifest.exists() else {}
-    )
+    manifest = _manifest(paths.manifest)
     sealed = _file(paths.sealed_verdict)
     started = paths.marker.exists()
     if sealed:
@@ -91,17 +108,17 @@ def project_status(paths: Paths, ollama: bool) -> dict[str, Any]:
         state = "started_not_finished"
     else:
         state = "not_started"
+    answers, answers_error = run_progress(paths.cache)
     return {
         "ollama": ollama,
         "sealed_run": {
             "state": state,
-            "started_at_commit": (
-                paths.marker.read_text(encoding="utf-8").strip() if started else None
-            ),
+            "started_at_commit": _marker_commit(paths.marker) if started else None,
             "verdict": sealed,
             # test cases before copies of DEV text are dropped (the kept count is in the verdict)
             "test_cases": manifest.get("n_test"),
-            "answers_cached": run_progress(paths.cache),
+            "answers_cached": answers,
+            "answers_cached_error": answers_error,
         },
         "rehearsal": {"verdict": _file(paths.rehearsal_verdict)},
     }
