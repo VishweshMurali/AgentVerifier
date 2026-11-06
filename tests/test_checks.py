@@ -1,3 +1,6 @@
+import importlib.util
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -181,3 +184,17 @@ def test_failed_need_more_data_check_blocks_a_winner():
 
 def test_report_checks_never_change_the_verdict():
     assert verdict(Verdict.USE_SIMPLER, CheckEffect.REPORT).verdict == Verdict.USE_SIMPLER
+
+
+def test_validate_checks_script_passes_on_dev(monkeypatch, capsys):
+    root = Path(__file__).resolve().parents[1]
+    monkeypatch.chdir(root)
+    path = root / "scripts/validate_checks.py"
+    spec = importlib.util.spec_from_file_location("validate_checks", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.main(["--reps", "1"]) == 0
+    out = capsys.readouterr().out
+    for name in ("tune_gap[linear]", "score_drift", "domain_auc", "false_alarm_rate"):
+        assert "PASS" in next(line for line in out.splitlines() if name in line)
+    assert "1/1 random halves" not in out

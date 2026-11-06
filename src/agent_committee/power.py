@@ -6,6 +6,11 @@ cells are p10 = (d + gap) / 2 and p01 = (d - gap) / 2. Conditional on n_d discor
 count of agent-only wins is Binomial(n_d, q) with q = p10 / d; the exact test rejects when that
 count is in the two-sided Binomial(n_d, 0.5) tail with probability <= alpha. n_d itself is
 Binomial(N, d), so power is computed exactly, with no normal approximation.
+
+`required_n` powers the McNemar test only. The DEPLOY_AGENT rule also needs the bootstrap CI of
+the accuracy difference above 0 and the observed difference at least min_gap, so its power is
+lower: at a true gap equal to min_gap the observed gap falls short about half the time.
+`deploy_rule_power` simulates that full rule with the same functions the decision engine uses.
 """
 
 from dataclasses import dataclass
@@ -13,9 +18,15 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.stats import binom
 
+from agent_committee.analysis import mcnemar_exact, percentile_ci
+
 DEFAULT_DISCORDANCE_GRID = (0.05, 0.10, 0.15, 0.20, 0.25, 0.30)
 HEADLINE_DISCORDANCE = 0.15
 _STABLE_WINDOW = 50
+# fixed so the reported full-rule power is reproducible
+DEPLOY_SIM_SEED = 20261105
+DEPLOY_SIMS = 1000
+DEPLOY_BOOTSTRAP_REPLICATES = 10000  # prereg stats.bootstrap_replicates
 
 
 def _validate(gap: float, discordance: float, alpha: float) -> None:
@@ -92,6 +103,56 @@ def required_n(
             run, first = 0, None
         n += 1
     raise ValueError(f"required N exceeds n_max={n_max}")
+
+
+def deploy_rule_power(
+    n: int,
+    gap: float,
+    discordance: float,
+    alpha: float,
+    min_gap: float,
+    ci_level: float,
+    sims: int = DEPLOY_SIMS,
+    replicates: int = DEPLOY_BOOTSTRAP_REPLICATES,
+    seed: int = DEPLOY_SIM_SEED,
+) -> float:
+    """Simulated share of runs in which the full DEPLOY_AGENT rule fires at a true `gap`.
+
+    Each run draws n paired cases (agent-only right with probability (d + gap) / 2, simpler-only
+    right with (d - gap) / 2, the rest concordant) and applies the decision engine's rule: exact
+    McNemar p < alpha, the paired case-bootstrap CI lower bound > 0, and the observed difference
+    >= min_gap. See `case_bootstrap_diff` for how the bootstrap is drawn.
+    """
+    _validate(gap, discordance, alpha)
+    if n < 1 or sims < 1 or replicates < 1:
+        raise ValueError("n, sims and replicates must be >= 1")
+    rng = np.random.default_rng(seed)
+    p10, p01 = (discordance + gap) / 2, (discordance - gap) / 2
+    fired = 0
+    for _ in range(sims):
+        u = rng.random(n)
+        agent_ok = u >= p01  # the simpler-only cell is the only one the agent gets wrong
+        simpler_ok = (u < p01) | (u >= p01 + p10)
+        _, _, p = mcnemar_exact(agent_ok, simpler_ok)
+        d = agent_ok.astype(float) - simpler_ok.astype(float)
+        if p >= alpha or float(np.mean(d)) < min_gap:
+            continue
+        lo, _ = percentile_ci(case_bootstrap_diff(d, replicates, rng), ci_level)
+        fired += lo > 0
+    return fired / sims
+
+
+def case_bootstrap_diff(d: np.ndarray, replicates: int, rng: np.random.Generator) -> np.ndarray:
+    """Bootstrap means of a paired difference d in {-1, 0, 1}, resampling whole cases.
+
+    Resampling n cases with replacement only matters through how many +1 and -1 cases are drawn,
+    which is Multinomial(n, shares of +1, -1, 0). Drawing those three counts gives the same
+    distribution as `analysis.bootstrap_means` on d, at a fraction of the cost.
+    """
+    n = len(d)
+    shares = np.array([np.sum(d == 1), np.sum(d == -1), np.sum(d == 0)]) / n
+    counts = rng.multinomial(n, shares, size=replicates)
+    return (counts[:, 0] - counts[:, 1]) / n
 
 
 @dataclass(frozen=True)

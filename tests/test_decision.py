@@ -128,3 +128,83 @@ def test_decision_never_reads_latency():
         a.name, a.correct, a.prompt_tokens, a.completion_tokens, a.latency_s * 100
     )
     assert run(slow, s).verdict == run(a, s).verdict
+
+
+# Ties and edges of the frozen rules (pinned as they are under arms-frozen; see R9 in the review).
+
+
+def paired(agent_only, simpler_only, n=3000):
+    """Agent and simpler arms with exact discordant counts; the agent costs more per case."""
+    agent_ok = np.ones(n, dtype=bool)
+    simpler_ok = np.ones(n, dtype=bool)
+    agent_ok[:simpler_only] = False
+    simpler_ok[simpler_only : simpler_only + agent_only] = False
+    tokens = np.full(n, 700.0)
+    agent = ArmRun("agent", agent_ok, tokens, np.full(n, 26.0), np.full(n, 0.5))
+    simpler = ArmRun("linear", simpler_ok, np.zeros(n), np.zeros(n), np.full(n, 0.5))
+    return agent, simpler
+
+
+def test_a_gain_exactly_at_min_gap_deploys():
+    v = run(*paired(100, 40))
+    assert v.accuracy_diff == PREREG.min_gap
+    assert v.verdict == Verdict.DEPLOY_AGENT and len(v.break_even) == 3
+
+
+def test_a_gain_just_below_min_gap_does_not_deploy():
+    v = run(*paired(99, 40))
+    assert v.accuracy_diff < PREREG.min_gap and v.accuracy_diff_ci[0] > 0
+    assert v.verdict == Verdict.NEED_MORE_DATA and v.break_even == []
+    assert any("below the 0.02 minimum gap" in r for r in v.reasons)
+
+
+def test_mcnemar_p_equal_to_alpha_does_not_deploy(monkeypatch):
+    monkeypatch.setattr(decision, "mcnemar_exact", lambda a, b: (100, 40, PREREG.alpha))
+    v = run(*paired(100, 40))
+    assert v.verdict == Verdict.NEED_MORE_DATA and v.break_even == []
+    assert any("McNemar p=0.05 is not below alpha=0.05" in r for r in v.reasons)
+
+
+def test_ci_lower_bound_equal_to_zero_does_not_deploy(monkeypatch):
+    monkeypatch.setattr(decision, "percentile_ci", lambda samples, level: (0.0, 0.05))
+    v = run(*paired(100, 40))
+    assert v.verdict == Verdict.NEED_MORE_DATA and v.break_even == []
+    assert any("CI is not entirely above 0" in r for r in v.reasons)
+
+
+def test_ci_upper_bound_equal_to_min_gap_is_not_use_simpler(monkeypatch):
+    monkeypatch.setattr(decision, "percentile_ci", lambda samples, level: (-0.05, PREREG.min_gap))
+    v = run(*paired(40, 100))
+    assert v.verdict == Verdict.NEED_MORE_DATA
+    assert any("still allows a gain" in r for r in v.reasons)
+
+
+def test_arms_of_unequal_length_are_refused():
+    agent, _ = paired(100, 40)
+    _, simpler = paired(100, 40, n=2999)
+    with pytest.raises(ValueError):
+        run(agent, simpler)
+
+
+def test_no_break_even_cause_names_the_first_unmet_condition():
+    cause = decision._no_break_even_cause
+    assert cause(0.001, 0.0, 0.05, PREREG) == "the accuracy difference CI is not entirely above 0"
+    assert cause(0.05, 0.01, 0.05, PREREG) == "McNemar p=0.05 is not below alpha=0.05"
+    assert cause(0.001, 0.01, 0.019, PREREG) == "the gain +0.019 is below the 0.02 minimum gap"
+    assert cause(0.001, 0.01, 0.05, PREREG) == (
+        "a pre-registered check or rule stopped the decision before it"
+    )
+
+
+def test_every_verdict_but_deploy_states_why_there_is_no_break_even():
+    v = run(*paired(40, 100))
+    assert v.verdict == Verdict.USE_SIMPLER
+    assert v.reasons[-1] == (
+        "No break-even error cost: the accuracy difference CI is not entirely above 0."
+    )
+    assert not any(r.startswith("No break-even") for r in run(*paired(100, 40)).reasons)
+
+
+def test_synthetic_checked_evidence_can_deploy():
+    v = run(*paired(100, 40), evidence=EvidenceLevel.SYNTHETIC_CHECKED)
+    assert v.verdict == Verdict.DEPLOY_AGENT
