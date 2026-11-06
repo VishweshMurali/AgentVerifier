@@ -41,6 +41,14 @@ export interface Arm {
   inference_cost: Record<string, number>;
 }
 
+/** Break-even error cost for one price table, with its CI (only when the agent is ahead). */
+export interface BreakEven {
+  price_table: string;
+  value: number;
+  ci_low: number;
+  ci_high: number;
+}
+
 export interface Verdict {
   verdict: VerdictName | string;
   evidence_level: EvidenceLevel | string;
@@ -57,7 +65,7 @@ export interface Verdict {
   accuracy_diff_ci: [number, number];
   mcnemar_p: number;
   aa_false_winner_rate: number;
-  break_even: unknown[];
+  break_even: BreakEven[];
   latency_s: Record<string, number>;
   checks: Check[];
   agent_arm: string;
@@ -95,6 +103,8 @@ export interface StoryCase {
   shortlist: string[];
   search_query: string | null;
   agent: string;
+  /** Extra fields a newer export may add (for example the split the case comes from) are allowed. */
+  [key: string]: unknown;
 }
 
 export interface Story {

@@ -28,6 +28,10 @@ export class StoryDataError extends Error {
 
 type Obj = Record<string, unknown>;
 
+/** The values the decision engine can write (CLAUDE.md, locked decisions). */
+const VERDICTS: readonly string[] = ['DEPLOY_AGENT', 'USE_SIMPLER', 'NEED_MORE_DATA', 'INVALID'];
+const EVIDENCE: readonly string[] = ['REAL', 'SYNTHETIC_CHECKED', 'SYNTHETIC'];
+
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
@@ -49,11 +53,31 @@ export function validateStory(data: unknown): Story {
 
   const v = data.verdict;
   if (need(isObj(v), 'verdict', 'an object') && isObj(v)) {
-    need(isStr(v.verdict), 'verdict.verdict', 'a string');
-    need(isStr(v.evidence_level), 'verdict.evidence_level', 'a string');
+    need(isStr(v.verdict) && VERDICTS.includes(v.verdict), 'verdict.verdict', `one of ${VERDICTS.join(', ')}`);
+    need(
+      isStr(v.evidence_level) && EVIDENCE.includes(v.evidence_level),
+      'verdict.evidence_level',
+      `one of ${EVIDENCE.join(', ')}`,
+    );
+    // a rehearsal must never be shown as the sealed verdict, or the other way round
+    if (need(typeof v.rehearsal === 'boolean', 'verdict.rehearsal', 'true or false')) {
+      need(
+        v.rehearsal === (data.source === 'rehearsal'),
+        'verdict.rehearsal',
+        `${data.source === 'rehearsal' ? 'true' : 'false'} for source "${String(data.source)}"`,
+      );
+    }
     need(isNum(v.accuracy_diff), 'verdict.accuracy_diff', 'a number');
     need(isNum(v.n_cases), 'verdict.n_cases', 'a number');
     need(isNum(v.ci_level), 'verdict.ci_level', 'a number');
+    need(isNum(v.min_gap), 'verdict.min_gap', 'a number');
+    if (need(Array.isArray(v.break_even), 'verdict.break_even', 'a list') && Array.isArray(v.break_even)) {
+      v.break_even.forEach((b, i) => {
+        const ok =
+          isObj(b) && isStr(b.price_table) && isNum(b.value) && isNum(b.ci_low) && isNum(b.ci_high);
+        need(ok, `verdict.break_even[${i}]`, 'an object with price_table, value, ci_low and ci_high');
+      });
+    }
     need(
       Array.isArray(v.accuracy_diff_ci) && v.accuracy_diff_ci.length === 2 && v.accuracy_diff_ci.every(isNum),
       'verdict.accuracy_diff_ci',
@@ -82,6 +106,9 @@ export function validateStory(data: unknown): Story {
         need(isStr(c.name), `verdict.checks[${i}].name`, 'a string');
         need(typeof c.passed === 'boolean', `verdict.checks[${i}].passed`, 'true or false');
         need(isStr(c.effect), `verdict.checks[${i}].effect`, 'a string');
+        for (const key of ['value', 'low', 'high']) {
+          need(c[key] === null || isNum(c[key]), `verdict.checks[${i}].${key}`, 'a number or null');
+        }
       });
     }
     const armNames: string[] = [];

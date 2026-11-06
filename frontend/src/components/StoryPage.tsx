@@ -61,12 +61,12 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
   useEffect(() => (prefersReducedMotion() ? undefined : startSmoothWheel()), []);
 
   const scene = sceneById(active);
-  const mood: Mood = active === 's6' ? L.revealMood(v.accuracy_diff) : scene.mood;
+  const rehearsal = story.source === 'rehearsal';
+  const mood: Mood = active === 's6' ? L.revealMood(v.accuracy_diff, rehearsal ? null : v.verdict) : scene.mood;
   const range = v.error_cost_range;
   const step = sliderStep(range);
   const gap = costGap(agent, simpler, table, errorCost);
   const priceTable = story.price_tables.find((t) => t.name === table);
-  const rehearsal = story.source === 'rehearsal';
   const sceneCls = (id: string, extra: string) => `scene ${extra}${inView.has(id) ? ' in' : ''}`;
   const gapPts = Math.abs(Number((v.accuracy_diff * 100).toFixed(1)));
   const gapSign = reveal === 'behind' ? '−' : reveal === 'ahead' ? '+' : '';
@@ -85,25 +85,14 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
     setDownloaded(filename);
   };
 
-  const bubble = () => {
+  // The robot's bubble: the line (announced when it changes) and the scene's controls under it.
+  const sealedVerdict = rehearsal ? null : v.verdict;
+  const line = () => {
     switch (active) {
       case 's2':
         return (
           <>
             <RichText value={L.contendersLine()} />
-            <div className="chips" role="group" aria-label="Your guess">
-              {ordered.map((a) => (
-                <button
-                  key={a.name}
-                  type="button"
-                  className={`chip${guess === a.name ? ' on' : ''}`}
-                  aria-pressed={guess === a.name}
-                  onClick={() => setGuess(a.name)}
-                >
-                  {L.guessButtonLabel(a.name, v.agent_arm)}
-                </button>
-              ))}
-            </div>
             {guess && (
               <div className="reply">
                 <RichText value={L.guessReply(guess, v.agent_arm)} />
@@ -114,70 +103,19 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
       case 's3':
         return <RichText value={L.rulesLine(story.rules.checks, story.rules.price_tables)} />;
       case 's4':
-        return <RichText value={L.scoresPayoff(guess, v.arms, v.agent_arm)} />;
+        return <RichText value={L.scoresPayoff(guess, v.arms, v.agent_arm, sealedVerdict)} />;
       case 's5':
-        return (
-          <>
-            <RichText value={L.checksLine(checks)} />
-            <div className="chips">
-              <button
-                type="button"
-                className="chip"
-                aria-expanded={checksOpen}
-                aria-controls="checks-list"
-                onClick={() => setChecksOpen(!checksOpen)}
-              >
-                {L.checksToggleLabel(checksOpen)}
-              </button>
-            </div>
-          </>
-        );
+        return <RichText value={L.checksLine(checks)} />;
       case 's6':
-        return (
-          <>
-            <RichText value={L.revealLine(v.accuracy_diff)} />
-            <div className="chips">
-              <a href="#s7" className="chip primary">
-                Yes, show me
-              </a>
-            </div>
-          </>
-        );
+        return <RichText value={L.revealLine(v.accuracy_diff, sealedVerdict)} />;
       case 's7':
         return <RichText value={L.costLine(errorCost, gap)} />;
       case 's8':
-        return (
-          <>
-            <RichText value={L.caseLine(story.case)} />
-            {story.case && (
-              <>
-                <div className="chips">
-                  <button type="button" className="chip" aria-expanded={replayOpen} onClick={() => setReplayOpen(!replayOpen)}>
-                    {L.replayToggleLabel(replayOpen)}
-                  </button>
-                </div>
-                {replayOpen && (
-                  <ol className="steps">
-                    {L.replaySteps(story.case).map((s, i) => (
-                      <li key={i}>
-                        <RichText value={s} />
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </>
-            )}
-          </>
-        );
+        return <RichText value={L.caseLine(story.case)} />;
       case 's9':
         return (
           <>
-            <RichText value={L.recapLine(guess, v.arms, v.agent_arm)} />
-            <div className="chips">
-              <button type="button" className="chip primary" onClick={download}>
-                Download audit bundle
-              </button>
-            </div>
+            <RichText value={L.recapLine(guess, v.arms, v.agent_arm, sealedVerdict)} />
             {downloaded && (
               <div className="reply">
                 <RichText value={L.downloadReply(downloaded)} />
@@ -187,6 +125,84 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
         );
       default:
         return <RichText value={L.helloLine()} />;
+    }
+  };
+
+  const controls = () => {
+    switch (active) {
+      case 's2':
+        return (
+          <div className="chips" role="group" aria-label="Your guess">
+            {ordered.map((a) => (
+              <button
+                key={a.name}
+                type="button"
+                className={`chip${guess === a.name ? ' on' : ''}`}
+                aria-pressed={guess === a.name}
+                onClick={() => setGuess(a.name)}
+              >
+                {L.guessButtonLabel(a.name, v.agent_arm)}
+              </button>
+            ))}
+          </div>
+        );
+      case 's5':
+        return (
+          <div className="chips">
+            <button
+              type="button"
+              className="chip"
+              aria-expanded={checksOpen}
+              aria-controls="checks-list"
+              onClick={() => setChecksOpen(!checksOpen)}
+            >
+              {L.checksToggleLabel(checksOpen)}
+            </button>
+          </div>
+        );
+      case 's6':
+        return (
+          <div className="chips">
+            <a href="#s7" className="chip primary">
+              Yes, show me
+            </a>
+          </div>
+        );
+      case 's8':
+        return story.case ? (
+          <>
+            <div className="chips">
+              <button
+                type="button"
+                className="chip"
+                aria-expanded={replayOpen}
+                aria-controls="replay-steps"
+                onClick={() => setReplayOpen(!replayOpen)}
+              >
+                {L.replayToggleLabel(replayOpen)}
+              </button>
+            </div>
+            {replayOpen && (
+              <ol id="replay-steps" className="steps">
+                {L.replaySteps(story.case).map((s, i) => (
+                  <li key={i}>
+                    <RichText value={s} />
+                  </li>
+                ))}
+              </ol>
+            )}
+          </>
+        ) : null;
+      case 's9':
+        return (
+          <div className="chips">
+            <button type="button" className="chip primary" onClick={download}>
+              Download audit bundle
+            </button>
+          </div>
+        );
+      default:
+        return null;
     }
   };
 
@@ -222,14 +238,12 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
         </div>
       </header>
 
-      <Robot mood={mood} side={scene.side} onFly={onFly}>
-        {bubble()}
-      </Robot>
+      <Robot mood={mood} side={scene.side} onFly={onFly} line={line()} controls={controls()} />
 
       <Timeline active={active} />
 
       <main>
-        <section id="s1" className={sceneCls('s1', 'robot-right')} aria-labelledby="s1-h">
+        <section id="s1" tabIndex={-1} className={sceneCls('s1', 'robot-right')} aria-labelledby="s1-h">
           <Decode className="eyebrow beat" text="Agent Verifier" run={inView.has('s1')} />
           <h1 id="s1-h" className="big">
             <Words text="Is your agent worth deploying?" now />
@@ -237,7 +251,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
           <p className="lead beat-3">{L.introLead(story.source)}</p>
         </section>
 
-        <section id="s2" className={sceneCls('s2', 'robot-left')} aria-labelledby="s2-h">
+        <section id="s2" tabIndex={-1} className={sceneCls('s2', 'robot-left')} aria-labelledby="s2-h">
           <Decode className="eyebrow beat" text="01 · The contenders" run={inView.has('s2')} />
           <h2 id="s2-h" className="mid">
             <Words text={L.contendersHeading(v.arms.length, v.n_cases)} />
@@ -258,7 +272,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
           </p>
         </section>
 
-        <section id="s3" className={sceneCls('s3', 'robot-right')} aria-labelledby="s3-h">
+        <section id="s3" tabIndex={-1} className={sceneCls('s3', 'robot-right')} aria-labelledby="s3-h">
           <Decode className="eyebrow beat" text="02 · Fair rules" run={inView.has('s3')} />
           <h2 id="s3-h" className="mid">
             <Words text="The rules are locked before the test." />
@@ -266,7 +280,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
           <p className="lead beat-3">Metric, thresholds, checks and prices are written down first.</p>
         </section>
 
-        <section id="s4" className={sceneCls('s4', 'robot-left')} aria-labelledby="s4-h">
+        <section id="s4" tabIndex={-1} className={sceneCls('s4', 'robot-left')} aria-labelledby="s4-h">
           <Decode className="eyebrow beat" text="03 · The scores" run={inView.has('s4')} />
           <h2 id="s4-h" className="mid">
             <Words text="How each one did." />
@@ -282,11 +296,15 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={Number((a.accuracy * 100).toFixed(1))}
+                  aria-valuetext={pct(a.accuracy)}
                 >
                   <div className={`fill ${fillClass(a.name)}`} style={{ width: `${a.accuracy * 100}%` }} />
                 </div>
-                <b aria-label={pct(a.accuracy)}>
-                  <CountUp value={a.accuracy * 100} suffix="%" run={inView.has('s4')} />
+                <b>
+                  <span className="sr-only">{pct(a.accuracy)}</span>
+                  <span aria-hidden="true">
+                    <CountUp value={a.accuracy * 100} suffix="%" run={inView.has('s4')} />
+                  </span>
                 </b>
               </div>
             ))}
@@ -296,7 +314,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
           </div>
         </section>
 
-        <section id="s5" className={sceneCls('s5', 'robot-right')} aria-labelledby="s5-h">
+        <section id="s5" tabIndex={-1} className={sceneCls('s5', 'robot-right')} aria-labelledby="s5-h">
           <Decode className="eyebrow beat" text="04 · Integrity" run={inView.has('s5')} />
           <h2 id="s5-h" className="mid">
             <Words text={L.checksHeading(checks)} />
@@ -308,7 +326,10 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
                 <li key={c.name}>
                   <span className={`pass ${c.passed ? 'yes' : 'no'}`}>{c.passed ? 'Passed' : 'Failed'}</span>
                   <span className="mono">{c.name}</span>
-                  <span className="check-val">{num(c.value)}</span>
+                  <span className="check-val">
+                    {num(c.value)}
+                    {L.checkLimit(c) && <span className="check-limit"> (limit {L.checkLimit(c)})</span>}
+                  </span>
                   <span className="check-detail">
                     {c.detail}
                     {c.passed ? '' : ` (${c.effect === 'REPORT' ? 'reported only' : `sets ${c.effect}`})`}
@@ -319,10 +340,11 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
           )}
         </section>
 
-        <section id="s6" className={sceneCls('s6', 'robot-left center')} aria-labelledby="s6-h">
+        <section id="s6" tabIndex={-1} className={sceneCls('s6', 'robot-left center')} aria-labelledby="s6-h">
           <div className="scan" aria-hidden="true" />
           <Decode className="eyebrow beat" text="05 · The reveal" run={inView.has('s6')} />
-          <div id="s6-h" className="land gap-num" role="text" aria-label={`${L.revealNumber(v.accuracy_diff)} points`}>
+          <div id="s6-h" className="land gap-num" role="heading" aria-level={2}>
+            <span className="sr-only">{`${L.revealNumber(v.accuracy_diff)} points`}</span>
             <span aria-hidden="true">
               <CountUp value={gapPts} prefix={gapSign} run={inView.has('s6')} />
             </span>
@@ -334,7 +356,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
           <p className="lead beat-3">{L.revealLead(story)}</p>
         </section>
 
-        <section id="s7" className={sceneCls('s7', 'robot-right center')} aria-labelledby="s7-h">
+        <section id="s7" tabIndex={-1} className={sceneCls('s7', 'robot-right center')} aria-labelledby="s7-h">
           <Decode className="eyebrow beat" text="06 · Your call" run={inView.has('s7')} />
           <h2 id="s7-h" className="mid">
             <Words text="What does one wrong answer cost you?" />
@@ -367,14 +389,14 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
               onChange={(e) => setErrorCost(Number(e.target.value))}
             />
             <div className="costs" aria-live="polite">
-              <div>
-                <div className="cost-name">{label(simpler.name, true)}, per case</div>
-                <div className="cost-num">{usd(expectedCost(simpler, table, errorCost))}</div>
-              </div>
-              <div>
-                <div className="cost-name">Your agent, per case</div>
-                <div className="cost-num ink">{usd(expectedCost(agent, table, errorCost))}</div>
-              </div>
+              {ordered.map((a) => (
+                <div key={a.name}>
+                  <div className="cost-name">{label(a.name, true)}, per case</div>
+                  <div className={`cost-num${a.name === v.agent_arm ? ' ink' : ''}`}>
+                    {usd(expectedCost(a, table, errorCost))}
+                  </div>
+                </div>
+              ))}
             </div>
             {priceTable && (
               <p className="note">
@@ -386,7 +408,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
           </div>
         </section>
 
-        <section id="s8" className={sceneCls('s8', 'robot-left')} aria-labelledby="s8-h">
+        <section id="s8" tabIndex={-1} className={sceneCls('s8', 'robot-left')} aria-labelledby="s8-h">
           <Decode className="eyebrow beat" text="07 · One case" run={inView.has('s8')} />
           <h2 id="s8-h" className={`mid${story.case ? '' : ' muted'}`}>
             <Words text={L.caseHeading(story.case)} />
@@ -394,7 +416,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
           <p className="lead beat-3">{L.caseLead(story.case)}</p>
         </section>
 
-        <section id="s9" className={sceneCls('s9', 'robot-right')} aria-labelledby="s9-h">
+        <section id="s9" tabIndex={-1} className={sceneCls('s9', 'robot-right')} aria-labelledby="s9-h">
           <Decode className="eyebrow beat" text="08 · The recap" run={inView.has('s9')} />
           <h2 id="s9-h" className="mid">
             <Words text={L.recapHeading(story)} />

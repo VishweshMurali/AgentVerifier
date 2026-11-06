@@ -2,7 +2,7 @@
 // from the data. No text here is written or chosen by an AI.
 import type { Arm, Check, Story, StoryCase, StorySource } from '../data/types.ts';
 import { cheaperAcrossRange, type CostArm } from './cost.ts';
-import { count, pct, signedPts, tableLabel, usd } from './format.ts';
+import { count, num, pct, signedPts, tableLabel, usd } from './format.ts';
 import type { Mood } from './scenes.ts';
 
 /** Rich text: plain strings and bold runs; tone colours a run as an arm. */
@@ -101,8 +101,32 @@ function possessive(label: string): string {
   return label.endsWith('s') ? `${label}’` : `${label}’s`;
 }
 
-/** Pays off the reader's guess with the real accuracies (or comments on them with no guess). */
-export function scoresPayoff(guess: string | null, arms: readonly Scored[], agentArm: string): Rich {
+/**
+ * What a sealed verdict that names no winner adds to the score, reveal and recap lines, so a
+ * broken or undecided run never reads like a clear result. Null for every other case.
+ */
+function undecided(verdict: string | null): 'invalid' | 'unsure' | null {
+  return verdict === 'INVALID' ? 'invalid' : verdict === 'NEED_MORE_DATA' ? 'unsure' : null;
+}
+
+/**
+ * Pays off the reader's guess with the real accuracies (or comments on them with no guess).
+ * `verdict` is the sealed verdict (null for a rehearsal): INVALID and NEED_MORE_DATA add a caveat.
+ */
+export function scoresPayoff(
+  guess: string | null,
+  arms: readonly Scored[],
+  agentArm: string,
+  verdict: string | null = null,
+): Rich {
+  const line = scoresLine(guess, arms, agentArm);
+  const u = undecided(verdict);
+  if (u === 'invalid') return [...line, ' But this run is invalid, so these scores don’t count.'];
+  if (u === 'unsure') return [...line, ' The gap is too close to be sure yet.'];
+  return line;
+}
+
+function scoresLine(guess: string | null, arms: readonly Scored[], agentArm: string): Rich {
   const ranked = ranking(arms);
   const winner = ranked[0];
   const runnerUp = ranked[1];
@@ -197,6 +221,14 @@ export function checksLine(s: ChecksSummary): Rich {
   return out;
 }
 
+/** The pre-registered limit of a check from its bounds: "≥ 0.9", "≤ 0.005", "0.07 to 0.13". */
+export function checkLimit(c: Pick<Check, 'low' | 'high'>): string | null {
+  if (c.low !== null && c.high !== null) return `${num(c.low)} to ${num(c.high)}`;
+  if (c.low !== null) return `≥ ${num(c.low)}`;
+  if (c.high !== null) return `≤ ${num(c.high)}`;
+  return null;
+}
+
 export function checksToggleLabel(open: boolean): string {
   return open ? 'Hide checks' : 'Show all checks';
 }
@@ -210,13 +242,21 @@ export function revealState(accuracyDiff: number): RevealState {
   return v > 0 ? 'ahead' : v < 0 ? 'behind' : 'even';
 }
 
-export function revealMood(accuracyDiff: number): Mood {
+/** `verdict` is the sealed verdict (null for a rehearsal); an undecided run is never celebrated. */
+export function revealMood(accuracyDiff: number, verdict: string | null = null): Mood {
   const s = revealState(accuracyDiff);
-  return s === 'behind' ? 'sad' : s === 'ahead' ? 'proud' : 'thinking';
+  const u = undecided(verdict);
+  if (u === 'invalid') return 'thinking';
+  if (s === 'behind') return 'sad';
+  return s === 'ahead' && u === null ? 'proud' : 'thinking';
 }
 
-export function revealLine(accuracyDiff: number): Rich {
+export function revealLine(accuracyDiff: number, verdict: string | null = null): Rich {
   const s = revealState(accuracyDiff);
+  const u = undecided(verdict);
+  if (u === 'invalid') return ['This run is invalid, so the gap doesn’t count. Want to see the costs anyway?'];
+  if (u === 'unsure' && s === 'ahead') return ['Your agent is ahead, but not by enough to be sure. Want to see what it’s worth?'];
+  if (u === 'unsure' && s === 'behind') return ['That’s the gap, but it’s too close to be sure. Want to see what it costs you?'];
   if (s === 'behind') return ['Oh. That’s the gap. Want to see what it costs you?'];
   if (s === 'ahead') return ['Your agent is ahead! Want to see what that’s worth?'];
   return ['Dead even. Want to see what it costs you?'];
@@ -240,7 +280,16 @@ export function revealLead(story: Story): string {
     return `${first} This is the DEV rehearsal preview; the sealed test decides.`;
   }
   const [lo, hi] = v.accuracy_diff_ci;
-  return `${first} ${Math.round(v.ci_level * 100)}% CI: ${signedPts(lo)} to ${signedPts(hi)} pts.`;
+  const ci = `${first} ${ciLabel(v.ci_level)}: ${signedPts(lo)} to ${signedPts(hi)} pts.`;
+  const u = undecided(v.verdict);
+  if (u === 'invalid') return `${ci} This run is invalid, so the gap decides nothing.`;
+  if (u === 'unsure') return `${ci} Too close to be sure: the recap says why.`;
+  return ci;
+}
+
+/** "95% CI" from the run's own CI level. */
+function ciLabel(level: number): string {
+  return `${Math.round(level * 100)}% CI`;
 }
 
 // ---------- scene 7: your call ----------
@@ -271,14 +320,19 @@ export function replayToggleLabel(open: boolean): string {
   return open ? 'Hide the replay' : 'Replay it';
 }
 
+/** A dataset label in plain words: "order_physical_card" -> "order physical card". */
+export function labelText(label: string): string {
+  return label.replace(/[_-]+/g, ' ').trim();
+}
+
 export function replaySteps(c: StoryCase): Rich[] {
   const steps: Rich[] = [];
   if (c.shortlist.length > 0) {
-    steps.push(['Linear’s shortlist puts ', { strong: c.shortlist[0] }, ' first.']);
+    steps.push(['Linear’s shortlist puts ', { strong: labelText(c.shortlist[0]) }, ' first.']);
   }
   steps.push(c.search_query ? [`The agent searches “${c.search_query}”.`] : ['The agent answers without searching.']);
-  steps.push(['The agent answers ', { strong: c.agent, tone: 'agent' }, '.']);
-  steps.push(['The right answer was ', { strong: c.gold }, '.']);
+  steps.push(['The agent answers ', { strong: labelText(c.agent), tone: 'agent' }, '.']);
+  steps.push(['The right answer was ', { strong: labelText(c.gold) }, '.']);
   return steps;
 }
 
@@ -320,33 +374,45 @@ export function recapLead(story: Story, table: string): string {
   const range = v.error_cost_range;
   const span = `from ${usd(range[0])} to ${usd(range[1])} a mistake (${tableLabel(table)} prices)`;
   const who = cheaperAcrossRange(agent, simpler, table, range);
+  // the joining word follows the accuracy: "more accurate and cheaper", "less accurate but cheaper"
   const costs =
     who === 'simpler'
-      ? ` and cheaper at every error cost ${span}.`
+      ? `${s === 'ahead' ? ', but' : ' and'} cheaper at every error cost ${span}.`
       : who === 'agent'
-        ? `, but your agent is cheaper at every error cost ${span}.`
+        ? `${s === 'ahead' ? ', and' : ', but'} your agent is cheaper at every error cost ${span}.`
         : who === 'equal'
           ? `, and both cost the same ${span}.`
           : `; which one is cheaper depends on the error cost ${span}.`;
+  // USE_SIMPLER although the agent is not behind: say why (the pre-registered minimum gap)
+  const why =
+    story.source === 'sealed' && v.verdict === 'USE_SIMPLER' && s !== 'behind'
+      ? ` Your agent does not lead by the ${(v.min_gap * 100).toFixed(1)} points set before the test, so the simpler model wins.`
+      : '';
   const close =
     story.source === 'rehearsal'
       ? ' This is a DEV rehearsal: the sealed test gives the final verdict.'
       : ` Evidence level: ${v.evidence_level}.`;
-  const be = (v.break_even as { price_table: string; value: number; ci_low: number; ci_high: number }[]).find(
-    (b) => b.price_table === table,
-  );
+  const be = v.break_even.find((b) => b.price_table === table);
   const breakEven = be
-    ? ` Break-even error cost: ${usd(be.value)} a mistake (95% CI ${usd(be.ci_low)} to ${usd(be.ci_high)}).`
+    ? ` Break-even error cost: ${usd(be.value)} a mistake (${ciLabel(v.ci_level)} ${usd(be.ci_low)} to ${usd(be.ci_high)}).`
     : '';
-  return accuracy + costs + breakEven + close;
+  return accuracy + costs + why + breakEven + close;
 }
 
-export function recapLine(guess: string | null, arms: readonly Scored[], agentArm: string): Rich {
+/** `verdict` is the sealed verdict (null for a rehearsal); an undecided run has no "called it". */
+export function recapLine(
+  guess: string | null,
+  arms: readonly Scored[],
+  agentArm: string,
+  verdict: string | null = null,
+): Rich {
   const ask = 'Want the full audit bundle for your team?';
   if (guess === null) return [ask];
   const winner = ranking(arms)[0];
   const label = guess === agentArm ? 'your agent' : armLabel(guess, agentArm, true);
-  return guess === winner.name ? [`You guessed ${label}, and you called it. ${ask}`] : [`You guessed ${label}. ${ask}`];
+  return guess === winner.name && undecided(verdict) === null
+    ? [`You guessed ${label}, and you called it. ${ask}`]
+    : [`You guessed ${label}. ${ask}`];
 }
 
 export function verdictTag(story: Story): string {

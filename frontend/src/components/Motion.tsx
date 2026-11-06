@@ -30,14 +30,16 @@ export function Decode({ text, run, className = '' }: { text: string; run: boole
   const still = prefersReducedMotion();
   const [shown, setShown] = useState(text);
   useEffect(() => {
-    if (still || !run) {
+    if (!run) {
       setShown(text);
       return;
     }
     let raf = 0;
     const t0 = performance.now() + 150;
+    // reduced motion slows the decode instead of skipping it
+    const ms = still ? 2000 : 800;
     const step = (now: number) => {
-      const p = Math.min(1, Math.max(0, (now - t0) / 800));
+      const p = Math.min(1, Math.max(0, (now - t0) / ms));
       const keep = Math.floor(p * text.length);
       setShown(
         [...text]
@@ -57,7 +59,7 @@ export function Decode({ text, run, className = '' }: { text: string; run: boole
   );
 }
 
-/** A number that counts up from zero each time `run` turns true. Reduced motion shows it at once. */
+/** A number that counts up from zero each time `run` turns true. Reduced motion counts slower. */
 export function CountUp({ value, decimals = 1, prefix = '', suffix = '', run }: {
   value: number;
   decimals?: number;
@@ -66,17 +68,14 @@ export function CountUp({ value, decimals = 1, prefix = '', suffix = '', run }: 
   run: boolean;
 }) {
   const still = prefersReducedMotion();
-  const [shown, setShown] = useState(still ? value : 0);
+  const [shown, setShown] = useState(0);
   useEffect(() => {
-    if (still) {
-      setShown(value);
-      return;
-    }
     if (!run) return;
     let raf = 0;
     const t0 = performance.now() + 250;
+    const ms = still ? 2600 : 1300;
     const step = (now: number) => {
-      const p = Math.min(1, Math.max(0, (now - t0) / 1300));
+      const p = Math.min(1, Math.max(0, (now - t0) / ms));
       setShown(value * (1 - Math.pow(1 - p, 3)));
       if (p < 1) raf = requestAnimationFrame(step);
     };

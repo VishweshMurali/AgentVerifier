@@ -56,13 +56,14 @@ export function startFlight(p: FlightParts, still: boolean, publish: (f: Flyer |
     const xR = W - 380, xL = 100, yPark = H - 360;
     const stop = (n: number) => (n % 2 === 1 ? xL : xR);
     const e = ease((f - 0.15) / 0.7);
-    const idle = still ? 0 : 1;
+    // idle drift keeps going with reduced motion, only slower (SPEC: slows instead of stopping)
+    const ti = still ? t * 0.35 : t;
     const tx =
       (span ? mix(stop(i), stop(i + 1), e) : stop(i)) +
       (span ? Math.sin(2 * Math.PI * e) * 70 * (i % 2 ? 1 : -1) : 0) +
-      idle * (36 * Math.sin(t * 0.7) + 14 * Math.sin(t * 1.9));
+      (36 * Math.sin(ti * 0.7) + 14 * Math.sin(ti * 1.9));
     const lift = H * (0.42 + 0.2 * Math.sin((i + 1) * 2.3));
-    const ty = Math.max(70, yPark - (span ? Math.sin(Math.PI * e) * lift : 0) + idle * (26 * Math.sin(t * 0.9 + 1) + 10 * Math.sin(t * 2.3)));
+    const ty = Math.max(70, yPark - (span ? Math.sin(Math.PI * e) * lift : 0) + (26 * Math.sin(ti * 0.9 + 1) + 10 * Math.sin(ti * 2.3)));
     // power-on: the guide launches up from below the screen and settles into its first stop
     if (!ready) {
       sx = tx;
@@ -91,9 +92,11 @@ export function startFlight(p: FlightParts, still: boolean, publish: (f: Flyer |
     p.ground.style.transform = `translateY(${H - 40}px) scale(${(1 - 0.55 * alt).toFixed(3)})`;
     p.ground.style.opacity = (1 - 0.75 * alt).toFixed(3);
     publish({ x: sx + 130, y: sy + 140, vx, vy });
-    // the speech bubble shows while the guide is settled at a scene
+    // the speech bubble shows while the guide is settled at a scene, and never hides a focused control
     const parked = Math.abs(pos - Math.round(pos)) < 0.2 && Math.hypot(vx, vy) < 260;
-    bub += ((parked ? 1 : 0) - bub) * (1 - Math.exp(-dt * 9));
+    const focused = p.say.contains(document.activeElement);
+    bub += ((parked || focused ? 1 : 0) - bub) * (1 - Math.exp(-dt * 9));
+    if (focused) bub = Math.max(bub, 0.5);
     p.say.style.opacity = bub.toFixed(3);
     p.say.style.visibility = bub < 0.03 ? 'hidden' : 'visible';
   };
@@ -161,6 +164,9 @@ export function startSmoothWheel(): () => void {
     if (!raf) sync();
     target = clamp(sec.getBoundingClientRect().top + now(), 0, max());
     go();
+    // do what the browser does for a jump link: update the address and move focus to the scene
+    if (location.hash !== `#${sec.id}`) history.pushState(null, '', `#${sec.id}`);
+    sec.focus({ preventScroll: true });
   };
   sync();
   window.addEventListener('wheel', onWheel, { passive: false });

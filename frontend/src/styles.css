@@ -7,6 +7,10 @@ body { margin: 0; background: #FFFFFF; color: #253031; font-family: 'Space Grote
 a { color: #1F6E73; } a:hover { color: #17555A; }
 :focus-visible { outline: 2px solid #1F6E73; outline-offset: 3px; border-radius: 6px; }
 .mono { font-family: 'JetBrains Mono', monospace; }
+/* added: text for screen readers only (the visible copy is animated and hidden from them) */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* added: scenes take focus after a scene link, without an outline around the whole screen */
+.scene:focus { outline: none; }
 .page { -webkit-font-smoothing: antialiased; }
 
 /* one scene = one screen, so the robot's evenly spaced stops land exactly on each scene */
@@ -64,7 +68,7 @@ a { color: #1F6E73; } a:hover { color: #17555A; }
 .scene-name{font-size:13px;color:#3D4B4C;padding-left:10px;white-space:nowrap}
 /* a soft light halo keeps text readable where the dark ribbon passes behind it */
 .scene h1,.scene h2,.scene p,.scene li,.scene .eyebrow{text-shadow:0 0 16px rgba(255,255,255,.95),0 0 4px rgba(255,255,255,.7)}
-.gap-num{font-size:180px;line-height:.95;font-weight:600;letter-spacing:-6px;background-image:linear-gradient(90deg,#253031,#2F8F93);-webkit-background-clip:text;background-clip:text;color:transparent}
+.gap-num{font-size:min(180px,calc((100vw - 640px) / 3.4));line-height:.95;font-weight:600;letter-spacing:-6px;background-image:linear-gradient(90deg,#253031,#2F8F93);-webkit-background-clip:text;background-clip:text;color:transparent}
 .gap-pts{font-size:52px;letter-spacing:0;color:#4D5C5D;-webkit-text-fill-color:#4D5C5D}
 
 /* ---------- live-data panels (added: price tables, all checks, notes) ---------- */
@@ -74,13 +78,15 @@ a { color: #1F6E73; } a:hover { color: #17555A; }
 .cost-label{display:flex;justify-content:space-between;align-items:baseline;font-size:16px;color:#3D4B4C}
 .cost-label b{color:#253031;font-size:26px}
 #cost{width:100%;accent-color:#1F6E73;min-height:44px}
-.costs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;text-align:left}
+.costs{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:16px;text-align:left}
 .cost-name{font-size:14px;color:#3D4B4C}
 .cost-num{font-size:34px;font-weight:600}
 .checks{margin:0;padding:16px 18px;border-radius:20px;list-style:none;display:flex;flex-direction:column;gap:8px;font-size:15px;color:#2C3839;max-width:640px;max-height:38vh;overflow:auto;box-sizing:border-box}
 .checks li{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:4px 12px;align-items:baseline;text-shadow:none}
 .checks .mono{font-size:14px;overflow-wrap:anywhere}
 .check-val{font-family:'JetBrains Mono',monospace;font-size:13px;color:#3D4B4C}
+.check-limit{color:#5B6B6C}
+.night .check-limit{color:#9FB6B7}
 .check-detail{grid-column:2 / -1;font-size:13px;color:#3D4B4C}
 .pass{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;text-align:center}
 .pass.yes{background:rgba(31,110,115,.12);color:#17555A}
@@ -227,9 +233,10 @@ a { color: #1F6E73; } a:hover { color: #17555A; }
 /* Idle motion stays on with reduced motion, only slower; reveals stay, without blur. */
 @media (prefers-reduced-motion: reduce){
 .r-hover{animation-duration:7s}.r-sway{animation-duration:10s}.r-arm,.r-wave{animation-duration:7s}.r-antenna{animation-duration:5s}
-.scan{animation:none;display:none}
+.scan{animation-duration:12s}
 .w,.land,.lead.beat-3{filter:none !important}
-.w.now{animation:none;opacity:1;transform:none}.eyebrow::before{transform:none}
+.w.now{animation-duration:2.4s}
+.w{transition-duration:1s,1.9s,0s}.eyebrow::before{transition-duration:1.6s}
 }
 /* phones: the robot docks small in the corner, stops flying, and talks from there */
 @media (max-width: 900px){

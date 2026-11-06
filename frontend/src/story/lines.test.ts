@@ -101,10 +101,10 @@ test('cost line: more, saves, same', () => {
 test('case scene: real case, and null case hides the replay', () => {
   const c = story.case as StoryCase;
   const steps = L.replaySteps(c).map(text);
-  assert.equal(steps[0], `Linear’s shortlist puts ${c.shortlist[0]} first.`);
+  assert.equal(steps[0], `Linear’s shortlist puts ${L.labelText(c.shortlist[0])} first.`);
   assert.equal(steps[1], `The agent searches “${c.search_query}”.`);
-  assert.equal(steps[2], `The agent answers ${c.agent}.`);
-  assert.equal(steps[3], `The right answer was ${c.gold}.`);
+  assert.equal(steps[2], `The agent answers ${L.labelText(c.agent)}.`);
+  assert.equal(steps[3], `The right answer was ${L.labelText(c.gold)}.`);
   assert.equal(L.replaySteps({ ...c, search_query: null })[1][0], 'The agent answers without searching.');
   assert.equal(L.caseHeading(null), 'No case to replay in this export.');
   assert.match(text(L.caseLine(null)), /nothing to replay/);
@@ -121,4 +121,14 @@ test('recap: rehearsal never reads as the final verdict; sealed shows the verdic
   assert.equal(L.recapHeading({ ...sealed, verdict: { ...sealed.verdict, verdict: 'USE_SIMPLER' } }), 'The verdict: use the simpler model.');
   assert.match(L.recapLead(sealed, 'cloud_small'), /Evidence level: REAL/);
   assert.equal(L.auditLine(story), 'commit eb25fd1 · model 46e0c10c · layer f5292dc4');
+});
+
+test('check limits come from the bounds; dataset labels read as words', () => {
+  assert.equal(L.checkLimit({ low: 0.07, high: 0.13 }), '0.07 to 0.13');
+  assert.equal(L.checkLimit({ low: 0.9, high: null }), '≥ 0.9');
+  assert.equal(L.checkLimit({ low: null, high: 0.005 }), '≤ 0.005');
+  assert.equal(L.checkLimit({ low: null, high: null }), null);
+  assert.equal(L.labelText('order_physical_card'), 'order physical card');
+  const c = { id: 'x', text: 't', gold: 'card_linking', linear: 'card_linking', shortlist: ['card_linking'], search_query: null, agent: 'order_physical_card' };
+  assert.doesNotMatch(L.replaySteps(c).map(text).join(' '), /_/);
 });

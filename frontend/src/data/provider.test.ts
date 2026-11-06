@@ -91,3 +91,40 @@ test('the api provider reads the story and status from the server', async () => 
   await assert.rejects(new ApiProvider('', fakeFetch({}).fetch).status(), /expected shape/);
   await assert.rejects(new ApiProvider('', fakeFetch({}, 404).fetch).load(), /HTTP 404/);
 });
+
+test('a rehearsal labelled sealed (or the other way round) is refused', () => {
+  const d = good();
+  d.verdict.rehearsal = true;
+  assert.throws(() => validateStory(d), /"verdict\.rehearsal" is missing or not false for source "sealed"/);
+  const r = JSON.parse(readFileSync(new URL('../fixtures/story.rehearsal.json', import.meta.url), 'utf8'));
+  assert.equal(validateStory(r).source, 'rehearsal');
+  r.source = 'sealed';
+  assert.throws(() => validateStory(r), /"verdict\.rehearsal"/);
+});
+
+test('verdict and evidence level must be known values; break_even and check bounds are checked', () => {
+  const d = good();
+  d.verdict.verdict = 'SHIP_IT';
+  d.verdict.evidence_level = 'VIBES';
+  d.verdict.break_even = [{ price_table: 'cloud_small', value: '3' }];
+  d.verdict.checks[0].high = 'low';
+  assert.throws(() => validateStory(d), (err: unknown) => {
+    const m = (err as Error).message;
+    return (
+      /"verdict\.verdict" is missing or not one of DEPLOY_AGENT, USE_SIMPLER, NEED_MORE_DATA, INVALID/.test(m) &&
+      /"verdict\.evidence_level"/.test(m) &&
+      /"verdict\.break_even\[0\]"/.test(m) &&
+      /"verdict\.checks\[0\]\.high"/.test(m)
+    );
+  });
+  const e = good();
+  delete e.verdict.break_even;
+  assert.throws(() => validateStory(e), /"verdict\.break_even" is missing or not a list/);
+});
+
+test('extra fields from a newer export are tolerated (for example the case split)', () => {
+  const d = good();
+  d.case.split = 'dev';
+  d.verdict.some_new_field = 1;
+  assert.equal(validateStory(d).case?.split, 'dev');
+});

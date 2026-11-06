@@ -8,12 +8,14 @@ interface RobotProps {
   side: Side;
   /** Receives the robot's screen position each frame, so the background can part around it. */
   onFly: (f: Flyer | null) => void;
-  /** The single speech bubble's content; it travels with the robot. */
-  children: ReactNode;
+  /** What the robot says in its single speech bubble; announced politely when it changes. */
+  line: ReactNode;
+  /** Buttons under the line, kept outside the announced part so they are not read out each time. */
+  controls?: ReactNode;
 }
 
 /** The original white flying guide. Moods and idle life are CSS; flight is a spring (motion/flight.ts). */
-export function Robot({ mood, side, onFly, children }: RobotProps) {
+export function Robot({ mood, side, onFly, line, controls = null }: RobotProps) {
   const robot = useRef<HTMLDivElement>(null);
   const fly = useRef<HTMLDivElement>(null);
   const ground = useRef<HTMLDivElement>(null);
@@ -36,8 +38,11 @@ export function Robot({ mood, side, onFly, children }: RobotProps) {
     <div ref={robot} className={`robot mood-${mood} side-${side}`}>
       <div ref={ground} className="r-ground" aria-hidden="true" />
       <div ref={fly} className="r-fly-y">
-        <div ref={say} className="say" role="status" aria-live="polite">
-          {children}
+        <div ref={say} className="say">
+          <div className="say-line" role="status" aria-live="polite">
+            {line}
+          </div>
+          {controls}
         </div>
         <div className="r-body" aria-hidden="true">
           <svg viewBox="0 0 200 260" focusable="false" style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
