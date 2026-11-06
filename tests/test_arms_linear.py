@@ -1,9 +1,14 @@
 import dataclasses
+import json
 
+import numpy as np
 import pytest
 
 from agent_committee.arms import config
+from agent_committee.arms.evaluate import REPORT_PATH
 from agent_committee.arms.linear import Decision, LinearArm, LinearLayer, make_layer
+from agent_committee.arms.splits import make_arms_split
+from agent_committee.data import load_dev
 from agent_committee.schemas import ArmName, Case
 
 TOPICS = {
@@ -110,3 +115,21 @@ def test_arm_fit_fills_an_empty_layer_and_leaves_a_frozen_one():
     before = frozen.fingerprint()
     LinearArm(frozen).fit(_pool()[:6])
     assert frozen.fingerprint() == before
+
+
+@pytest.fixture(scope="module")
+def dev_layer_and_split():
+    split = make_arms_split(load_dev("data"))
+    return make_layer(split.pool), split
+
+
+def test_null_threshold_is_the_tune_10th_percentile(dev_layer_and_split):
+    layer, split = dev_layer_and_split
+    scores = np.array([layer.decide(c.text).score for c in split.tune])
+    assert round(float(np.percentile(scores, 10)), 6) == config.NULL_THRESHOLD
+
+
+def test_rebuilt_layer_reproduces_the_dev_report_fingerprint(dev_layer_and_split):
+    layer, _ = dev_layer_and_split
+    report = json.loads(REPORT_PATH.read_text(encoding="utf-8"))
+    assert layer.fingerprint() == report["layer"]["fingerprint"]

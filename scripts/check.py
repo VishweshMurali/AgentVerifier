@@ -24,6 +24,24 @@ def npm() -> str:
     return exe
 
 
+def node_modules_in_use(fe: Path) -> bool:
+    """True when another process holds frontend/node_modules open (e.g. a dev or preview server).
+
+    `npm ci` deletes node_modules first; on Windows a held file makes it fail halfway and leaves
+    the folder broken. Renaming the folder and back is a cheap probe: it fails while files are open.
+    """
+    nm = fe / "node_modules"
+    if not nm.is_dir():
+        return False
+    probe = fe / "node_modules.check-probe"
+    try:
+        nm.rename(probe)
+    except OSError:
+        return True
+    probe.rename(nm)
+    return False
+
+
 def steps(install: bool, fast: bool) -> list[tuple[str, list[str], Path]]:
     fe = ROOT / "frontend"
     out = [
@@ -57,6 +75,12 @@ def main() -> int:
     ap.add_argument("--no-install", action="store_true", help="skip npm ci")
     ap.add_argument("--fast", action="store_true", help="skip builds and the end-to-end test")
     args = ap.parse_args()
+    if not args.no_install and node_modules_in_use(ROOT / "frontend"):
+        print(
+            "frontend/node_modules is in use (a dev or preview server is probably running).\n"
+            "Stop it, or run with --no-install; npm ci would leave node_modules broken."
+        )
+        return 1
     results: list[tuple[str, bool, float]] = []
     for name, cmd, cwd in steps(not args.no_install, args.fast):
         shown = " ".join([Path(cmd[0]).stem, *cmd[1:]])

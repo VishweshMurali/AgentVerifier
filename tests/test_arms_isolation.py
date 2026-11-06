@@ -3,6 +3,8 @@
 import ast
 from pathlib import Path
 
+import pytest
+
 ARMS = Path(__file__).resolve().parents[1] / "src" / "agent_committee" / "arms"
 ALLOWED_TOP = {
     "__future__", "argparse", "collections", "dataclasses", "enum", "functools", "hashlib",
@@ -66,3 +68,59 @@ def test_no_clock_or_unseeded_randomness():
         src = path.read_text(encoding="utf-8")
         for word in ("import time", "import datetime", "import random", "uuid", "np.random."):
             assert word not in src, f"{path.name} contains {word!r}"
+
+
+def _numpy_random_uses(source: str) -> list[str]:
+    """Every way `source` reaches numpy.random: direct imports, `from` imports and aliases."""
+    tree = ast.parse(source)
+    numpy_names = set()  # local names bound to the numpy module
+    hits = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name == "numpy.random" or a.name.startswith("numpy.random."):
+                    hits.append(f"import {a.name}")
+                elif a.name == "numpy":
+                    numpy_names.add(a.asname or "numpy")
+        elif isinstance(node, ast.ImportFrom) and not node.level:
+            mod = node.module or ""
+            if mod == "numpy.random" or mod.startswith("numpy.random."):
+                hits.append(f"from {mod} import ...")
+            elif mod == "numpy" and any(a.name == "random" for a in node.names):
+                hits.append("from numpy import random")
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == "random"
+            and isinstance(node.value, ast.Name)
+            and node.value.id in numpy_names
+        ):
+            hits.append(f"{node.value.id}.random")
+    return hits
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from numpy.random import default_rng",
+        "from numpy import random",
+        "from numpy import random as r",
+        "import numpy.random",
+        "import numpy.random as npr",
+        "import numpy as np\nnp.random.default_rng(0)",
+        "import numpy as xp\nrng = xp.random",
+        "import numpy\nnumpy.random.seed(1)",
+    ],
+)
+def test_numpy_random_detector_catches(source):
+    assert _numpy_random_uses(source)
+
+
+def test_numpy_random_detector_ignores_plain_numpy():
+    assert not _numpy_random_uses("import numpy as np\nnp.argsort([1])\nrandom = 1\nx.random")
+
+
+def test_no_numpy_random_in_arms():
+    for path in _files():
+        hits = _numpy_random_uses(path.read_text(encoding="utf-8"))
+        assert not hits, f"{path.name}: {hits}"
