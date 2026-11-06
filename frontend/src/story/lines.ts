@@ -301,6 +301,11 @@ export function recapHeading(story: Story): string {
 
 export function recapLead(story: Story, table: string): string {
   const v = story.verdict;
+  if (story.source === 'sealed' && (v.verdict === 'INVALID' || v.verdict === 'NEED_MORE_DATA')) {
+    // No winner is named: the engine's own reasons say why, and the evidence level follows.
+    const why = v.reasons.length > 0 ? v.reasons.join(' ') : 'The engine gave no reason.';
+    return `${why} Evidence level: ${v.evidence_level}.`;
+  }
   const agent = v.arms.find((a) => a.name === v.agent_arm) as CostArm;
   const simpler = v.arms.find((a) => a.name === v.simpler_arm) as CostArm;
   const sLabel = armLabel(simpler.name, v.agent_arm, true);
@@ -327,7 +332,13 @@ export function recapLead(story: Story, table: string): string {
     story.source === 'rehearsal'
       ? ' This is a DEV rehearsal: the sealed test gives the final verdict.'
       : ` Evidence level: ${v.evidence_level}.`;
-  return accuracy + costs + close;
+  const be = (v.break_even as { price_table: string; value: number; ci_low: number; ci_high: number }[]).find(
+    (b) => b.price_table === table,
+  );
+  const breakEven = be
+    ? ` Break-even error cost: ${usd(be.value)} a mistake (95% CI ${usd(be.ci_low)} to ${usd(be.ci_high)}).`
+    : '';
+  return accuracy + costs + breakEven + close;
 }
 
 export function recapLine(guess: string | null, arms: readonly Scored[], agentArm: string): Rich {
