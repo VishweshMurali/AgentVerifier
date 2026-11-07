@@ -245,3 +245,201 @@ def test_persists_across_instances_and_context_manager(tmp_path):
     with LLMClient(db, phase="build", transport=fake2) as c2:
         assert c2.chat(MSG, arm="prompt").content == "x"
     assert fake2.calls == 0
+
+
+# ---- P1b: SQLite lock fixes (L1-L4), response boundary (F3), served-digest pin (F5) ----------
+
+import sqlite3  # noqa: E402
+
+from agent_committee.llm import (  # noqa: E402
+    LLMCacheWriteError,
+    MalformedResponse,
+    ModelDigestMismatch,
+    fetch_served_digest,
+)
+
+
+def file_client(db, fake, **kw):
+    return LLMClient(db, phase="build", transport=fake, sleep=lambda s: None, **kw)
+
+
+def count(db, table, where=""):
+    con = sqlite3.connect(db)
+    try:
+        return con.execute(f"SELECT COUNT(*) FROM {table} {where}").fetchone()[0]
+    finally:
+        con.close()
+
+
+def test_file_db_uses_wal_and_long_busy_timeout(tmp_path):
+    c = file_client(tmp_path / "c.sqlite", Fake([]))
+    assert c._db.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    assert c._db.execute("PRAGMA busy_timeout").fetchone()[0] >= 30000
+
+
+def test_open_reader_does_not_block_the_writer(tmp_path):
+    db = tmp_path / "c.sqlite"
+    c = file_client(db, Fake([_resp("a")]), busy_timeout_s=0.2)
+    reader = sqlite3.connect(db, isolation_level=None)
+    reader.execute("BEGIN")
+    reader.execute("SELECT COUNT(*) FROM cache").fetchone()  # read transaction left open
+    try:
+        assert c.chat(MSG, arm="prompt").content == "a"
+    finally:
+        reader.close()
+    assert count(db, "cache") == 1 and count(db, "calls", "WHERE status='ok'") == 1
+
+
+def test_failed_cache_write_is_named_rolled_back_and_recoverable(tmp_path):
+    db = tmp_path / "c.sqlite"
+    c = file_client(db, Fake([_resp("lost", 11, 3), _resp("later", 5, 1)]), busy_timeout_s=0.1)
+    other = sqlite3.connect(db, isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")  # another writer holds the lock past the timeout
+    with pytest.raises(LLMCacheWriteError) as info:
+        c.chat(MSG, arm="prompt")
+    assert (info.value.prompt_tokens, info.value.completion_tokens) == (11, 3)
+    assert isinstance(info.value.__cause__, sqlite3.OperationalError)
+    assert not c._db.in_transaction
+    other.execute("ROLLBACK")
+    other.close()
+    assert count(db, "cache") == 0 and count(db, "calls", "WHERE status='ok'") == 0
+    assert c.chat(MSG, arm="prompt").content == "later"  # the client works again
+
+
+def test_failed_log_write_keeps_the_original_error(tmp_path):
+    db = tmp_path / "c.sqlite"
+    c = file_client(db, Fake([ValueError("ORIGINAL")]), busy_timeout_s=0.1)
+    other = sqlite3.connect(db, isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")
+    try:
+        with pytest.raises(ValueError, match="ORIGINAL") as info:
+            c.chat(MSG, arm="prompt")
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    assert any("locked" in n for n in info.value.__notes__)
+    assert not c._db.in_transaction
+
+
+def test_cache_row_and_calls_row_are_written_atomically(tmp_path):
+    db = tmp_path / "c.sqlite"
+    c = file_client(db, Fake([_resp("a", 7, 2)]), busy_timeout_s=0.1)
+    other = sqlite3.connect(db, isolation_level=None)
+    other.execute(
+        "CREATE TRIGGER no_ok BEFORE INSERT ON calls WHEN NEW.status = 'ok' "
+        "BEGIN SELECT RAISE(ABORT, 'boom'); END"
+    )
+    other.close()
+    with pytest.raises(LLMCacheWriteError):
+        c.chat(MSG, arm="prompt")
+    assert count(db, "cache") == 0  # the cache insert rolled back with the failed calls insert
+    assert count(db, "calls", "WHERE status='failed'") == 1
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        None,
+        "str",
+        {"content": 5},
+        {"content": ["x"]},
+        {"content": "x", "tool_calls": "oops"},
+        {"content": None, "tool_calls": [1]},
+        {"content": None, "tool_calls": {"a": 1}},
+    ],
+)
+def test_bad_message_shape_raises_malformed_with_usage_and_ledger(message):
+    bad = {
+        "choices": [{"message": message, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 21, "completion_tokens": 4},
+    }
+    c = client(Fake([bad]))
+    with pytest.raises(MalformedResponse) as info:
+        c.chat(MSG, arm="prompt")
+    assert (info.value.prompt_tokens, info.value.completion_tokens) == (21, 4)
+    assert c._db.execute("SELECT COUNT(*) FROM cache").fetchone()[0] == 0
+    row = c._db.execute("SELECT status, prompt_tokens, completion_tokens FROM calls").fetchone()
+    assert row == ("failed", 21, 4)
+
+
+@pytest.mark.parametrize("choices", [[], None, "x", ["x"]])
+def test_bad_choices_raise_malformed(choices):
+    bad = {"choices": choices, "usage": {"prompt_tokens": 3, "completion_tokens": 1}}
+    with pytest.raises(MalformedResponse) as info:
+        client(Fake([bad])).chat(MSG, arm="prompt")
+    assert info.value.prompt_tokens == 3
+
+
+def test_valid_shapes_are_accepted():
+    ok = _resp(None)
+    ok["choices"][0]["message"]["tool_calls"] = [{"id": "1", "function": {"name": "f"}}]
+    assert client(Fake([ok])).chat(MSG, arm="prompt").content == ""
+    plain = _resp("hi")
+    plain["choices"][0]["message"]["tool_calls"] = None
+    assert client(Fake([plain])).chat(MSG, arm="prompt").content == "hi"
+
+
+def test_cached_bad_reply_behaves_like_a_live_one():
+    c = client(Fake([_resp("fine", 9, 2)]))
+    c.chat(MSG, arm="prompt")
+    c._db.execute("UPDATE cache SET response_json = ?", ('{"content": 5}',))
+    with pytest.raises(MalformedResponse) as info:
+        c.chat(MSG, arm="prompt")
+    assert (info.value.prompt_tokens, info.value.completion_tokens) == (9, 2)
+    last = c._db.execute("SELECT status, prompt_tokens FROM calls ORDER BY id DESC").fetchone()
+    assert last == ("failed", 9)
+    c._db.execute("UPDATE cache SET response_json = ?", ("not json",))
+    with pytest.raises(MalformedResponse):
+        c.chat(MSG, arm="prompt")
+
+
+def test_outage_is_still_llm_unavailable_not_malformed():
+    with pytest.raises(LLMUnavailable):
+        client(Fake([_conn_error()] * 4), max_retries=3).chat(MSG, arm="prompt")
+
+
+DIGEST = "ab" * 32
+
+
+def test_matching_served_digest_is_accepted():
+    c = client(Fake([_resp()]), model_digest=DIGEST, served_digest=lambda m: "sha256:" + DIGEST)
+    assert c.chat(MSG, arm="prompt").content == "ok"
+
+
+def test_digest_mismatch_refuses_before_touching_the_cache(tmp_path):
+    db = tmp_path / "sub" / "c.sqlite"
+    with pytest.raises(ModelDigestMismatch) as info:
+        file_client(db, Fake([]), model_digest=DIGEST, served_digest=lambda m: "cd" * 32)
+    assert (info.value.configured, info.value.served) == (DIGEST, "cd" * 32)
+    assert not db.exists()
+
+
+def test_production_client_resolves_the_digest_from_ollama(monkeypatch):
+    import agent_committee.llm as llm
+
+    seen = []
+    monkeypatch.setattr(llm, "fetch_served_digest", lambda m: seen.append(m) or "ef" * 32)
+    with pytest.raises(ModelDigestMismatch):
+        LLMClient(":memory:", phase="build", model_digest=DIGEST)  # no transport: real path
+    assert seen == ["llama3.1:8b"]
+
+
+def _tags_client(payload=None, status=200):
+    def handler(request):
+        assert request.url.path == "/api/tags"
+        return httpx.Response(status, json=payload)
+
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_fetch_served_digest_reads_the_tags_endpoint():
+    tags = {"models": [{"name": "other", "digest": "x"}, {"name": "llama3.1:8b", "digest": DIGEST}]}
+    assert fetch_served_digest("llama3.1:8b", http_client=_tags_client(tags)) == DIGEST
+
+
+@pytest.mark.parametrize(
+    "payload,status", [({"models": []}, 200), ({"oops": 1}, 200), ({}, 500), ([1], 200)]
+)
+def test_fetch_served_digest_failures_are_llm_unavailable(payload, status):
+    with pytest.raises(LLMUnavailable):
+        fetch_served_digest("llama3.1:8b", http_client=_tags_client(payload, status))
