@@ -18,7 +18,7 @@ from agent_committee.schemas import (
 BASE = load_prereg()
 PREREG = BASE.model_copy(
     update={
-        "stats": BASE.stats.model_copy(update={"bootstrap_replicates": 500, "aa_simulations": 200})
+        "stats": BASE.stats.model_copy(update={"bootstrap_replicates": 500, "aa_simulations": 100})
     }
 )
 AUDIT = AuditBundle(
@@ -208,3 +208,81 @@ def test_every_verdict_but_deploy_states_why_there_is_no_break_even():
 def test_synthetic_checked_evidence_can_deploy():
     v = run(*paired(100, 40), evidence=EvidenceLevel.SYNTHETIC_CHECKED)
     assert v.verdict == Verdict.DEPLOY_AGENT
+
+
+# P1a: cost-aware DEPLOY and USE_SIMPLER, A/A on the whole rule, paired lengths.
+
+
+def costed(agent_only, simpler_only, agent_tokens, simpler_tokens, n=3000):
+    agent, simpler = paired(agent_only, simpler_only, n)
+    return (
+        ArmRun("agent", agent.correct, np.full(n, agent_tokens), np.zeros(n), agent.latency_s),
+        ArmRun(
+            "linear", simpler.correct, np.full(n, simpler_tokens), np.zeros(n), simpler.latency_s
+        ),
+    )
+
+
+def test_a_significant_gain_is_not_deployed_if_the_agent_is_never_cheaper():
+    # +2.0 points of accuracy but the agent costs so much per case that no (price table, error
+    # cost) scenario favours it: E[C] gap = 0.02 * 5 - 5000 tokens * $/token is positive.
+    agent, simpler = costed(100, 40, 1e9, 0)
+    v = run(agent, simpler)
+    assert v.accuracy_diff == PREREG.min_gap and v.accuracy_diff_ci[0] > 0
+    assert v.verdict != Verdict.DEPLOY_AGENT and v.break_even == []
+    assert any("no lower expected cost" in r for r in v.reasons)
+
+
+def test_the_verdict_records_which_scenarios_favour_each_arm():
+    v = run(*paired(100, 40))
+    line = next(r for r in v.reasons if r.startswith("Lower expected cost per scenario"))
+    assert "agent:" in line and "linear:" in line and "@$" in line
+
+
+def test_simpler_that_costs_more_but_is_far_more_accurate_is_use_simpler():
+    # R2: agent 0.80 at 100 tokens, simpler 0.92 at 300 tokens; simpler wins every scenario.
+    n = 3000
+    rng = np.random.default_rng(0)
+    simpler_ok = rng.random(n) < 0.92
+    agent_ok = simpler_ok & (rng.random(n) < 0.87)
+    agent = ArmRun("agent", agent_ok, np.full(n, 100.0), np.zeros(n), np.full(n, 0.5))
+    simpler = ArmRun("linear", simpler_ok, np.full(n, 300.0), np.zeros(n), np.full(n, 0.5))
+    v = run(agent, simpler)
+    assert v.verdict == Verdict.USE_SIMPLER
+    assert any("lower expected cost in every price table" in r for r in v.reasons)
+
+
+def test_aa_runs_the_whole_decide_rule(monkeypatch):
+    calls = []
+    real = decision.decide
+
+    def spy(*args, **kw):
+        calls.append(kw.get("run_aa"))
+        return real(*args, **kw)
+
+    monkeypatch.setattr(decision, "decide", spy)
+    v = run(*paired(100, 40))
+    assert v.aa_false_winner_rate is not None
+    assert calls.count(False) >= PREREG.stats.aa_simulations  # decide was called per simulation
+
+
+def test_aa_rate_moves_with_the_winner_rule(monkeypatch):
+    agent, simpler = paired(100, 40)
+    real = decision.VerdictJSON
+
+    def always_deploys(*args, **kw):
+        kw["verdict"] = Verdict.DEPLOY_AGENT
+        kw["break_even"] = []
+        return real.model_construct(*args, **kw)
+
+    monkeypatch.setattr(decision, "VerdictJSON", always_deploys)
+    rate = decision._aa_rate(agent, simpler, PREREG, AUDIT, "exact_label", True)
+    assert rate == 1.0
+
+
+def test_flagged_or_other_arms_of_the_wrong_length_are_refused():
+    agent, simpler = paired(100, 40)
+    with pytest.raises(ValueError):
+        run(agent, simpler, flagged=np.zeros(5, dtype=bool))
+    with pytest.raises(ValueError):
+        run(agent, simpler, others=[paired(1, 1, n=10)[0]])

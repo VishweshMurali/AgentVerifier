@@ -48,29 +48,43 @@ def test_paired_diff_ci_straddles_zero_for_equal_arms():
     assert lo < 0 < hi
 
 
+def mcnemar_rule(alpha):
+    def rule(x, y, swapped):
+        return analysis.mcnemar_exact(x, y)[2] < alpha
+
+    return rule
+
+
 def test_aa_false_winner_rate_stays_near_alpha():
     rng = np.random.default_rng(11)
     a = rng.random(3000) > 0.15
     b = rng.random(3000) > 0.15
-    rate = analysis.aa_false_winner_rate(a, b, 400, 0.05, 0.0, 0.95, 200, seed=2)
-    assert rate <= 0.08
-
-
-def test_aa_min_gap_suppresses_small_false_winners():
-    rng = np.random.default_rng(11)
-    a = rng.random(3000) > 0.15
-    b = rng.random(3000) > 0.15
-    with_gap = analysis.aa_false_winner_rate(a, b, 400, 0.05, 0.02, 0.95, 200, seed=2)
-    without = analysis.aa_false_winner_rate(a, b, 400, 0.05, 0.0, 0.95, 200, seed=2)
-    assert with_gap <= without and with_gap <= 0.05
+    assert analysis.aa_false_winner_rate(a, b, 400, mcnemar_rule(0.05), seed=2) <= 0.08
 
 
 def test_aa_ignores_a_real_gap_because_it_swaps_the_arms():
     a = [True] * 950 + [False] * 50
     b = [True] * 800 + [False] * 200
-    assert analysis.aa_false_winner_rate(a, b, 300, 0.05, 0.02, 0.95, 200, seed=4) <= 0.08
+    assert analysis.aa_false_winner_rate(a, b, 300, mcnemar_rule(0.05), seed=4) <= 0.08
 
 
 def test_aa_with_no_discordant_pairs_has_no_false_winners():
-    rate = analysis.aa_false_winner_rate([True, True], [True, True], 100, 0.05, 0.02, 0.95, 50, 0)
+    rate = analysis.aa_false_winner_rate([True, True], [True, True], 100, lambda *_: True, 0)
     assert rate == 0.0
+
+
+def test_aa_can_fail_when_the_winner_rule_is_miscalibrated():
+    # A rule that ignores the data names a winner in every run; the old McNemar-only swap could
+    # never exceed alpha, so this is the regression for the A/A being unable to fail.
+    rng = np.random.default_rng(3)
+    a, b = rng.random(500) > 0.2, rng.random(500) > 0.2
+    assert analysis.aa_false_winner_rate(a, b, 50, lambda *_: True, seed=1) == 1.0
+
+
+def test_paired_arrays_of_unequal_length_are_refused():
+    with pytest.raises(ValueError):
+        analysis.mcnemar_exact([True], [False, False, True, False])
+    with pytest.raises(ValueError):
+        analysis.paired_diff_ci([True, False], [True], 100, 0.95, 0)
+    with pytest.raises(ValueError):
+        analysis.aa_false_winner_rate([True, False], [True], 10, lambda *_: False, 0)

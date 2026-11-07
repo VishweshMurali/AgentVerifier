@@ -3,16 +3,19 @@
 Order of rules, each from prereg.yaml or CLAUDE.md:
 1. INVALID: no declared scorer, a failed quality floor, or any failed INVALID check.
 2. NEED_MORE_DATA: any failed NEED_MORE_DATA check, or SYNTHETIC evidence alone.
-3. DEPLOY_AGENT: exact McNemar p < alpha, the accuracy-difference CI entirely above 0, and the
-   point estimate at least min_gap. The break-even error cost per price table is the headline.
+3. DEPLOY_AGENT: exact McNemar p < alpha, the accuracy-difference CI entirely above 0, the
+   point estimate at least min_gap, and the agent's expected cost E[C] lower in at least one
+   pre-registered scenario (price table x end of the error-cost range). The break-even error cost
+   per price table is the headline.
 4. USE_SIMPLER: the CI's upper bound is below min_gap (no gain worth acting on is plausible) and
-   the simpler arm is no more expensive per case under any price table.
+   the simpler arm is either no more expensive per case under any price table, or has the lower
+   E[C] in every scenario.
 5. Otherwise NEED_MORE_DATA: the data still allow a gain of min_gap or more.
 Latency is carried through for the report and never used here.
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -123,7 +126,68 @@ def _break_evens(
     return out, notes
 
 
-def _no_break_even_cause(p: float, lo: float, diff: float, prereg: Prereg) -> str:
+def _scenarios(
+    agent: dict[str, float], simpler: dict[str, float], diff: float, prereg: Prereg
+) -> tuple[list[str], list[str], list[str]]:
+    """Scenarios (price table x end of the error-cost range) won by the agent, the simpler arm, or
+    neither (equal E[C]). E[C] = C_inference + P(error) * C_error, and P(error) is lower for the
+    agent by `diff`. E[C] is linear in the error cost, so the range ends decide every cost between.
+    """
+    agent_wins, simpler_wins, ties = [], [], []
+    for table in agent:
+        for cost in (prereg.error_cost.low, prereg.error_cost.high):
+            gap = (agent[table] - simpler[table]) - diff * cost  # agent E[C] minus simpler E[C]
+            label = f"{table}@${cost:g}"
+            (agent_wins if gap < 0 else simpler_wins if gap > 0 else ties).append(label)
+    return agent_wins, simpler_wins, ties
+
+
+def _aa_rate(
+    agent: ArmRun,
+    simpler: ArmRun,
+    prereg: Prereg,
+    audit: AuditBundle,
+    scorer: str | None,
+    run_aa: bool,
+) -> float | None:
+    """A/A false-winner rate of the whole winner rule: each simulation calls `decide` itself on
+    outcomes swapped between the arms (token counts stay with their arm) and counts a DEPLOY_AGENT
+    in either direction."""
+    st = prereg.stats
+    if not run_aa or scorer is None:
+        return None
+    quick = prereg.model_copy(
+        update={"stats": st.model_copy(update={"bootstrap_replicates": AA_BOOTSTRAP_REPLICATES})}
+    )
+    counter = iter(range(10**9))
+
+    def names_winner(x: np.ndarray, y: np.ndarray, swapped: bool) -> bool:
+        first, second = (simpler, agent) if swapped else (agent, simpler)
+        stats = quick.stats.model_copy(update={"seed": st.seed + next(counter)})
+        out = decide(
+            replace(first, correct=x),
+            replace(second, correct=y),
+            [],
+            np.zeros(len(x), dtype=bool),
+            quick.model_copy(update={"stats": stats}),
+            [],
+            scorer,
+            True,
+            EvidenceLevel.REAL,
+            audit,
+            0,
+            run_aa=False,
+        )
+        return out.verdict == Verdict.DEPLOY_AGENT
+
+    return aa_false_winner_rate(
+        agent.correct, simpler.correct, st.aa_simulations, names_winner, st.seed
+    )
+
+
+def _no_break_even_cause(
+    p: float, lo: float, diff: float, prereg: Prereg, agent_cheaper: bool = True
+) -> str:
     """The first unmet condition for reporting a break-even, in the order they are tested."""
     if lo <= 0:
         return "the accuracy difference CI is not entirely above 0"
@@ -131,6 +195,8 @@ def _no_break_even_cause(p: float, lo: float, diff: float, prereg: Prereg) -> st
         return f"McNemar p={p:.3g} is not below alpha={prereg.alpha}"
     if diff < prereg.min_gap:
         return f"the gain {diff:+.3f} is below the {prereg.min_gap} minimum gap"
+    if not agent_cheaper:
+        return "the agent has no lower expected cost in any price table and error cost"
     return "a pre-registered check or rule stopped the decision before it"
 
 
@@ -147,10 +213,21 @@ def decide(
     audit: AuditBundle,
     n_dropped: int,
     shortlist_coverage: float | None = None,
+    run_aa: bool = True,
 ) -> VerdictJSON:
-    """Apply the pre-registered rules to the paired outcomes and return the verdict."""
+    """Apply the pre-registered rules to the paired outcomes and return the verdict.
+
+    `run_aa=False` skips the A/A simulation (which itself calls this function on swapped data).
+    """
     flagged = np.asarray(flagged, dtype=bool)
     arms = [agent, simpler, *others]
+    n_cases = len(agent.correct)
+    for each in arms:
+        for arr in (each.correct, each.prompt_tokens, each.completion_tokens, each.latency_s):
+            if len(arr) != n_cases:
+                raise ValueError(f"arm {each.name!r} does not have the paired length {n_cases}")
+    if len(flagged) != n_cases:
+        raise ValueError(f"flagged has length {len(flagged)}, expected {n_cases}")
     results = [_arm_result(a, flagged, prereg) for a in arms]
     st = prereg.stats
     only_a, only_s, p = mcnemar_exact(agent.correct, simpler.correct)
@@ -158,16 +235,7 @@ def decide(
     boots = bootstrap_means(diff_cols, st.bootstrap_replicates, st.seed)[:, 0]
     diff = float(np.mean(diff_cols))
     lo, hi = percentile_ci(boots, st.ci_level)
-    aa = aa_false_winner_rate(
-        agent.correct,
-        simpler.correct,
-        st.aa_simulations,
-        prereg.alpha,
-        prereg.min_gap,
-        st.ci_level,
-        AA_BOOTSTRAP_REPLICATES,
-        st.seed,
-    )
+    aa = _aa_rate(agent, simpler, prereg, audit, scorer, run_aa)
 
     failed = [c for c in checks if not c.passed]
     reasons: list[str] = []
@@ -175,6 +243,8 @@ def decide(
     agent_costs = results[0].inference_cost
     simpler_costs = results[1].inference_cost
     simpler_not_dearer = all(simpler_costs[t] <= agent_costs[t] for t in agent_costs)
+    agent_wins, simpler_wins, ties = _scenarios(agent_costs, simpler_costs, diff, prereg)
+    simpler_lowest_everywhere = not agent_wins and not ties
 
     if scorer is None:
         verdict = Verdict.INVALID
@@ -195,7 +265,7 @@ def decide(
     elif evidence == EvidenceLevel.SYNTHETIC:
         verdict = Verdict.NEED_MORE_DATA
         reasons.append("Synthetic evidence alone never picks a winner; the estimate is shown.")
-    elif p < prereg.alpha and lo > 0 and diff >= prereg.min_gap:
+    elif p < prereg.alpha and lo > 0 and diff >= prereg.min_gap and agent_wins:
         verdict = Verdict.DEPLOY_AGENT
         reasons.append(
             f"The agent is more accurate by {diff:+.3f} (CI {lo:+.3f} to {hi:+.3f}, "
@@ -203,11 +273,16 @@ def decide(
         )
         break_even, notes = _break_evens(agent, simpler, prereg)
         reasons += notes
-    elif hi < prereg.min_gap and simpler_not_dearer:
+    elif hi < prereg.min_gap and (simpler_not_dearer or simpler_lowest_everywhere):
         verdict = Verdict.USE_SIMPLER
+        why = (
+            "costs no more per case under every price table"
+            if simpler_not_dearer
+            else "has the lower expected cost in every price table across the error-cost range"
+        )
         reasons.append(
             f"A gain of {prereg.min_gap} or more is ruled out (CI {lo:+.3f} to {hi:+.3f}), and "
-            f"{simpler.name} costs no more per case under every price table."
+            f"{simpler.name} {why}."
         )
     else:
         verdict = Verdict.NEED_MORE_DATA
@@ -216,8 +291,14 @@ def decide(
             if hi >= prereg.min_gap
             else f"{simpler.name} costs more per case under some price table; no clear winner."
         )
+    reasons.append(
+        f"Lower expected cost per scenario (price table@error cost): {agent.name}: "
+        f"{', '.join(agent_wins) or 'none'}; {simpler.name}: {', '.join(simpler_wins) or 'none'}"
+        + (f"; equal: {', '.join(ties)}." if ties else ".")
+    )
     if verdict != Verdict.DEPLOY_AGENT:
-        reasons.append(f"No break-even error cost: {_no_break_even_cause(p, lo, diff, prereg)}.")
+        cause = _no_break_even_cause(p, lo, diff, prereg, agent_cheaper=bool(agent_wins))
+        reasons.append(f"No break-even error cost: {cause}.")
 
     return VerdictJSON(
         verdict=verdict,
@@ -239,7 +320,7 @@ def decide(
         checks=checks,
         agent_arm=agent.name,
         simpler_arm=simpler.name,
-        n_cases=len(agent.correct),
+        n_cases=n_cases,
         n_dropped=n_dropped,
         mcnemar_counts=(only_a, only_s),
         arms=results,

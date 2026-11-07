@@ -73,6 +73,14 @@ def test_near_copy_threshold_is_respected():
     assert not checks.find_copies([b], [a], CFG.leak_jaccard)[0]
 
 
+def test_jaccard_is_not_overstated_by_ngrams_missing_from_the_reference():
+    # The reference holds 6 of the text's 26 n-grams; true Jaccard is ~0.23, not the 1.0 that
+    # counting only n-grams seen in the reference gives.
+    reference = "abcdefghij"
+    text = "abcdefghij klmnopqrstuvwxyz"
+    assert not checks.find_copies([text], [reference], CFG.leak_jaccard)[0]
+
+
 def test_power_cap():
     assert checks.power_cap(3267, CFG).passed
     assert not checks.power_cap(3000, CFG).passed
