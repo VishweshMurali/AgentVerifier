@@ -63,6 +63,9 @@ class CachedReplies:
 
     Keys are built exactly as `LLMClient.chat` builds them, so a hit returns the same stored
     answer. A miss raises `LLMUnavailable`; nothing is ever written (no cache rows, no call log).
+    A stored reply is checked like `LLMClient` checks it (`validate_message`): bad JSON or a bad
+    shape raises `MalformedResponse` with the stored token usage, which the agent arm scores as a
+    wrong case, so the replay moves on to the next case.
     Every result is kept in `results` in call order.
     """
 
@@ -93,7 +96,13 @@ class CachedReplies:
         max_tokens: int | None = None,
         seed: int | None = 0,
     ):
-        from agent_committee.llm import LLMResult, LLMUnavailable, request_key
+        from agent_committee.llm import (
+            LLMResult,
+            LLMUnavailable,
+            MalformedResponse,
+            request_key,
+            validate_message,
+        )
 
         request: dict[str, Any] = {
             "model": self.model,
@@ -114,7 +123,14 @@ class CachedReplies:
         ).fetchone()
         if row is None:
             raise LLMUnavailable("cache miss: the export makes no model calls")
-        result = LLMResult(json.loads(row[0]), row[1], row[2], row[3], True, 0, row[4])
+        try:
+            message = json.loads(row[0])
+        except (TypeError, ValueError) as exc:
+            raise MalformedResponse(
+                f"malformed cached reply: {exc}", prompt_tokens=row[1], completion_tokens=row[2]
+            ) from None
+        validate_message(message, prompt_tokens=row[1], completion_tokens=row[2])
+        result = LLMResult(message, row[1], row[2], row[3], True, 0, row[4])
         self.results.append(result)
         return result
 

@@ -261,3 +261,76 @@ def test_replay_on_the_real_cache_is_deterministic_and_read_only():
     first = export.replay_case(REPO)
     assert first is not None and first["linear"] == first["gold"] != first["agent"]
     assert (db.stat().st_mtime_ns, db.stat().st_size) == before
+
+
+@pytest.mark.parametrize("stored", ["{bad json", json.dumps({"content": 7})])
+def test_a_malformed_cached_reply_raises_with_its_usage(tmp_path, stored):
+    import sqlite3
+
+    from agent_committee.llm import MalformedResponse
+
+    db, _ = filled_cache(tmp_path)
+    con = sqlite3.connect(db)
+    con.execute("UPDATE cache SET response_json = ?", (stored,))
+    con.commit()
+    con.close()
+    with export.CachedReplies(db, phase="build", model_digest="dg") as replies:
+        with pytest.raises(MalformedResponse) as err:
+            replies.chat(MESSAGES, arm="agent", tools=TOOLS, max_tokens=50)
+        assert replies.results == []
+    assert (err.value.prompt_tokens, err.value.completion_tokens) == (11, 3)
+
+
+def test_replay_scores_a_malformed_cached_case_wrong_and_moves_on(tmp_path):
+    """Real agent arm over the read-only cache: case one's stored replies are corrupt, so it is
+    scored wrong (malformed, usage kept) and the replay returns case two."""
+    import sqlite3
+
+    from agent_committee.arms.agent import AgentArm
+    from agent_committee.arms.agent_tools import SEARCH
+    from agent_committee.arms.labels import build_label_book
+    from agent_committee.schemas import Case
+
+    labels = ("card_arrival", "lost_or_stolen_card")
+    pool = [Case(id=f"{x}{i}", text=f"{x} sample {i}", label=x) for x in labels for i in range(3)]
+    book = build_label_book(pool)
+    layer = SimpleNamespace(
+        decide=lambda text: SimpleNamespace(choice="card_arrival", shortlist=labels)
+    )
+    cases = [Case(id=n, text=f"{n} query", label="card_arrival") for n in ("alpha", "beta")]
+
+    def transport(request):
+        if any(m["role"] == "tool" for m in request["messages"]):
+            message = {"role": "assistant", "content": "lost_or_stolen_card"}
+        else:
+            args = json.dumps({"query": "card"})
+            message = {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": "x", "function": {"name": SEARCH, "arguments": args}}],
+            }
+        return {
+            "choices": [{"message": message, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+        }
+
+    db = tmp_path / "llm.sqlite"
+    with LLMClient(db, phase="build", transport=transport) as client:
+        filler = AgentArm(client, book, layer)
+        filler.fit(pool)
+        for c in cases:
+            filler.predict(c.id, c.text)
+    con = sqlite3.connect(db)
+    con.execute("UPDATE cache SET response_json = '{bad' WHERE request_json LIKE '%alpha query%'")
+    assert con.total_changes == 2
+    con.commit()
+    con.close()
+
+    with export.CachedReplies(db, phase="build", model_digest=None) as replies:
+        arm = AgentArm(replies, book, layer)
+        arm.fit(pool)
+        first = arm.predict("alpha", "alpha query")
+        assert first.pred is None and first.malformed and first.prompt_tokens == 10
+        got = export.first_overruled(cases, layer.decide, arm.predict, replies.results)
+    assert got["id"] == "beta" and got["agent"] == "lost_or_stolen_card"
+    assert got["search_query"] == "card"
