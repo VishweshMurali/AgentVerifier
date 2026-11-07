@@ -41,6 +41,10 @@ class Paths:
         return self.root / "cache" / "llm.sqlite"
 
     @property
+    def prereg(self) -> Path:
+        return self.root / "prereg.yaml"
+
+    @property
     def manifest(self) -> Path:
         return self.root / "data" / "split_manifest.json"
 

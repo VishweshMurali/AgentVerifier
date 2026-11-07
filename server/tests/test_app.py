@@ -35,9 +35,7 @@ def verdict(prereg_sha256: str = PREREG_SHA, **kw) -> VerdictJSON:
             model_digest="m",
             layer_fingerprint="f",
         ),
-        reasons=["r"],
-        accuracy={},
-        **kw,
+        **{"reasons": ["r"], "accuracy": {}, **kw},
     )
 
 
@@ -382,6 +380,34 @@ def test_a_rehearsal_at_the_sealed_path_is_refused(root):
     assert TestClient(make_app(root)).get("/api/story").status_code == 503
 
 
+def test_r4_s1_editing_only_the_prereg_invalidates_a_warm_story(root):
+    """Codex R4-S1: a warm service must not keep serving a story whose prereg no longer matches
+    the verdict; it must answer exactly as a fresh service does."""
+    write_rehearsal(root)
+    warm = TestClient(make_app(root))
+    assert warm.get("/api/story").status_code == 200  # built and cached
+    prereg = Paths(root).prereg
+    prereg.write_bytes(prereg.read_bytes() + b"\n# edited\n")  # verdict untouched
+    fresh = TestClient(make_app(root)).get("/api/story")
+    assert fresh.status_code == 503
+    again = warm.get("/api/story")
+    assert again.status_code == 503
+    assert again.json() == fresh.json()
+    shutil.copy(REPO / "prereg.yaml", prereg)  # the matching bytes back: served again
+    assert warm.get("/api/story").status_code == 200
+
+
+def test_a_verdict_edit_with_the_same_mtime_still_rebuilds(root):
+    write_rehearsal(root)
+    story = StoryService(Paths(root), with_case=False, script_root=REPO)
+    assert story.get()["verdict"]["reasons"] == ["r"]
+    path = Paths(root).rehearsal_verdict
+    st = path.stat()
+    path.write_text(verdict(rehearsal=True, reasons=["changed"]).model_dump_json(), "utf-8")
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))  # same mtime as before
+    assert story.get()["verdict"]["reasons"] == ["changed"]
+
+
 def test_s6_the_replay_runs_outside_the_story_lock_and_only_when_the_cache_changed(root):
     write_rehearsal(root)
     calls: list[bool] = []
@@ -395,15 +421,15 @@ def test_s6_the_replay_runs_outside_the_story_lock_and_only_when_the_cache_chang
     c = TestClient(create_app(root, story=story, serve_page=False, testing=True))
     assert c.get("/api/story").json()["case"] == {"id": 1}
     assert calls == [False]  # the story lock was free during the replay
-    time.sleep(0.02)
-    write_rehearsal(root)  # new verdict, same (absent) cache: no second replay
-    assert c.get("/api/story").json()["case"] == {"id": 1}
+    write_rehearsal(root, reasons=["new"])  # new verdict, same (absent) cache: no second replay
+    body = c.get("/api/story").json()
+    assert body["verdict"]["reasons"] == ["new"]
+    assert body["case"] == {"id": 1}
     assert len(calls) == 1
     cache = Paths(root).cache
     cache.parent.mkdir()
     cache.write_bytes(b"")  # the cache changed: replay again on the next rebuild
-    time.sleep(0.02)
-    write_rehearsal(root)
+    write_rehearsal(root, reasons=["newer"])
     assert c.get("/api/story").json()["case"] == {"id": 2}
 
 
