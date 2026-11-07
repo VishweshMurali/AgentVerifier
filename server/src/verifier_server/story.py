@@ -7,7 +7,10 @@ under (`load_checked_prereg`), or the story is refused. The one replayed case co
 Caching: the story is keyed on the source, the sha256 of the parsed verdict and the sha256 of the
 prereg.yaml bytes, so editing either file rebuilds it, and a prereg that no longer matches the
 verdict is refused again on the very next request. The case does not depend on the
-verdict, so it is replayed again only when the cache file has changed too. The replay (slow: it
+verdict, so it is replayed again only when the cache has changed: the cache revision is the
+(mtime_ns, size) of `llm.sqlite` and of its `-wal` file, since in WAL mode a commit lands in the
+`-wal` file and the main file stays untouched until a checkpoint. The revision is part of the story
+key too, so a newly committed case reaches the page without a restart. The replay (slow: it
 rebuilds the linear layer) runs under its own lock, never under the story lock.
 """
 
@@ -45,9 +48,9 @@ class StoryService:
         self._export = load_export(script_root or paths.root)
         self._lock = threading.Lock()  # guards _key/_story; held only for quick work
         self._case_lock = threading.Lock()  # serialises the slow replay
-        self._key: tuple[str, str, str] | None = None
+        self._key: tuple[Any, ...] | None = None
         self._story: dict[str, Any] | None = None
-        self._case_key: int | None = None
+        self._case_key: tuple[Any, ...] | None = None
         self._case: Any = _UNSET
 
     def get(self) -> dict[str, Any]:
@@ -60,11 +63,11 @@ class StoryService:
         except ValueError as exc:  # pydantic/JSON errors and ExportRefused
             raise VerdictUnreadable(str(exc)) from exc
         verdict_sha = hashlib.sha256(verdict.model_dump_json().encode("utf-8")).hexdigest()
-        key = (source, verdict_sha, self._prereg_sha())
+        key = (source, verdict_sha, self._prereg_sha(), self._cache_revision())
         with self._lock:
             if self._key == key and self._story is not None:
                 return self._story
-        case = self._replayed_case()  # outside the story lock
+        case = self._replayed_case(key[3])  # outside the story lock
         try:
             prereg = self._export.load_checked_prereg(verdict, self.paths.prereg)
             story = self._export.build_story(verdict, source, case, prereg)
@@ -80,13 +83,24 @@ class StoryService:
     def _prereg_sha(self) -> str:
         return hashlib.sha256(self.paths.prereg.read_bytes()).hexdigest()
 
-    def _replayed_case(self) -> dict[str, Any] | None:
+    def _cache_revision(self) -> tuple[Any, ...] | None:
+        """(mtime_ns, size) of the cache and its WAL file; None per file that is missing."""
         if not self.with_case:
             return None
-        try:
-            cache_key: int | None = self.paths.cache.stat().st_mtime_ns
-        except OSError:
-            cache_key = None
+        cache = self.paths.cache
+        wal = cache.with_name(cache.name + "-wal")
+        out = []
+        for path in (cache, wal):
+            try:
+                st = path.stat()
+                out.append((st.st_mtime_ns, st.st_size))
+            except OSError:
+                out.append(None)
+        return tuple(out)
+
+    def _replayed_case(self, cache_key: tuple[Any, ...] | None) -> dict[str, Any] | None:
+        if not self.with_case:
+            return None
         with self._case_lock:
             if self._case is _UNSET or self._case_key != cache_key:
                 self._case = self._export.replay_case(self.paths.root)

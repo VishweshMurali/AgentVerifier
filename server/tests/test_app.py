@@ -366,6 +366,38 @@ def test_fixture_root_story_never_touches_the_real_repo_cache(root):
     assert repo_cache_state() == before
 
 
+def test_case_refreshes_after_a_wal_commit_with_the_writer_still_open(root):
+    """In WAL mode a commit lands in llm.sqlite-wal and the main file is untouched until a
+    checkpoint. The story must still pick up the newly committed data on the next request."""
+    import sqlite3
+
+    write_rehearsal(root)
+    cache = Paths(root).cache
+    cache.parent.mkdir()
+    writer = sqlite3.connect(cache, isolation_level=None)
+    try:
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("PRAGMA wal_autocheckpoint=0")  # keep every commit in the -wal file
+        writer.execute("CREATE TABLE t (n INTEGER)")
+        writer.execute("INSERT INTO t VALUES (1)")
+
+        def replay(r):
+            con = sqlite3.connect(f"file:{Path(r) / 'cache' / 'llm.sqlite'}?mode=ro", uri=True)
+            try:
+                return {"n": con.execute("SELECT max(n) FROM t").fetchone()[0]}
+            finally:
+                con.close()
+
+        story = case_story(root, replay)
+        assert story.get()["case"] == {"n": 1}
+        main_before = cache.stat().st_mtime_ns, cache.stat().st_size
+        writer.execute("INSERT INTO t VALUES (2)")  # committed, writer stays open
+        assert (cache.stat().st_mtime_ns, cache.stat().st_size) == main_before
+        assert story.get()["case"] == {"n": 2}
+    finally:
+        writer.close()
+
+
 def test_a_prereg_that_does_not_match_the_verdict_is_refused(root):
     write_rehearsal(root, prereg_sha256="0" * 64)
     r = TestClient(make_app(root)).get("/api/story")
