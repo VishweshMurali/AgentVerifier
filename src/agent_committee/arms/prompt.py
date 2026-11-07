@@ -8,7 +8,7 @@ from agent_committee.arms.config import K_SHOTS, MODEL_DIGEST
 from agent_committee.arms.labels import LabelBook
 from agent_committee.arms.linear import LinearLayer
 from agent_committee.arms.parsing import PromptTooLong, guarded_chat, parse_answer
-from agent_committee.llm import LLMClient
+from agent_committee.llm import LLMClient, MalformedResponse
 from agent_committee.schemas import ArmName, ArmPrediction, Case
 
 ANSWER_MAX_TOKENS = 32
@@ -49,6 +49,15 @@ class PromptArm:
         except PromptTooLong:
             # never sent, so the model cannot answer it: scored wrong and counted, not a crash
             return ArmPrediction(case_id=case_id, arm=self.name, pred=None, too_long=True)
+        except MalformedResponse as exc:
+            # the model answered outside the chat shape: no answer (scored wrong), usage kept
+            return ArmPrediction(
+                case_id=case_id,
+                arm=self.name,
+                pred=None,
+                prompt_tokens=exc.prompt_tokens or 0,
+                completion_tokens=exc.completion_tokens or 0,
+            )
         return ArmPrediction(
             case_id=case_id,
             arm=self.name,

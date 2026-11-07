@@ -90,3 +90,9 @@ def test_unknown_or_truncated_answers_score_none(split, book, layer):
     assert arm.predict("a", "x").pred is None
     arm = make_arm(split.pool, book, layer, client(fake("card_arrival", finish="length")))
     assert arm.predict("a", "x").pred is None
+
+
+def test_malformed_reply_scores_none_and_keeps_usage(split, book, layer):
+    arm = make_arm(split.pool, book, layer, client(fake(text=["not", "a string"])))
+    pred = arm.predict("a", "x")
+    assert pred.pred is None and (pred.prompt_tokens, pred.completion_tokens) == (11, 3)

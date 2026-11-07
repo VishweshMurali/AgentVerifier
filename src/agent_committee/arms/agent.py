@@ -6,7 +6,13 @@ The linear layer's shortlist is the starting point, but the model writes its own
 pick a label the shortlist missed. Rules:
 - An answer before any tool call is sent back once with SEND_BACK, then taken as given.
 - A case costs at most AGENT_MAX_TOOL_TURNS + 1 model calls; `decide` must answer, with no tools.
-- A malformed tool call ends the case with pred=None, which scores as wrong.
+- A malformed tool call ends the case with pred=None, which scores as wrong. Malformed means: a
+  broken call envelope, an unknown tool, arguments that are not a JSON object or lack the tool's
+  required string argument, any tool call in a truncated reply, any tool call in the final no-tools
+  reply, or a reply the LLM layer rejects as malformed. Every call in a turn is checked, including
+  those past MAX_CALLS_PER_TURN (which are then dropped). So only valid tool use is ever counted
+  toward the quality floor (`own_tool_calls`).
+- A prompt the context guard refuses ends the case as `too_long`; tokens already spent are kept.
 Tool-call ids from the model are random, so replayed messages use `call_{i}` to keep cache keys
 stable between runs.
 """
@@ -16,13 +22,13 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from agent_committee.arms.agent_tools import TOOLS, ToolBox
+from agent_committee.arms.agent_tools import TOOLS, ToolBox, call_problem
 from agent_committee.arms.config import AGENT_MAX_TOOL_TURNS, MODEL_DIGEST
 from agent_committee.arms.labels import LabelBook
 from agent_committee.arms.linear import LinearLayer
 from agent_committee.arms.parsing import PromptTooLong, guarded_chat, parse_answer
 from agent_committee.arms.retrieval import Retriever
-from agent_committee.llm import LLMClient, LLMResult
+from agent_committee.llm import LLMClient, LLMResult, MalformedResponse
 from agent_committee.schemas import ArmName, ArmPrediction, Case
 
 THINK_MAX_TOKENS = 128
@@ -57,6 +63,7 @@ class AgentState(TypedDict):
     sent_back: bool
     retry: bool
     malformed: bool
+    too_long: bool
     answer: str | None
     done: bool
     prompt_tokens: int
@@ -65,8 +72,9 @@ class AgentState(TypedDict):
 
 
 def _normalize_calls(raw: list[dict[str, Any]], start: int) -> list[dict[str, Any]]:
-    calls = []
-    for i, call in enumerate(raw[:MAX_CALLS_PER_TURN]):
+    """Check every call (also those past the per-turn cap), then keep the first MAX_CALLS_PER_TURN
+    with stable ids. Any malformed call raises MalformedToolCall."""
+    for call in raw:
         function = call.get("function") if isinstance(call, dict) else None
         if (
             not isinstance(function, dict)
@@ -74,6 +82,12 @@ def _normalize_calls(raw: list[dict[str, Any]], start: int) -> list[dict[str, An
             or not isinstance(function.get("arguments"), str)
         ):
             raise MalformedToolCall(repr(call))
+        problem = call_problem(function["name"], function["arguments"])
+        if problem is not None:
+            raise MalformedToolCall(problem)
+    calls = []
+    for i, call in enumerate(raw[:MAX_CALLS_PER_TURN]):
+        function = call["function"]
         calls.append(
             {
                 "id": f"call_{start + i}",
@@ -107,18 +121,41 @@ class AgentArm:
             "latency_s": state["latency_s"] + result.latency_s,
         }
 
+    @staticmethod
+    def _stopped(state: AgentState, exc: Exception) -> dict[str, Any]:
+        """End the case with no answer: a refused (too long) prompt, or a reply the LLM layer
+        rejected as malformed. Usage already spent stays; a malformed reply adds what it
+        reported."""
+        if isinstance(exc, PromptTooLong):
+            return {"too_long": True, "answer": None, "done": True, "pending": []}
+        assert isinstance(exc, MalformedResponse)
+        return {
+            "model_calls": state["model_calls"] + 1,
+            "prompt_tokens": state["prompt_tokens"] + (exc.prompt_tokens or 0),
+            "completion_tokens": state["completion_tokens"] + (exc.completion_tokens or 0),
+            "malformed": True,
+            "answer": None,
+            "done": True,
+            "pending": [],
+        }
+
     def _think(self, state: AgentState) -> dict[str, Any]:
-        result = guarded_chat(
-            self._client,
-            state["messages"],
-            arm=self.name.value,
-            max_tokens=THINK_MAX_TOKENS,
-            tools=TOOLS,
-        )
+        try:
+            result = guarded_chat(
+                self._client,
+                state["messages"],
+                arm=self.name.value,
+                max_tokens=THINK_MAX_TOKENS,
+                tools=TOOLS,
+            )
+        except (PromptTooLong, MalformedResponse) as exc:
+            return self._stopped(state, exc)
         update = {**self._usage(state, result), "retry": False}
         raw_calls = result.message.get("tool_calls") or []
         if raw_calls:
             try:
+                if result.truncated:
+                    raise MalformedToolCall("tool call in a truncated reply")
                 calls = _normalize_calls(raw_calls, state["n_calls"])
             except MalformedToolCall:
                 return {**update, "malformed": True, "answer": None, "done": True}
@@ -159,9 +196,15 @@ class AgentArm:
 
     def _decide(self, state: AgentState) -> dict[str, Any]:
         messages = [*state["messages"], {"role": "user", "content": DECIDE_INSTRUCTION}]
-        result = guarded_chat(
-            self._client, messages, arm=self.name.value, max_tokens=ANSWER_MAX_TOKENS
-        )
+        try:
+            result = guarded_chat(
+                self._client, messages, arm=self.name.value, max_tokens=ANSWER_MAX_TOKENS
+            )
+        except (PromptTooLong, MalformedResponse) as exc:
+            return self._stopped(state, exc)
+        if result.message.get("tool_calls"):
+            # no tools were offered on this call: a tool call here is malformed, whatever the text
+            return {**self._usage(state, result), "malformed": True, "answer": None, "done": True}
         return {
             **self._usage(state, result),
             "answer": parse_answer(result, self._book),
@@ -197,14 +240,12 @@ class AgentArm:
         if self._tools is None:
             raise RuntimeError("fit() first")
         shortlist = self._layer.decide(text).shortlist
-        try:
-            final = self._invoke(shortlist, text)
-        except PromptTooLong:
-            # the conversation outgrew the model's context: scored wrong and counted, not a crash
-            self.stats.update(cases=1, too_long_cases=1)
-            return ArmPrediction(case_id=case_id, arm=self.name, pred=None, too_long=True)
+        # a prompt that outgrows the context ends the case as too_long (scored wrong, counted, not
+        # a crash), keeping the usage of the calls made before it
+        final = self._invoke(shortlist, text)
         self.stats.update(
             cases=1,
+            too_long_cases=int(final["too_long"]),
             model_calls=final["model_calls"],
             own_tool_cases=int(final["own_first_tool"]),
             sent_back_cases=int(final["sent_back"]),
@@ -220,6 +261,7 @@ class AgentArm:
             own_tool_calls=final["n_calls"],
             sent_back=final["sent_back"],
             malformed=final["malformed"],
+            too_long=final["too_long"],
         )
 
     def _invoke(self, shortlist: tuple[str, ...], text: str) -> dict[str, Any]:
@@ -237,6 +279,7 @@ class AgentArm:
                 "sent_back": False,
                 "retry": False,
                 "malformed": False,
+                "too_long": False,
                 "answer": None,
                 "done": False,
                 "prompt_tokens": 0,

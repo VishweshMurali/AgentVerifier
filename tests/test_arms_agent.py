@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from agent_committee.arms import parsing
 from agent_committee.arms.agent import (
     SEND_BACK,
     AgentArm,
@@ -12,7 +13,7 @@ from agent_committee.arms.agent import (
 from agent_committee.arms.agent_tools import READ_LABEL, SEARCH, TOOLS, ToolBox
 from agent_committee.arms.config import AGENT_MAX_TOOL_TURNS, MAX_PROMPT_CHARS
 from agent_committee.arms.labels import build_label_book
-from agent_committee.arms.parsing import PromptTooLong
+from agent_committee.arms.parsing import PromptTooLong, guarded_chat, prompt_chars
 from agent_committee.arms.retrieval import Retriever
 from agent_committee.llm import LLMClient, LLMUnavailable
 from agent_committee.schemas import ArmName, Case
@@ -151,6 +152,56 @@ def test_malformed_tool_call_scores_wrong_and_does_not_stop_the_run(bad):
     assert arm.stats["malformed_cases"] == 1
 
 
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"function": {"name": SEARCH, "arguments": "{bad"}},
+        {"function": {"name": SEARCH, "arguments": "[1]"}},
+        {"function": {"name": SEARCH, "arguments": json.dumps({"wrong": "x"})}},
+        {"function": {"name": READ_LABEL, "arguments": json.dumps({"label": 3})}},
+        {"function": {"name": "delete_all", "arguments": "{}"}},
+    ],
+)
+def test_bad_arguments_or_unknown_tool_are_malformed_and_no_tool_runs(bad):
+    script = Script(reply(calls=[call(SEARCH, {"query": "ok"}), bad]))
+    arm = arm_with(script)
+    pred = arm.predict("a", "x")
+    assert pred.pred is None and pred.malformed and pred.own_tool_calls == 0
+    assert len(script.requests) == 1 and arm.stats["own_tool_cases"] == 0
+
+
+def test_malformed_call_past_the_per_turn_cap_is_still_malformed():
+    calls = [call(SEARCH, {"query": f"q{i}"}, f"id{i}") for i in range(3)]
+    script = Script(reply(calls=[*calls, {"function": "nope"}]))
+    pred = arm_with(script).predict("a", "x")
+    assert pred.pred is None and pred.malformed
+
+
+def test_tool_call_in_a_truncated_reply_is_malformed():
+    script = Script(reply(calls=[call(SEARCH, {"query": "card"})], finish="length"))
+    pred = arm_with(script).predict("a", "x")
+    assert pred.pred is None and pred.malformed
+
+
+def test_tool_call_in_the_no_tools_decide_turn_is_malformed():
+    looping = [reply(calls=[call(SEARCH, {"query": f"q{i}"})]) for i in range(AGENT_MAX_TOOL_TURNS)]
+    last = reply("card_arrival", calls=[call(SEARCH, {"query": "more"})])
+    arm = arm_with(Script(*looping, last))
+    pred = arm.predict("a", "x")
+    assert pred.pred is None and pred.malformed
+    assert pred.own_tool_calls == AGENT_MAX_TOOL_TURNS
+    assert pred.prompt_tokens == 10 * (AGENT_MAX_TOOL_TURNS + 1)
+
+
+def test_reply_the_llm_layer_rejects_is_malformed_and_keeps_usage():
+    broken = reply()
+    broken["choices"][0]["message"]["tool_calls"] = "not a list"
+    arm = arm_with(Script(SEARCHED, broken))
+    pred = arm.predict("a", "x")
+    assert pred.pred is None and pred.malformed and pred.own_tool_calls == 1
+    assert pred.prompt_tokens >= 10 and arm.stats["malformed_cases"] == 1
+
+
 def test_truncated_final_answer_is_none():
     script = Script(SEARCHED, reply("card_arrival", finish="length"), reply("x", finish="length"))
     assert arm_with(script).predict("a", "x").pred is None
@@ -175,7 +226,26 @@ def test_oversized_prompt_is_never_sent_and_scores_wrong():
 
 def test_guard_still_refuses_the_call_itself():
     with pytest.raises(PromptTooLong):
-        arm_with(Script())._invoke(("card_arrival",), "x" * (MAX_PROMPT_CHARS + 1))
+        guarded_chat(
+            None,
+            [{"role": "user", "content": "x" * (MAX_PROMPT_CHARS + 1)}],
+            arm="agent",
+            max_tokens=1,
+        )
+
+
+def test_too_long_after_a_tool_turn_keeps_the_usage_spent(monkeypatch):
+    first = [
+        {"role": "system", "content": build_system_prompt(SHORTLIST)},
+        {"role": "user", "content": "x"},
+    ]
+    monkeypatch.setattr(parsing, "MAX_PROMPT_CHARS", prompt_chars(first, TOOLS))
+    script = Script(SEARCHED)
+    arm = arm_with(script)
+    pred = arm.predict("a", "x")
+    assert pred.pred is None and pred.too_long and not pred.malformed
+    assert (pred.prompt_tokens, pred.completion_tokens, pred.own_tool_calls) == (10, 2, 1)
+    assert len(script.requests) == 1 and arm.stats["too_long_cases"] == 1
 
 
 def test_predict_before_fit_fails():

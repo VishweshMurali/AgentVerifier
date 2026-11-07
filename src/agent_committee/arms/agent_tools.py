@@ -48,6 +48,26 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
+REQUIRED_ARG = {SEARCH: "query", READ_LABEL: "label"}
+
+
+def call_problem(name: str, arguments: str) -> str | None:
+    """Why a tool call is malformed, or None if it is valid: a known tool, arguments that parse to
+    a JSON object, and the tool's required argument as a string. The agent scores a malformed
+    call wrong (locked rule), so only valid calls ever reach `ToolBox.run`."""
+    if name not in REQUIRED_ARG:
+        return f"unknown tool {name!r}"
+    try:
+        args = json.loads(arguments)
+    except (TypeError, ValueError):
+        return f"arguments are not JSON: {arguments!r}"
+    if not isinstance(args, dict):
+        return f"arguments are not an object: {arguments!r}"
+    if not isinstance(args.get(REQUIRED_ARG[name]), str):
+        return f"{name} needs a string {REQUIRED_ARG[name]!r}: {arguments!r}"
+    return None
+
+
 class ToolBox:
     def __init__(self, retriever: Retriever, book: LabelBook, layer: LinearLayer) -> None:
         self._retriever = retriever
