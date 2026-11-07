@@ -172,16 +172,49 @@ export interface ChecksSummary {
   failed: Check[];
   /** Failed checks whose effect changes the verdict (anything but REPORT). */
   binding: Check[];
+  /** The agent arm's name, so per-arm check names read "your agent". */
+  agentArm: string;
 }
 
-export function summarizeChecks(checks: readonly Check[]): ChecksSummary {
+export function summarizeChecks(checks: readonly Check[], agentArm = 'agent'): ChecksSummary {
   const failed = checks.filter((c) => !c.passed);
   return {
+    agentArm,
     passed: checks.length - failed.length,
     total: checks.length,
     failed,
     binding: failed.filter((c) => c.effect !== 'REPORT'),
   };
+}
+
+/** Plain names for the pre-registered checks; the internal name stays in the detail layer. */
+const CHECK_NAMES: Record<string, string> = {
+  leakage: 'Copies of DEV text',
+  power_cap: 'Enough test cases',
+  quality_floor: 'Agent used its own tools',
+  null_rate: 'Share of low-confidence cases',
+  score_drift: 'Score drift from DEV',
+  domain_auc: 'Test looks like DEV',
+  label_mix: 'Label mix matches DEV',
+  false_alarm_rate: 'Drift check false alarms',
+  per_label_bias: 'Per-label bias',
+  flagged_split: 'Gap on low-confidence cases',
+};
+
+/**
+ * Plain name of a check: "leakage" -> "Copies of DEV text", "dev_gap[linear]" -> "No overfitting
+ * to DEV: Linear". Unknown checks show their internal name.
+ */
+export function checkName(name: string, agentArm: string): string {
+  const gap = /^dev_gap\[(.+)\]$/.exec(name);
+  if (gap) return `No overfitting to DEV: ${armLabel(gap[1], agentArm, true)}`;
+  return CHECK_NAMES[name] ?? name;
+}
+
+/** The pill on a check: Passed, Noted (failed but only reported) or Failed (binds the verdict). */
+export function checkPill(c: Pick<Check, 'passed' | 'effect'>): { word: string; tone: 'yes' | 'note' | 'no' } {
+  if (c.passed) return { word: 'Passed', tone: 'yes' };
+  return c.effect === 'REPORT' ? { word: 'Noted', tone: 'note' } : { word: 'Failed', tone: 'no' };
 }
 
 function listNames(names: string[]): string {
@@ -196,7 +229,7 @@ export function checksHeading(s: ChecksSummary): string {
 export function checksLead(s: ChecksSummary): string {
   if (s.failed.length === 0) return 'Every pre-registered check passed.';
   const notes = s.failed.length - s.binding.length;
-  const parts = [`Did not pass: ${listNames(s.failed.map((c) => c.name))}.`];
+  const parts = [`Did not pass: ${listNames(s.failed.map((c) => checkName(c.name, s.agentArm)))}.`];
   if (s.binding.length === 0) parts.push('None of them changes the verdict; they are reported.');
   else if (notes > 0) parts.push(`${notes} ${notes === 1 ? 'is' : 'are'} only reported.`);
   return parts.join(' ');
@@ -214,7 +247,7 @@ export function checksLine(s: ChecksSummary): Rich {
   const out: Rich = ['Heads up: '];
   s.binding.forEach((c, i) => {
     if (i > 0) out.push(i === s.binding.length - 1 ? ' and ' : ', ');
-    out.push({ strong: c.name });
+    out.push({ strong: checkName(c.name, s.agentArm) });
   });
   const effects = [...new Set(s.binding.map((c) => c.effect))];
   out.push(` did not pass, and that sets the verdict to ${effects.join(' or ')}.`);

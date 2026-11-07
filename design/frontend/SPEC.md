@@ -1,4 +1,4 @@
-# Front end: approved design (locked 2026-11-04, revised 2026-11-04)
+# Front end: approved design (locked 2026-11-04, revised 2026-11-05)
 
 The approved look and behaviour is `story-reference.dc.html` in this folder, a working prototype
 from the design canvas (final version: teal on light, dotted 3D ribbon background, night toggle).
@@ -20,7 +20,7 @@ evenly spaced stops land on each scene. No scroll snapping.
 | 2 | Contenders | left | curious: head tilt, wide eyes | The three arms; asks "which one wins?" with 3 answer buttons |
 | 3 | Fair rules | right | thinking: tilt, eyes up | Rules locked before the test |
 | 4 | Scores | left | thinking | Accuracy bars per arm; pays off the user's guess |
-| 5 | Integrity | right | nod | Checks passed count; "Show all checks" expands the list |
+| 5 | Integrity | right | nod | Checks passed count; "Show all checks" expands the list (see Checks list) |
 | 6 | The reveal | left | sad: droop, sad eyes, dim jet | Accuracy gap, fades to a dark scene; "Yes, show me" jumps to scene 7 |
 | 7 | Your call | right | point: arm toward the slider | Error-cost slider with live expected cost per arm |
 | 8 | One case | left | curious | One wrong case; "Replay it" steps through the trace |
@@ -36,7 +36,11 @@ evenly spaced stops land on each scene. No scroll snapping.
   different height each time, overshoot past the stop, then settle. Banks into turns, shrinks when
   far, ground shadow shrinks as it rises, eyes look toward the content.
 - One speech bubble with a tail, attached to the robot. It changes text per scene and hides while
-  the robot is flying.
+  the robot is flying, but never while one of its buttons has keyboard focus. Only its line is
+  announced to screen readers; its buttons sit outside the announced part.
+- Keyboard path (approved 2026-11-05): the robot comes after the scenes in the page order (it is
+  fixed on screen, so it looks the same). Each scene whose bubble has buttons ends with a
+  "Go to the robot’s buttons" button that shows only on keyboard focus and moves focus to them.
 - Phones: the robot docks small in the bottom-right corner and stops flying.
 
 ## Page motion
@@ -49,9 +53,19 @@ evenly spaced stops land on each scene. No scroll snapping.
   burst and re-form on each scene change. A ring opens around the reveal number.
 - Corner brackets and a scan line only in the reveal. A small readout: source, case count, scene.
 - Wheel scrolling is eased. All motion is driven by JavaScript (works on every browser, phones
-  included). Reduced motion slows the motion instead of stopping it.
+  included). Reduced motion slows the motion instead of stopping it; eased wheel scrolling stays
+  off under reduced motion (confirmed by the user 2026-11-05).
 - A fixed timeline at the bottom highlights the current scene and shows its name; each mark jumps
-  to its scene.
+  to its scene. Scene links move focus and the address to the scene.
+- Header: brand, night toggle, and a "Try your error cost" button that jumps to scene 7
+  (renamed from "Verify an agent", approved 2026-11-05).
+
+## Checks list (scene 5, approved 2026-11-05)
+- Each check shows a plain, short name (for example "Copies of DEV text", "Per-label bias",
+  "No overfitting to DEV: Linear"), its value and its pre-registered limit. The internal name
+  (`leakage`, `dev_gap[linear]`, …) and the engine's detail line sit in the detail layer under it.
+- Pill words: "Passed"; "Noted" in a neutral colour for a failed check that is only reported;
+  "Failed" (ink) for a failed check that binds the verdict.
 
 ## Look
 - Type: Space Grotesk (UI), JetBrains Mono (labels, hashes).

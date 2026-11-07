@@ -34,7 +34,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
   const simpler = v.arms.find((a) => a.name === v.simpler_arm) as Arm;
   const ordered = useMemo(() => L.armOrder(v.arms, v.agent_arm), [v]);
   const ranked = useMemo(() => L.ranking(v.arms), [v]);
-  const checks = useMemo(() => L.summarizeChecks(v.checks), [v]);
+  const checks = useMemo(() => L.summarizeChecks(v.checks, v.agent_arm), [v]);
   const label = (name: string, start = false) => L.armLabel(name, v.agent_arm, start);
   const fillClass = (name: string) => (name === v.agent_arm ? 'fill-agt' : (FILL_CLASS[name] ?? 'fill-prm'));
 
@@ -127,6 +127,20 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
         return <RichText value={L.helloLine()} />;
     }
   };
+
+  // Keyboard path to the bubble: a button that shows only on focus, at the end of each scene whose
+  // bubble has controls, moves focus to the bubble's first control (the bubble stays visible while focused).
+  const scenesWithControls = new Set(['s2', 's5', 's6', 's9', ...(story.case ? ['s8'] : [])]);
+  const skipToRobot = (id: string) =>
+    scenesWithControls.has(id) ? (
+      <button
+        type="button"
+        className="chip skip"
+        onClick={() => document.querySelector<HTMLElement>('#robot-controls button, #robot-controls a')?.focus()}
+      >
+        Go to the robot’s buttons
+      </button>
+    ) : null;
 
   const controls = () => {
     switch (active) {
@@ -233,12 +247,10 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
             {night ? 'Day' : 'Night'}
           </button>
           <a href="#s7" className="cta">
-            Verify an agent
+            Try your error cost
           </a>
         </div>
       </header>
-
-      <Robot mood={mood} side={scene.side} onFly={onFly} line={line()} controls={controls()} />
 
       <Timeline active={active} />
 
@@ -270,6 +282,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
               );
             })}
           </p>
+          {skipToRobot('s2')}
         </section>
 
         <section id="s3" tabIndex={-1} className={sceneCls('s3', 'robot-right')} aria-labelledby="s3-h">
@@ -324,13 +337,15 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
             <ul id="checks-list" className="checks glass" tabIndex={0} aria-label="All checks">
               {v.checks.map((c) => (
                 <li key={c.name}>
-                  <span className={`pass ${c.passed ? 'yes' : 'no'}`}>{c.passed ? 'Passed' : 'Failed'}</span>
-                  <span className="mono">{c.name}</span>
+                  <span className={`pass ${L.checkPill(c).tone}`}>{L.checkPill(c).word}</span>
+                  <span className="check-name">{L.checkName(c.name, v.agent_arm)}</span>
                   <span className="check-val">
                     {num(c.value)}
                     {L.checkLimit(c) && <span className="check-limit"> (limit {L.checkLimit(c)})</span>}
                   </span>
                   <span className="check-detail">
+                    <span className="mono check-id">{c.name}</span>
+                    {' · '}
                     {c.detail}
                     {c.passed ? '' : ` (${c.effect === 'REPORT' ? 'reported only' : `sets ${c.effect}`})`}
                   </span>
@@ -338,6 +353,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
               ))}
             </ul>
           )}
+          {skipToRobot('s5')}
         </section>
 
         <section id="s6" tabIndex={-1} className={sceneCls('s6', 'robot-left center')} aria-labelledby="s6-h">
@@ -354,6 +370,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
             </span>
           </div>
           <p className="lead beat-3">{L.revealLead(story)}</p>
+          {skipToRobot('s6')}
         </section>
 
         <section id="s7" tabIndex={-1} className={sceneCls('s7', 'robot-right center')} aria-labelledby="s7-h">
@@ -414,6 +431,7 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
             <Words text={L.caseHeading(story.case)} />
           </h2>
           <p className="lead beat-3">{L.caseLead(story.case)}</p>
+          {skipToRobot('s8')}
         </section>
 
         <section id="s9" tabIndex={-1} className={sceneCls('s9', 'robot-right')} aria-labelledby="s9-h">
@@ -424,8 +442,12 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
           <p className="lead beat-3">{L.recapLead(story, table)}</p>
           <p className="lead beat-3 mono small-mono">{L.verdictTag(story)}</p>
           <p className="lead beat-3 mono small-mono">{L.auditLine(story)}</p>
+          {skipToRobot('s9')}
         </section>
       </main>
+
+      {/* after <main> in the DOM so keyboard users meet the scene first; it is fixed, so it looks the same */}
+      <Robot mood={mood} side={scene.side} onFly={onFly} line={line()} controls={controls()} />
     </div>
   );
 }

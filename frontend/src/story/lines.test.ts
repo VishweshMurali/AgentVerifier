@@ -82,7 +82,7 @@ test('checks from the real data: counts, failures and the binding one', () => {
   assert.equal(s.passed, story.verdict.checks.filter((c) => c.passed).length);
   assert.equal(L.checksHeading(s), `${s.passed} of ${s.total} checks passed.`);
   assert.deepEqual(s.binding.map((c) => c.name), ['power_cap']);
-  assert.match(text(L.checksLine(s)), /power_cap did not pass, and that sets the verdict to NEED_MORE_DATA/);
+  assert.match(text(L.checksLine(s)), /Enough test cases did not pass, and that sets the verdict to NEED_MORE_DATA/);
   const allPass = L.summarizeChecks(story.verdict.checks.map((c) => ({ ...c, passed: true })));
   assert.match(text(L.checksLine(allPass)), /Everything checks out/);
   assert.equal(L.checksLead(allPass), 'Every pre-registered check passed.');
@@ -131,4 +131,18 @@ test('check limits come from the bounds; dataset labels read as words', () => {
   assert.equal(L.labelText('order_physical_card'), 'order physical card');
   const c = { id: 'x', text: 't', gold: 'card_linking', linear: 'card_linking', shortlist: ['card_linking'], search_query: null, agent: 'order_physical_card' };
   assert.doesNotMatch(L.replaySteps(c).map(text).join(' '), /_/);
+});
+
+test('checks read in plain words: names, per-arm names and the three pills', () => {
+  assert.equal(L.checkName('leakage', 'agent'), 'Copies of DEV text');
+  assert.equal(L.checkName('per_label_bias', 'agent'), 'Per-label bias');
+  assert.equal(L.checkName('dev_gap[linear]', 'agent'), 'No overfitting to DEV: Linear');
+  assert.equal(L.checkName('dev_gap[agent]', 'agent'), 'No overfitting to DEV: Your agent');
+  assert.equal(L.checkName('brand_new_check', 'agent'), 'brand_new_check');
+  for (const c of story.verdict.checks) assert.doesNotMatch(L.checkName(c.name, 'agent'), /_|\[/);
+  assert.deepEqual(L.checkPill({ passed: true, effect: 'INVALID' }), { word: 'Passed', tone: 'yes' });
+  assert.deepEqual(L.checkPill({ passed: false, effect: 'REPORT' }), { word: 'Noted', tone: 'note' });
+  assert.deepEqual(L.checkPill({ passed: false, effect: 'NEED_MORE_DATA' }), { word: 'Failed', tone: 'no' });
+  const s = L.summarizeChecks(story.verdict.checks);
+  assert.doesNotMatch(L.checksLead(s), /_/);
 });

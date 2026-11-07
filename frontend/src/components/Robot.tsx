@@ -42,7 +42,9 @@ export function Robot({ mood, side, onFly, line, controls = null }: RobotProps) 
           <div className="say-line" role="status" aria-live="polite">
             {line}
           </div>
-          {controls}
+          <div id="robot-controls" className="say-controls">
+            {controls}
+          </div>
         </div>
         <div className="r-body" aria-hidden="true">
           <svg viewBox="0 0 200 260" focusable="false" style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
