@@ -119,6 +119,27 @@ class CachedReplies:
         return result
 
 
+def search_query(tool_calls: list) -> str | None:
+    """The first valid search query among the agent's tool calls, by the agent's own rule.
+
+    A call counts only if it names the search tool and its arguments parse to an object with a
+    string `query` (as `AgentTools.run` requires). Other tools and malformed calls are skipped.
+    """
+    from agent_committee.arms.agent_tools import SEARCH
+
+    for call in tool_calls:
+        function = call.get("function") if isinstance(call, dict) else None
+        if not isinstance(function, dict) or function.get("name") != SEARCH:
+            continue
+        try:
+            args = json.loads(function.get("arguments"))
+        except (TypeError, ValueError):
+            continue
+        if isinstance(args, dict) and isinstance(args.get("query"), str):
+            return args["query"]
+    return None
+
+
 def first_overruled(
     cases: Iterable, decide: Callable, predict: Callable, results: list
 ) -> dict | None:
@@ -141,9 +162,7 @@ def first_overruled(
         if pred.pred == case.label or pred.pred is None:
             continue
         tool_calls = [c for r in results for c in (r.message.get("tool_calls") or [])]
-        query = None
-        if tool_calls:
-            query = json.loads(tool_calls[0]["function"]["arguments"]).get("query")
+        query = search_query(tool_calls)
         return {
             "id": case.id,
             "text": case.text,

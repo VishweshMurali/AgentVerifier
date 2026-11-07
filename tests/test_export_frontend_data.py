@@ -129,7 +129,9 @@ def test_cached_replies_return_what_llmclient_stored(tmp_path):
     assert got.message == written.message
     assert (got.prompt_tokens, got.completion_tokens, got.finish_reason) == (11, 3, "stop")
     assert got.cached and replies.results == [got]
-    with LLMClient(db, phase="build", model_digest="dg", transport=None) as client:
+    with LLMClient(
+        db, phase="build", model_digest="dg", transport=None, served_digest=lambda _m: "dg"
+    ) as client:
         assert client.chat(MESSAGES, arm="agent", tools=TOOLS, max_tokens=50).message == got.message
 
 
@@ -174,9 +176,51 @@ def case(i, label):
     return SimpleNamespace(id=f"c{i}", text=f"text {i}", label=label)
 
 
+def call(name, arguments):
+    return {"function": {"name": name, "arguments": arguments}}
+
+
 def reply(*queries):
-    calls = [{"function": {"arguments": json.dumps({"query": q})}} for q in queries]
+    calls = [call("search_examples", json.dumps({"query": q})) for q in queries]
     return SimpleNamespace(message={"tool_calls": calls} if calls else {})
+
+
+def test_search_query_skips_malformed_and_other_calls():
+    calls = [
+        call("search_examples", "{not json"),
+        call("read_label_definition", json.dumps({"query": "wrong tool"})),
+        call("search_examples", json.dumps(["not", "an", "object"])),
+        call("search_examples", json.dumps({"query": 7})),
+        call("search_examples", None),
+        "not a call",
+        call("search_examples", json.dumps({"query": "lost card"})),
+        call("search_examples", json.dumps({"query": "later"})),
+    ]
+    assert export.search_query(calls) == "lost card"
+
+
+def test_search_query_is_none_when_no_call_is_valid():
+    assert export.search_query([]) is None
+    assert export.search_query([call("search_examples", "{bad"), call("other", "{}")]) is None
+
+
+def test_a_malformed_tool_call_does_not_abort_the_replay():
+    """The overruled case is still shown, with the later valid query or with none."""
+    for calls, expected in (
+        ([call("search_examples", "{bad"), call("search_examples", '{"query": "ok"}')], "ok"),
+        ([call("search_examples", "{bad")], None),
+    ):
+        results: list = []
+
+        def predict(case_id, text, calls=calls, results=results):
+            results.append(SimpleNamespace(message={"tool_calls": calls}))
+            return SimpleNamespace(pred="z")
+
+        def decide(text):
+            return SimpleNamespace(choice="a", shortlist=("a", "z"))
+
+        got = export.first_overruled([case(0, "a")], decide, predict, results)
+        assert got["agent"] == "z" and got["search_query"] == expected
 
 
 def test_first_overruled_picks_the_first_right_answer_the_agent_overturned():
