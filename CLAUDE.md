@@ -13,11 +13,14 @@ Banking77 is the first task and proves the method.
   1. Linear model alone, no LLM. It always answers with its Choice.
   2. Single prompt with the top-5 shortlist and few-shot examples from DEV.
   3. Hand-built LangGraph reference agent with the shortlist (tools: retrieve similar DEV examples, read label definitions; then decide). No label list is given.
+  v2 additions (approved 2026-11-09, P3): a majority-label floor; Naive Bayes as the third classic rung; a cascade
+  (linear on confident cases, the agent only on Null-flagged ones). Non-LLM rungs are priced at $0 (local).
 - Null is a flag for low-confidence cases (the lowest 10% on tune), not a score. All arms answer them, and accuracy on those cases is reported per arm.
 - Agent rules: a no-tool answer is sent back once, the last call must answer, a malformed tool call scores wrong. Maximum 4 model calls per case.
 - No RAG for now. `search` stays a single swappable tool.
 - Test set is **SEALED**: stored separately (`sealed/`, gitignored) with a SHA-256 hash committed in `data/test.sha256`.
-  No arm-building code may read it. Unsealing requires the git tag `arms-frozen` to exist.
+  No arm-building code may read it. Unsealing requires the scenario's freeze tag: `arms-frozen` for Banking77 (v1), `arms-frozen-<name>` for every
+  other scenario (approved 2026-11-09). Banking77's v1 tag and test are used up; a v2 sealed run needs a new scenario.
 - `prereg.yaml` is committed before unsealing: metric=accuracy, alpha=0.05, minimum meaningful gap, cost ranges (assumed), 3 price tables (assumed), decision policy.
 - Stats: fixed sample; paired comparisons on the same cases; exact McNemar (k=1) and paired cluster bootstrap over cases; A/A simulation target ~5% false winners.
 - Decision: E[C] = C_inference + P(error)*C_error, under each price table and across the error-cost range.
@@ -52,7 +55,7 @@ src/agent_committee/
   prereg.py      load/validate prereg.yaml
   scenarios.py   scenario registry (Banking77 = scenario 1, v1 paths and tag); frozen with the arms
   data.py        scenario loaders (Banking77, Hugging Face, local jsonl/csv), stratified split, writes DEV + sealed TEST + hashes
-  seal.py        ONLY reader of sealed TEST; enforces arms-frozen tag + hash (Phase D runner only)
+  seal.py        ONLY reader of sealed TEST; enforces the scenario's freeze tag + hash (Phase D runner only)
   throughput.py  calls/hour benchmark logic
   power.py       exact McNemar power and required N
   llm.py         LLM wrapper: SQLite cache, retries, phase/arm tags, usage logging
