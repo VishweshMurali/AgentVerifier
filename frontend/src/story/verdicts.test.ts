@@ -124,6 +124,7 @@ test('the per-scenario cost reason stays out of the plain lead; other reasons st
   assert.doesNotMatch(lead, /@\$|per scenario/);
 });
 
-test('the quality floor check reads as valid tool use', () => {
-  assert.equal(L.checkName('quality_floor', 'agent'), 'Agent’s valid tool use');
+// v1 verdicts counted every tool call toward the floor, so the label must not claim "valid only"
+test('the quality floor check name is true under both the v1 and v2 tool-use rules', () => {
+  assert.equal(L.checkName('quality_floor', 'agent'), 'Agent used its own tools');
 });

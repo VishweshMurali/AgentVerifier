@@ -191,7 +191,7 @@ export function summarizeChecks(checks: readonly Check[], agentArm = 'agent'): C
 const CHECK_NAMES: Record<string, string> = {
   leakage: 'Copies of DEV text',
   power_cap: 'Enough test cases',
-  quality_floor: 'Agent’s valid tool use',
+  quality_floor: 'Agent used its own tools',
   null_rate: 'Share of low-confidence cases',
   score_drift: 'Score drift from DEV',
   domain_auc: 'Test looks like DEV',
