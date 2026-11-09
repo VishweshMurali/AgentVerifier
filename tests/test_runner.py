@@ -164,7 +164,7 @@ def test_any_trace_of_a_sealed_run_blocks_another(tmp_path):
 
 def test_main_checks_for_traces_before_it_unseals():
     source = open(runner.__file__, encoding="utf-8").read()
-    assert source.index("sealed_run_traces(out_dir)") < source.index("seal.load_test(repo)")
+    assert source.index("sealed_run_traces(out_dir)") < source.index("seal.load_test(repo")
 
 
 def test_agent_that_skips_its_tools_is_invalid(tmp_path):

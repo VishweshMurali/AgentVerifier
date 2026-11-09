@@ -1,7 +1,8 @@
-"""Banking77 loading and the deterministic stratified DEV/TEST split.
+"""Scenario loading and the deterministic stratified DEV/TEST split.
 
 Banking77 ships with train/test; we POOL them and re-split so that DEV and TEST are drawn from one
-distribution under our own seed (recorded in prereg.yaml).
+distribution under our own seed (recorded in prereg.yaml). Other scenarios plug in a loader
+(`load_huggingface`, `load_local`) and get the same split, hashes and seal (see scenarios.py).
 
 Sealing rules (see CLAUDE.md):
 - This module WRITES the sealed TEST file once, at split creation, and never returns TEST rows.
@@ -9,8 +10,10 @@ Sealing rules (see CLAUDE.md):
 - Reading TEST back is `seal.load_test`'s job, and only the Phase D runner may call it.
 """
 
+import csv
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 
 from sklearn.model_selection import train_test_split
@@ -22,6 +25,13 @@ DEV_HASH_FILE = "dev.sha256"
 TEST_HASH_FILE = "test.sha256"
 MANIFEST_FILE = "split_manifest.json"
 SEALED_TEST_FILE = "test.jsonl"
+SEALED_ROOT = "sealed"
+
+
+def sealed_dir(scenario) -> str:
+    """Folder of a scenario's sealed TEST file (gitignored): `sealed/` for Banking77 (v1),
+    `sealed/<name>/` for every other scenario."""
+    return SEALED_ROOT if scenario.data_dir == "data" else f"{SEALED_ROOT}/{scenario.name}"
 
 
 def to_jsonl_bytes(cases: list[Case]) -> bytes:
@@ -42,6 +52,13 @@ def split_cases(
     cases: list[Case], test_fraction: float, seed: int
 ) -> tuple[list[Case], list[Case]]:
     """Deterministic stratified split by label. Returns (dev, test), each sorted by case id."""
+    ids = Counter(c.id for c in cases)
+    dupes = sorted(i for i, n in ids.items() if n > 1)
+    if dupes:
+        raise ValueError(f"duplicate case ids: {dupes[:5]}")
+    single = sorted(label for label, n in Counter(c.label for c in cases).items() if n < 2)
+    if single:
+        raise ValueError(f"labels with fewer than 2 cases cannot be split by label: {single[:5]}")
     ordered = sorted(cases, key=lambda c: c.id)
     dev_idx, test_idx = train_test_split(
         range(len(ordered)),
@@ -64,6 +81,53 @@ def load_banking77() -> list[Case]:
             cases.append(
                 Case(id=f"b77-{split}-{i:05d}", text=row["text"], label=names[row["label"]])
             )
+    return cases
+
+
+def load_huggingface(
+    dataset: str,
+    *,
+    text: str,
+    label: str,
+    splits: tuple[str, ...],
+    id_prefix: str,
+    config: str | None = None,
+) -> list[Case]:
+    """Pool the given splits of a Hugging Face dataset into Cases with stable ids
+    (`<id_prefix>-<split>-<row>`). Class-label columns become their names."""
+    from datasets import load_dataset  # heavy import, only needed when building the split
+
+    ds = load_dataset(dataset, config) if config else load_dataset(dataset)
+    cases: list[Case] = []
+    for split in splits:
+        feature = ds[split].features[label]
+        names = getattr(feature, "names", None)
+        for i, row in enumerate(ds[split]):
+            value = names[row[label]] if names else str(row[label])
+            cases.append(Case(id=f"{id_prefix}-{split}-{i:05d}", text=row[text], label=value))
+    return cases
+
+
+def load_local(path: str | Path) -> list[Case]:
+    """Cases from a local `.jsonl` or `.csv` with `id`, `text` and `label` columns.
+
+    `id` is required: ids from row order would make the split depend on the file's row order.
+    """
+    path = Path(path)
+    if path.suffix == ".jsonl":
+        lines = path.read_text(encoding="utf-8").splitlines()
+        rows = [json.loads(line) for line in lines if line.strip()]
+    elif path.suffix == ".csv":
+        with path.open(encoding="utf-8-sig", newline="") as f:  # Excel CSVs start with a BOM
+            rows = list(csv.DictReader(f))
+    else:
+        raise ValueError(f"{path}: use a .jsonl or .csv file")
+    cases = []
+    for n, row in enumerate(rows, 1):
+        missing = [k for k in ("id", "text", "label") if not isinstance(row.get(k), str)]
+        if missing:
+            raise ValueError(f"{path} row {n}: needs string columns {missing}")
+        cases.append(Case(id=row["id"], text=row["text"], label=row["label"]))
     return cases
 
 
@@ -133,16 +197,36 @@ def load_dev(data_dir: str | Path = "data") -> list[Case]:
     return from_jsonl_bytes(raw)
 
 
-def main() -> None:
-    """Build the split from prereg.yaml (run once: `python -m agent_committee.data`)."""
+def build_split(scenario, repo: str | Path = ".") -> dict:
+    """Load a scenario's cases and write its split once, per its own prereg."""
     from agent_committee.prereg import load_prereg
 
-    prereg = load_prereg()
-    dev, test = split_cases(load_banking77(), prereg.split.test_fraction, prereg.split.seed)
-    manifest = write_split(
-        dev, test, seed=prereg.split.seed, test_fraction=prereg.split.test_fraction
+    repo = Path(repo)
+    if (repo / scenario.data_dir / DEV_FILE).exists():
+        # refuse before loading (a Hugging Face loader downloads); write_split checks every file
+        raise FileExistsError(f"split already exists for {scenario.name!r}, refusing to rebuild")
+    prereg = load_prereg(repo / scenario.prereg_path, task=scenario.name)
+    dev, test = split_cases(scenario.loader(), prereg.split.test_fraction, prereg.split.seed)
+    return write_split(
+        dev,
+        test,
+        seed=prereg.split.seed,
+        test_fraction=prereg.split.test_fraction,
+        data_dir=repo / scenario.data_dir,
+        sealed_dir=repo / sealed_dir(scenario),
     )
-    print(json.dumps(manifest, indent=2))
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Build a scenario's split (once): `python -m agent_committee.data [--scenario NAME]`."""
+    import argparse
+
+    from agent_committee.scenarios import get_scenario
+
+    ap = argparse.ArgumentParser(description="Build a scenario's DEV/TEST split (once).")
+    ap.add_argument("--scenario", default="banking77")
+    args = ap.parse_args(argv)
+    print(json.dumps(build_split(get_scenario(args.scenario)), indent=2))
 
 
 if __name__ == "__main__":

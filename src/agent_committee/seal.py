@@ -1,7 +1,9 @@
 """The ONLY module that reads the sealed TEST set. Only the Phase D runner may import it.
 
+Every check is per scenario (scenarios.py); the defaults are Banking77's v1 paths and tag.
 Unsealing requires ALL of:
- 1. git tag `arms-frozen` exists
+ 0. the arms have the scenario's own config (`Scenario.arms_ready`)
+ 1. the scenario's freeze tag (`arms-frozen` for Banking77) exists
  2. the tag is an ancestor of HEAD
  3. prereg.yaml is tracked and committed
  4. nothing in FROZEN_PATHS (prereg, arms/, core modules incl. this one, pyproject/uv.lock,
@@ -29,20 +31,18 @@ from agent_committee.data import (
     load_dev,
     sha256_hex,
 )
+from agent_committee.data import sealed_dir as sealed_dir_for
 from agent_committee.prereg import load_prereg
+from agent_committee.scenarios import BANKING77, Scenario
 from agent_committee.schemas import Case
 
-FREEZE_TAG = "arms-frozen"
-PREREG_PATH = "prereg.yaml"
-TAG_REF = f"refs/tags/{FREEZE_TAG}"
 ARMS_PATH = "src/agent_committee/arms"
-DEV_REPORT = f"{ARMS_PATH}/dev_report.json"
-# Must exist at the tag on top of every FROZEN_PATHS entry, so an empty arms/ cannot pass.
+# Must exist at the tag on top of every frozen path, so an empty arms/ cannot pass.
 REQUIRED_ARM_FILES = [f"{ARMS_PATH}/{n}" for n in ("base.py", "linear.py", "prompt.py", "agent.py")]
-# Everything that must be byte-identical between the freeze tag and unsealing.
-FROZEN_PATHS = [
-    PREREG_PATH,
+# Code that must be byte-identical between any scenario's freeze tag and unsealing.
+FROZEN_CODE = [
     ARMS_PATH,
+    "src/agent_committee/scenarios.py",
     "src/agent_committee/llm.py",
     "src/agent_committee/data.py",
     "src/agent_committee/schemas.py",
@@ -58,12 +58,34 @@ FROZEN_PATHS = [
     "src/agent_committee/templates",
     "pyproject.toml",
     "uv.lock",
-    "data/dev.jsonl",
-    "data/dev.sha256",
-    "data/test.sha256",
-    "data/split_manifest.json",
 ]
-REQUIRED_AT_TAG = [*FROZEN_PATHS, *REQUIRED_ARM_FILES, DEV_REPORT]
+DATA_FILES = ("dev.jsonl", "dev.sha256", TEST_HASH_FILE, "split_manifest.json")
+
+
+def tag_ref(s: Scenario) -> str:
+    return f"refs/tags/{s.freeze_tag}"
+
+
+def frozen_paths(s: Scenario) -> list[str]:
+    """Everything that must be byte-identical between the scenario's freeze tag and unsealing:
+    its prereg, the shared code (scenarios.py included) and its DEV data, hashes and manifest."""
+    data = [f"{s.data_dir}/{name}" for name in DATA_FILES]
+    # Banking77's DEV report lives in arms/ (already frozen); any other scenario's is listed itself
+    report = [] if s.dev_report.startswith(f"{ARMS_PATH}/") else [s.dev_report]
+    return [s.prereg_path, *FROZEN_CODE, *data, *report]
+
+
+def required_at_tag(s: Scenario) -> list[str]:
+    return [*frozen_paths(s), *REQUIRED_ARM_FILES, s.dev_report]
+
+
+# Banking77 (v1) names, kept for callers and tests
+FREEZE_TAG = BANKING77.freeze_tag
+PREREG_PATH = BANKING77.prereg_path
+TAG_REF = tag_ref(BANKING77)
+DEV_REPORT = BANKING77.dev_report
+FROZEN_PATHS = frozen_paths(BANKING77)
+REQUIRED_AT_TAG = required_at_tag(BANKING77)
 # Source trees that must have no uncommitted change at all when unsealing.
 CLEAN_TREES = ["src", "scripts"]
 
@@ -76,42 +98,52 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=False)
 
 
-def rebuild_fingerprint(repo: Path) -> str:
+def rebuild_fingerprint(repo: Path, data_dir: str = BANKING77.data_dir) -> str:
     """Fit the layer again from the committed DEV pool. Reads DEV only."""
-    pool = make_arms_split(load_dev(repo / "data")).pool
+    pool = make_arms_split(load_dev(repo / data_dir)).pool
     return make_layer(pool).fingerprint()
 
 
-def _layer_problems(repo: Path) -> list[str]:
+def _layer_problems(repo: Path, s: Scenario = BANKING77) -> list[str]:
     """Is the frozen layer reproducible? Compares a fresh rebuild with the DEV report."""
     try:
-        data = json.loads((repo / DEV_REPORT).read_text(encoding="utf-8"))
+        data = json.loads((repo / s.dev_report).read_text(encoding="utf-8"))
         recorded = data["layer"]["fingerprint"]
     except (OSError, ValueError, KeyError, TypeError):
-        return [f"{DEV_REPORT} has no layer fingerprint"]
-    if rebuild_fingerprint(repo) != recorded:
-        return [f"linear layer rebuilt from the pool does not match {DEV_REPORT}"]
+        return [f"{s.dev_report} has no layer fingerprint"]
+    if rebuild_fingerprint(repo, s.data_dir) != recorded:
+        return [f"linear layer rebuilt from the pool does not match {s.dev_report}"]
     return []
 
 
-def _prereg_problems(repo: Path) -> list[str]:
+def _prereg_problems(repo: Path, s: Scenario = BANKING77) -> list[str]:
     """Sections the pre-registration must settle before the tag."""
-    prereg = load_prereg(repo / PREREG_PATH)
+    if not s.arms_ready:
+        return [f"scenario {s.name!r} has no arms config yet"]
+    try:
+        prereg = load_prereg(repo / s.prereg_path, task=s.name)
+    except ValueError as exc:
+        return [str(exc)]
     problems = [
-        f"{PREREG_PATH} does not set {name}"
+        f"{s.prereg_path} does not set {name}"
         for name in ("linear", "scorer", "quality_floor", "checks")
         if getattr(prereg, name) is None
     ]
     if prereg.linear is not None and (
         prereg.linear.null_threshold != NULL_THRESHOLD or prereg.linear.shortlist_k != SHORTLIST_K
     ):
-        problems.append(f"{PREREG_PATH} linear settings do not match arms/config")
+        problems.append(f"{s.prereg_path} linear settings do not match arms/config")
     return problems
 
 
-def check_unseal_conditions(repo: str | Path = ".") -> None:
+def check_unseal_conditions(repo: str | Path = ".", s: Scenario = BANKING77) -> None:
     """Raise SealError unless the arms are provably frozen and the pre-registration is committed."""
     repo = Path(repo)
+    FREEZE_TAG, TAG_REF, PREREG_PATH = s.freeze_tag, tag_ref(s), s.prereg_path  # noqa: N806
+    FROZEN_PATHS, REQUIRED_AT_TAG = frozen_paths(s), required_at_tag(s)  # noqa: N806
+
+    if not s.arms_ready:
+        raise SealError(f"scenario {s.name!r} has no arms config yet; it cannot be unsealed")
 
     if _git(repo, "rev-parse", "--verify", "--quiet", TAG_REF).returncode != 0:
         raise SealError(f"git tag '{FREEZE_TAG}' does not exist; arms are not frozen")
@@ -144,15 +176,16 @@ def check_unseal_conditions(repo: str | Path = ".") -> None:
         raise SealError(f"uncommitted changes in {CLEAN_TREES}:\n{dirty.stdout}")
 
     # Last, because a rebuild takes seconds: settled prereg, then a reproducible layer.
-    problems = _prereg_problems(repo) or _layer_problems(repo)
+    problems = _prereg_problems(repo, s) or _layer_problems(repo, s)
     if problems:
         raise SealError("; ".join(problems))
 
 
 def load_test(
     repo: str | Path = ".",
-    data_dir: str | Path = "data",
-    sealed_dir: str | Path = "sealed",
+    data_dir: str | Path | None = None,
+    sealed_dir: str | Path | None = None,
+    s: Scenario = BANKING77,
 ) -> list[Case]:
     """Verify unseal conditions + hash, then return the TEST cases.
 
@@ -160,7 +193,10 @@ def load_test(
     tree, so replacing both the sealed file and the working-tree hash file cannot pass.
     """
     repo = Path(repo)
-    check_unseal_conditions(repo)
+    data_dir = s.data_dir if data_dir is None else data_dir
+    sealed_dir = sealed_dir_for(s) if sealed_dir is None else sealed_dir
+    FREEZE_TAG, TAG_REF = s.freeze_tag, tag_ref(s)  # noqa: N806
+    check_unseal_conditions(repo, s)
 
     # `git show tag:path` needs a repo-relative POSIX path; data_dir may be absolute.
     try:
@@ -182,12 +218,15 @@ def load_test(
     return from_jsonl_bytes(raw)
 
 
-def check_pretag(repo: str | Path = ".") -> list[str]:
-    """Problems that would make tagging `arms-frozen` now a mistake. Empty list means ready.
+def check_pretag(repo: str | Path = ".", s: Scenario = BANKING77) -> list[str]:
+    """Problems that would make tagging the scenario's freeze tag now a mistake. Empty list means
+    ready.
 
     Never reads TEST: it only inspects git state, source files and DEV-side reports.
     """
     repo = Path(repo)
+    FREEZE_TAG, TAG_REF, DEV_REPORT = s.freeze_tag, tag_ref(s), s.dev_report  # noqa: N806
+    FROZEN_PATHS, REQUIRED_AT_TAG = frozen_paths(s), required_at_tag(s)  # noqa: N806
     problems: list[str] = []
     if _git(repo, "rev-parse", "--verify", "--quiet", TAG_REF).returncode == 0:
         problems.append(f"tag '{FREEZE_TAG}' already exists")
@@ -208,20 +247,24 @@ def check_pretag(repo: str | Path = ".") -> list[str]:
         elif data.get("model_digest") != MODEL_DIGEST or not MODEL_DIGEST:
             problems.append(f"{DEV_REPORT} model_digest does not match arms/config.MODEL_DIGEST")
         else:
-            problems.extend(_layer_problems(repo))
-    return [*problems, *_prereg_problems(repo)]
+            problems.extend(_layer_problems(repo, s))
+    return [*problems, *_prereg_problems(repo, s)]
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Pre-tag readiness check (never reads TEST).")
     ap.add_argument("--pretag", action="store_true", required=True)
     ap.add_argument("--repo", default=".")
+    ap.add_argument("--scenario", default=BANKING77.name)
     args = ap.parse_args(argv)
-    problems = check_pretag(args.repo)
+    from agent_committee.scenarios import get_scenario
+
+    s = get_scenario(args.scenario)
+    problems = check_pretag(args.repo, s)
     for p in problems:
         print("NOT READY:", p)
     if not problems:
-        print(f"ready: run `git tag {FREEZE_TAG}`")
+        print(f"ready: run `git tag {s.freeze_tag}`")
     return 1 if problems else 0
 
 

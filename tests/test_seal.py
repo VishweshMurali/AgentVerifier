@@ -49,7 +49,7 @@ def commit_all(repo, msg="c"):
 def repo(tmp_path, monkeypatch):
     """A git repo: prereg.yaml, an arms package, a committed hash, a gitignored sealed file."""
     # the fixture's DEV data is too small to split, so the rebuild itself is tested on the real pool
-    monkeypatch.setattr("agent_committee.seal.rebuild_fingerprint", lambda _repo: "fp")
+    monkeypatch.setattr("agent_committee.seal.rebuild_fingerprint", lambda *_a: "fp")
     git(tmp_path, "init", "-b", "main")
     shutil.copy(ROOT / "prereg.yaml", tmp_path / "prereg.yaml")
     arms = tmp_path / "src" / "agent_committee" / "arms"
@@ -68,6 +68,7 @@ def repo(tmp_path, monkeypatch):
     )
     for name in (
         "llm.py",
+        "scenarios.py",
         "data.py",
         "schemas.py",
         "scorers.py",
@@ -135,7 +136,7 @@ def test_load_test_compares_against_the_frozen_hash_even_if_diff_check_is_bypass
     repo, monkeypatch
 ):
     git(repo, "tag", "arms-frozen")
-    monkeypatch.setattr("agent_committee.seal.check_unseal_conditions", lambda _repo: None)
+    monkeypatch.setattr("agent_committee.seal.check_unseal_conditions", lambda *_a: None)
     fake = to_jsonl_bytes([Case(id="x", text="swapped", label="a")])
     (repo / "sealed" / "test.jsonl").write_bytes(fake)
     (repo / "data" / "test.sha256").write_text(sha256_hex(fake) + "\n")  # self-consistent forgery
@@ -318,13 +319,13 @@ def test_pretag_never_reads_the_sealed_file(repo):
 
 def test_unseal_refuses_when_the_rebuilt_layer_differs(repo, monkeypatch):
     git(repo, "tag", "arms-frozen")
-    monkeypatch.setattr("agent_committee.seal.rebuild_fingerprint", lambda _repo: "other")
+    monkeypatch.setattr("agent_committee.seal.rebuild_fingerprint", lambda *_a: "other")
     with pytest.raises(SealError, match="does not match"):
         check_unseal_conditions(repo)
 
 
 def test_pretag_flags_a_rebuilt_layer_that_differs(repo, monkeypatch):
-    monkeypatch.setattr("agent_committee.seal.rebuild_fingerprint", lambda _repo: "other")
+    monkeypatch.setattr("agent_committee.seal.rebuild_fingerprint", lambda *_a: "other")
     assert any("does not match" in p for p in check_pretag(repo))
 
 

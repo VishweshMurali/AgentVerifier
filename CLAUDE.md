@@ -50,7 +50,8 @@ Banking77 is the first task and proves the method.
 src/agent_committee/
   schemas.py     pydantic models: Case, ArmPrediction, PriceTable, Prereg, Verdict, VerdictJSON
   prereg.py      load/validate prereg.yaml
-  data.py        Banking77 load, deterministic stratified split, writes DEV + sealed TEST + hashes
+  scenarios.py   scenario registry (Banking77 = scenario 1, v1 paths and tag); frozen with the arms
+  data.py        scenario loaders (Banking77, Hugging Face, local jsonl/csv), stratified split, writes DEV + sealed TEST + hashes
   seal.py        ONLY reader of sealed TEST; enforces arms-frozen tag + hash (Phase D runner only)
   throughput.py  calls/hour benchmark logic
   power.py       exact McNemar power and required N

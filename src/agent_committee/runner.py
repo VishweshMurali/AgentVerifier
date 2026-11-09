@@ -11,7 +11,6 @@ for it, reuses the build-phase LLM cache and writes to results/rehearsal/.
 
 import argparse
 import hashlib
-import importlib
 import json
 import subprocess
 import sys
@@ -27,6 +26,7 @@ from agent_committee.arms.splits import make_arms_split
 from agent_committee.data import load_dev
 from agent_committee.decision import ArmRun, decide
 from agent_committee.prereg import load_prereg
+from agent_committee.scenarios import BANKING77, get_scenario
 from agent_committee.schemas import (
     AuditBundle,
     Case,
@@ -37,9 +37,9 @@ from agent_committee.schemas import (
     Verdict,
     VerdictJSON,
 )
+from agent_committee.scorers import resolve_scorer
 
-DEV_REPORT = "src/agent_committee/arms/dev_report.json"
-SCORER_MODULE = "agent_committee.scorers"
+DEV_REPORT = BANKING77.dev_report
 FALSE_ALARM_REPS = 100
 RUN_MARKER = "sealed_run.started"  # written right after unsealing; blocks any second sealed run
 AGENT = "agent"
@@ -48,14 +48,6 @@ PROGRESS_EVERY = 200
 
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
-
-def resolve_scorer(target: str) -> Callable[[str | None, str], bool]:
-    """The prereg's scorer. Only plain-code scorers from agent_committee.scorers are accepted."""
-    module, _, func = target.partition(":")
-    if module != SCORER_MODULE:
-        raise ValueError(f"scorer {target!r} is not in {SCORER_MODULE}")
-    return getattr(importlib.import_module(module), func)
 
 
 @dataclass(frozen=True)
@@ -278,8 +270,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Phase D: the sealed run (or a rehearsal on DEV).")
     ap.add_argument("--rehearse", action="store_true", help="run on the DEV eval split instead")
     ap.add_argument("--repo", default=".")
+    ap.add_argument("--scenario", default=BANKING77.name)
     args = ap.parse_args(argv)
     repo = Path(args.repo)
+    s = get_scenario(args.scenario)
+    if not s.arms_ready:
+        # the arms would run on another scenario's null threshold, shortlist and DEV report
+        print(f"scenario {s.name!r} has no arms config yet; refusing", file=sys.stderr)
+        return 1
 
     from agent_committee.arms import agent as agent_arm
     from agent_committee.arms import prompt as prompt_arm
@@ -287,9 +285,9 @@ def main(argv: list[str] | None = None) -> int:
     from agent_committee.arms.linear import LinearArm, make_layer
     from agent_committee.llm import LLMClient
 
-    prereg = load_prereg(repo / "prereg.yaml")
-    dev_report = json.loads((repo / DEV_REPORT).read_text(encoding="utf-8"))
-    dev = load_dev(repo / "data")
+    prereg = load_prereg(repo / s.prereg_path, task=s.name)
+    dev_report = json.loads((repo / s.dev_report).read_text(encoding="utf-8"))
+    dev = load_dev(repo / s.data_dir)
     split = make_arms_split(dev)
     layer = make_layer(split.pool)
     if layer.fingerprint() != dev_report["layer"]["fingerprint"]:
@@ -298,12 +296,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.rehearse:
         # a rehearsal may be repeated; it never opens TEST and never claims the test hash
-        out_dir = repo / "results" / "rehearsal"
+        out_dir = repo / s.results_dir / "rehearsal"
         cases, reference, held_out, phase = split.eval, split.pool + split.tune, split.tune, "build"
         test_sha = "rehearsal: DEV eval split, sealed test not opened"
     else:
         # the sealed run happens once: refuse before unsealing if any trace of a run exists
-        out_dir = repo / "results"
+        out_dir = repo / s.results_dir
         traces = sealed_run_traces(out_dir)
         if traces:
             found = ", ".join(str(p) for p in traces)
@@ -311,17 +309,17 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         from agent_committee import seal
 
-        cases = seal.load_test(repo)
+        cases = seal.load_test(repo, s=s)
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / RUN_MARKER).write_text(git_commit(repo) + "\n", encoding="utf-8")
         reference, held_out, phase = list(dev), split.tune + split.eval, "run"
-        test_sha = (repo / "data" / "test.sha256").read_text(encoding="utf-8").strip()
+        test_sha = (repo / s.data_dir / "test.sha256").read_text(encoding="utf-8").strip()
     verdict_path = out_dir / "verdict.json"
 
     audit = {
         "git_commit": git_commit(repo),
-        "prereg_sha256": sha256_file(repo / "prereg.yaml"),
-        "dev_report_sha256": sha256_file(repo / DEV_REPORT),
+        "prereg_sha256": sha256_file(repo / s.prereg_path),
+        "dev_report_sha256": sha256_file(repo / s.dev_report),
         "test_sha256": test_sha,
         "model_digest": MODEL_DIGEST,
         "layer_fingerprint": layer.fingerprint(),

@@ -182,7 +182,8 @@ class Prereg(_Frozen):
     check and the unseal guard both refuse a prereg that leaves any of them out.
     """
 
-    task: Literal["banking77"] = "banking77"
+    # the scenario this prereg belongs to (scenarios.SCENARIOS); checked when it is loaded
+    task: str = Field(default="banking77", pattern=r"^[a-z0-9_]+$")
     metric: Literal["accuracy"] = "accuracy"
     alpha: float = Field(gt=0, lt=1)
     min_gap: float = Field(gt=0, lt=1, description="Smallest accuracy difference worth acting on")
