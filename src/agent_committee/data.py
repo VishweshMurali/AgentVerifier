@@ -36,7 +36,9 @@ def sealed_dir(scenario) -> str:
 
 def to_jsonl_bytes(cases: list[Case]) -> bytes:
     """Canonical serialization: sorted keys, UTF-8, LF line endings. This is what gets hashed."""
-    lines = (json.dumps(c.model_dump(), sort_keys=True, ensure_ascii=False) for c in cases)
+    # exclude_none: an ungrouped case serialises exactly as before `group` existed (v1 hashes)
+    rows = (c.model_dump(exclude_none=True) for c in cases)
+    lines = (json.dumps(r, sort_keys=True, ensure_ascii=False) for r in rows)
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
@@ -48,17 +50,45 @@ def sha256_hex(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def split_cases(
-    cases: list[Case], test_fraction: float, seed: int
-) -> tuple[list[Case], list[Case]]:
-    """Deterministic stratified split by label. Returns (dev, test), each sorted by case id."""
-    ids = Counter(c.id for c in cases)
-    dupes = sorted(i for i, n in ids.items() if n > 1)
+def check_cases(cases: list[Case], *, grouped: bool, min_per_label: int) -> None:
+    """Input checks before a split: unique ids, enough cases (and groups) per label, and groups
+    used only when the prereg says so."""
+    dupes = sorted(i for i, n in Counter(c.id for c in cases).items() if n > 1)
     if dupes:
         raise ValueError(f"duplicate case ids: {dupes[:5]}")
-    single = sorted(label for label, n in Counter(c.label for c in cases).items() if n < 2)
-    if single:
-        raise ValueError(f"labels with fewer than 2 cases cannot be split by label: {single[:5]}")
+    small = sorted(lbl for lbl, n in Counter(c.label for c in cases).items() if n < min_per_label)
+    if small:
+        raise ValueError(f"labels with fewer than {min_per_label} cases: {small[:5]}")
+    has_group = [c.group is not None for c in cases]
+    if not grouped and any(has_group):
+        raise ValueError("cases carry groups: set split.grouped explicitly in the prereg")
+    if grouped:
+        if not all(has_group):
+            raise ValueError("split.grouped is set, so every case needs a group")
+        groups: dict[str, set[str]] = {}
+        for c in cases:
+            groups.setdefault(c.label, set()).add(c.group)
+        few = sorted(lbl for lbl, g in groups.items() if len(g) < 2)
+        if few:
+            raise ValueError(f"labels in fewer than 2 groups cannot reach DEV and TEST: {few[:5]}")
+
+
+def split_cases(
+    cases: list[Case],
+    test_fraction: float,
+    seed: int,
+    *,
+    grouped: bool = False,
+    min_per_label: int = 2,
+) -> tuple[list[Case], list[Case]]:
+    """Deterministic stratified split by label. Returns (dev, test), each sorted by case id.
+
+    Grouped: whole groups go to one side (StratifiedGroupKFold, one fold of round(1 / fraction)
+    as TEST), so the realised test fraction is approximate; the manifest records it.
+    """
+    check_cases(cases, grouped=grouped, min_per_label=min_per_label)
+    if grouped:
+        return _grouped_split(cases, test_fraction, seed)
     ordered = sorted(cases, key=lambda c: c.id)
     dev_idx, test_idx = train_test_split(
         range(len(ordered)),
@@ -84,6 +114,27 @@ def load_banking77() -> list[Case]:
     return cases
 
 
+def _grouped_split(
+    cases: list[Case], test_fraction: float, seed: int
+) -> tuple[list[Case], list[Case]]:
+    from sklearn.model_selection import StratifiedGroupKFold
+
+    ordered = sorted(cases, key=lambda c: c.id)
+    folds = StratifiedGroupKFold(
+        n_splits=max(2, round(1 / test_fraction)), shuffle=True, random_state=seed
+    )
+    dev_idx, test_idx = next(
+        folds.split(range(len(ordered)), [c.label for c in ordered], [c.group for c in ordered])
+    )
+    dev = [ordered[i] for i in sorted(dev_idx)]
+    test = [ordered[i] for i in sorted(test_idx)]
+    missing = sorted({c.label for c in test} - {c.label for c in dev})
+    if missing:
+        # the label book is built from DEV, so no arm could ever answer these
+        raise ValueError(f"labels in TEST but not in DEV after the grouped split: {missing[:5]}")
+    return dev, test
+
+
 def load_huggingface(
     dataset: str,
     *,
@@ -92,9 +143,11 @@ def load_huggingface(
     splits: tuple[str, ...],
     id_prefix: str,
     config: str | None = None,
+    group: str | None = None,
 ) -> list[Case]:
     """Pool the given splits of a Hugging Face dataset into Cases with stable ids
-    (`<id_prefix>-<split>-<row>`). Class-label columns become their names."""
+    (`<id_prefix>-<split>-<row>`). Class-label columns become their names. `group` names an
+    optional column whose value ties cases together (see SplitConfig.grouped)."""
     from datasets import load_dataset  # heavy import, only needed when building the split
 
     ds = load_dataset(dataset, config) if config else load_dataset(dataset)
@@ -104,12 +157,15 @@ def load_huggingface(
         names = getattr(feature, "names", None)
         for i, row in enumerate(ds[split]):
             value = names[row[label]] if names else str(row[label])
-            cases.append(Case(id=f"{id_prefix}-{split}-{i:05d}", text=row[text], label=value))
+            tie = str(row[group]) if group else None
+            case_id = f"{id_prefix}-{split}-{i:05d}"
+            cases.append(Case(id=case_id, text=row[text], label=value, group=tie))
     return cases
 
 
 def load_local(path: str | Path) -> list[Case]:
-    """Cases from a local `.jsonl` or `.csv` with `id`, `text` and `label` columns.
+    """Cases from a local `.jsonl` or `.csv` with `id`, `text` and `label` columns, and an
+    optional `group` column (empty means no group).
 
     `id` is required: ids from row order would make the split depend on the file's row order.
     """
@@ -127,7 +183,10 @@ def load_local(path: str | Path) -> list[Case]:
         missing = [k for k in ("id", "text", "label") if not isinstance(row.get(k), str)]
         if missing:
             raise ValueError(f"{path} row {n}: needs string columns {missing}")
-        cases.append(Case(id=row["id"], text=row["text"], label=row["label"]))
+        tie = row.get("group") or None
+        if tie is not None and not isinstance(tie, str):
+            raise ValueError(f"{path} row {n}: group must be a string")
+        cases.append(Case(id=row["id"], text=row["text"], label=row["label"], group=tie))
     return cases
 
 
@@ -143,6 +202,7 @@ def write_split(
     test_fraction: float,
     data_dir: str | Path = "data",
     sealed_dir: str | Path = "sealed",
+    min_test_n: int | None = None,
 ) -> dict:
     """Write DEV (committed), sealed TEST (gitignored) and both hashes + a manifest (committed).
 
@@ -181,6 +241,17 @@ def write_split(
         # Exact duplicate inputs across DEV/TEST are a leakage risk worth knowing about.
         "n_test_texts_duplicated_in_dev": sum(_norm(c.text) in dev_texts for c in test),
     }
+    if any(c.group is not None for c in dev + test):
+        # grouped split: record what was realised, and that no group crosses DEV/TEST
+        dev_groups, test_groups = {c.group for c in dev}, {c.group for c in test}
+        manifest["grouped"] = True
+        manifest["realised_test_fraction"] = round(len(test) / len(dev + test), 4)
+        manifest["n_groups_dev"], manifest["n_groups_test"] = len(dev_groups), len(test_groups)
+        manifest["n_groups_shared"] = len(dev_groups & test_groups)
+    if min_test_n is not None:
+        # the prereg's own power bound (checks.min_test_n), on the actual TEST size
+        manifest["min_test_n"] = min_test_n
+        manifest["meets_min_test_n"] = len(test) >= min_test_n
     (data_dir / MANIFEST_FILE).write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -206,7 +277,13 @@ def build_split(scenario, repo: str | Path = ".") -> dict:
         # refuse before loading (a Hugging Face loader downloads); write_split checks every file
         raise FileExistsError(f"split already exists for {scenario.name!r}, refusing to rebuild")
     prereg = load_prereg(repo / scenario.prereg_path, task=scenario.name)
-    dev, test = split_cases(scenario.loader(), prereg.split.test_fraction, prereg.split.seed)
+    dev, test = split_cases(
+        scenario.loader(),
+        prereg.split.test_fraction,
+        prereg.split.seed,
+        grouped=prereg.split.grouped,
+        min_per_label=prereg.split.min_cases_per_label,
+    )
     return write_split(
         dev,
         test,
@@ -214,6 +291,7 @@ def build_split(scenario, repo: str | Path = ".") -> dict:
         test_fraction=prereg.split.test_fraction,
         data_dir=repo / scenario.data_dir,
         sealed_dir=repo / sealed_dir(scenario),
+        min_test_n=prereg.checks.min_test_n if prereg.checks else None,
     )
 
 
@@ -226,7 +304,13 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description="Build a scenario's DEV/TEST split (once).")
     ap.add_argument("--scenario", default="banking77")
     args = ap.parse_args(argv)
-    print(json.dumps(build_split(get_scenario(args.scenario)), indent=2))
+    manifest = build_split(get_scenario(args.scenario))
+    print(json.dumps(manifest, indent=2))
+    if manifest.get("meets_min_test_n") is False:
+        print(
+            f"WARNING: {manifest['n_test']} test cases is below the prereg's min_test_n "
+            f"{manifest['min_test_n']}; the sealed run would end NEED_MORE_DATA"
+        )
 
 
 if __name__ == "__main__":

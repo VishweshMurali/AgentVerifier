@@ -88,6 +88,9 @@ def test_banking77_split_is_never_rebuilt_and_nothing_is_downloaded():
 
 
 # ---------- a new scenario plugs in end to end ----------
+PER_LABEL = 30  # exactly the default SplitConfig.min_cases_per_label
+
+
 def write_cases(path: Path, cases: list[dict]) -> Path:
     path.write_text("".join(json.dumps(c) + "\n" for c in cases), encoding="utf-8")
     return path
@@ -95,7 +98,9 @@ def write_cases(path: Path, cases: list[dict]) -> Path:
 
 def demo_repo(tmp_path: Path, task: str = "demo") -> tuple[Path, Scenario]:
     rows = [
-        {"id": f"{x}{i:02d}", "text": f"{x} text {i}", "label": x} for x in "abc" for i in range(8)
+        {"id": f"{x}{i:02d}", "text": f"{x} text {i}", "label": x}
+        for x in "abc"
+        for i in range(PER_LABEL)
     ]
     cases_file = write_cases(tmp_path / "cases.jsonl", rows)
     s = Scenario.standard("demo", lambda: load_local(cases_file))
@@ -114,7 +119,8 @@ def test_a_local_dataset_builds_its_own_split_hashes_and_sealed_file(tmp_path):
         "sealed/demo",
     )
     manifest = build_split(s, repo=repo)
-    assert manifest["n_dev"] + manifest["n_test"] == 24 and manifest["n_labels"] == 3
+    assert manifest["n_dev"] + manifest["n_test"] == 3 * PER_LABEL and manifest["n_labels"] == 3
+    assert manifest["meets_min_test_n"] is False  # 23 test cases, prereg min_test_n is far above
     dev = load_dev(repo / s.data_dir)  # hash checked
     assert len(dev) == manifest["n_dev"]
     assert (repo / sealed_dir(s) / "test.jsonl").is_file()
@@ -220,3 +226,108 @@ def test_huggingface_loader_pools_splits_with_stable_ids_and_label_names(monkeyp
     ]
     raw = load_huggingface("org/ds", text="q", label="intent", splits=("raw",), id_prefix="r")
     assert raw == [Case(id="r-raw-00000", text="x", label="free text label")]
+
+
+def test_the_serializer_reproduces_the_v1_dev_bytes():
+    """Round trip through Case and to_jsonl_bytes: guards schema changes to Case (P4 `group`)."""
+    from agent_committee.data import to_jsonl_bytes
+
+    dev = load_dev(ROOT / "data")
+    assert hashlib.sha256(to_jsonl_bytes(dev)).hexdigest() == V1_DEV_SHA
+
+
+# ---------- P4: data handling for real teams ----------
+def test_a_scenario_at_the_minimum_per_label_survives_the_arms_split(tmp_path):
+    from agent_committee.arms.splits import make_arms_split
+
+    repo, s = demo_repo(tmp_path)
+    build_split(s, repo=repo)
+    split = make_arms_split(load_dev(repo / s.data_dir))
+    assert {c.label for c in split.pool} == {"a", "b", "c"}
+    assert split.tune and split.eval
+
+
+def test_too_few_cases_per_label_is_refused():
+    cases = [Case(id=f"{x}{i}", text="t", label=x) for x in "ab" for i in range(29)]
+    with pytest.raises(ValueError, match="fewer than 30 cases"):
+        split_cases(cases, 0.25, seed=1, min_per_label=30)
+
+
+def grouped_cases(n_groups: int = 12, per_group: int = 3) -> list[Case]:
+    return [
+        Case(id=f"{x}{g}-{i}", text=f"{x} {g} {i}", label=x, group=f"{x}g{g}")
+        for x in "ab"
+        for g in range(n_groups)
+        for i in range(per_group)
+    ]
+
+
+def test_grouped_split_keeps_every_group_on_one_side_and_is_deterministic():
+    cases = grouped_cases()
+    dev, test = split_cases(cases, 0.25, seed=7, grouped=True, min_per_label=2)
+    assert not {c.group for c in dev} & {c.group for c in test}
+    assert {c.label for c in test} <= {c.label for c in dev}
+    shuffled = list(reversed(cases))
+    assert split_cases(shuffled, 0.25, seed=7, grouped=True, min_per_label=2) == (dev, test)
+
+
+def test_grouped_manifest_records_the_realised_fraction_and_groups(tmp_path):
+    from agent_committee.data import write_split
+
+    dev, test = split_cases(grouped_cases(), 0.25, seed=7, grouped=True, min_per_label=2)
+    m = write_split(
+        dev, test, seed=7, test_fraction=0.25, data_dir=tmp_path / "d", sealed_dir=tmp_path / "s"
+    )
+    assert m["grouped"] is True and m["n_groups_shared"] == 0
+    assert m["n_groups_dev"] + m["n_groups_test"] == 24
+    assert m["realised_test_fraction"] == round(len(test) / 72, 4)
+    assert load_dev(tmp_path / "d") == dev  # the group survives the round trip
+
+
+def test_groups_need_the_grouped_setting_and_grouped_needs_groups():
+    cases = grouped_cases()
+    with pytest.raises(ValueError, match="set split.grouped explicitly"):
+        split_cases(cases, 0.25, seed=1, min_per_label=2)
+    plain = [Case(id=c.id, text=c.text, label=c.label) for c in cases]
+    with pytest.raises(ValueError, match="every case needs a group"):
+        split_cases(plain, 0.25, seed=1, grouped=True, min_per_label=2)
+    one_group = [c.model_copy(update={"group": f"{c.label}-only"}) for c in cases]
+    with pytest.raises(ValueError, match="fewer than 2 groups"):
+        split_cases(one_group, 0.25, seed=1, grouped=True, min_per_label=2)
+
+
+def test_local_loader_reads_an_optional_group_column(tmp_path):
+    csv = tmp_path / "g.csv"
+    csv.write_text("id,text,label,group\n1,hi,a,u1\n2,yo,a,\n", encoding="utf-8")
+    assert [c.group for c in load_local(csv)] == ["u1", None]
+
+
+def set_split(repo: Path, s: Scenario, **split) -> None:
+    path = repo / s.prereg_path
+    prereg = yaml.safe_load(path.read_text(encoding="utf-8"))
+    prereg["split"].update(split)
+    path.write_text(yaml.safe_dump(prereg), encoding="utf-8")
+
+
+def test_build_split_applies_the_prereg_minimum_per_label(tmp_path):
+    repo, s = demo_repo(tmp_path)
+    set_split(repo, s, min_cases_per_label=PER_LABEL + 1)
+    with pytest.raises(ValueError, match=f"fewer than {PER_LABEL + 1} cases"):
+        build_split(s, repo=repo)
+
+
+def test_build_split_applies_the_prereg_grouped_setting(tmp_path):
+    rows = [
+        {"id": f"{x}{g}-{i}", "text": f"{x} {g} {i}", "label": x, "group": f"{x}g{g}"}
+        for x in "ab"
+        for g in range(12)
+        for i in range(3)
+    ]
+    cases_file = write_cases(tmp_path / "grouped.jsonl", rows)
+    repo, _ = demo_repo(tmp_path)
+    s = Scenario.standard("demo", lambda: load_local(cases_file))
+    with pytest.raises(ValueError, match="set split.grouped explicitly"):
+        build_split(s, repo=repo)
+    set_split(repo, s, grouped=True)
+    m = build_split(s, repo=repo)
+    assert m["grouped"] is True and m["n_groups_shared"] == 0

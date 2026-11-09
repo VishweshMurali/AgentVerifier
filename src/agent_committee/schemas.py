@@ -31,11 +31,16 @@ class _Frozen(BaseModel):
 
 
 class Case(_Frozen):
-    """One labelled example. `label` is the Banking77 intent name."""
+    """One labelled example. `label` is the scenario's label (a Banking77 intent name in v1).
+
+    `group` ties cases that must stay on the same side of the split (one customer, one thread);
+    None for ungrouped data, and then it is left out of the serialised row.
+    """
 
     id: str = Field(min_length=1)
     text: str = Field(min_length=1)
     label: str = Field(min_length=1)
+    group: str | None = Field(default=None, min_length=1)
 
 
 class ArmPrediction(_Frozen):
@@ -85,6 +90,11 @@ class ErrorCostRange(_Frozen):
 class SplitConfig(_Frozen):
     seed: int
     test_fraction: float = Field(gt=0, lt=1)
+    # keep every case `group` on one side of DEV/TEST (needed when cases share a source)
+    grouped: bool = False
+    # fewer cases than this for any label refuses the split; 30 lets every label survive the arms'
+    # own pool/tune/eval split of DEV (arms/splits.py)
+    min_cases_per_label: int = Field(ge=2, default=30)
 
 
 class StatsConfig(_Frozen):
