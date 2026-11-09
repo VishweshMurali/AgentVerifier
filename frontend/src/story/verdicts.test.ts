@@ -103,3 +103,27 @@ test('break-even CI uses the run’s CI level', () => {
   const s = { ...deploy, verdict: { ...deploy.verdict, ci_level: 0.9 } };
   assert.match(L.recapLead(s, 'cloud_small'), /90% CI \$2\.10 to \$4\.80/);
 });
+
+test('DEPLOY_AGENT recap names both pre-registered conditions: the gap and a lower cost somewhere', () => {
+  const lead = L.recapLead(deploy, base.default_price_table);
+  assert.match(lead, /leads by at least the 2\.0 points set before the test and costs less at some error cost/);
+  const rehearsal = { ...deploy, source: 'rehearsal' as const };
+  assert.doesNotMatch(L.recapLead(rehearsal, base.default_price_table), /set before the test/);
+});
+
+test('the per-scenario cost reason stays out of the plain lead; other reasons stay', () => {
+  const s = variant({
+    verdict: 'NEED_MORE_DATA',
+    reasons: [
+      'A gain of 2 points is still possible.',
+      `${L.SCENARIO_REASON} (price table@error cost): agent: none; linear: cloud_small@$1, cloud_small@$100.`,
+    ],
+  });
+  const lead = L.recapLead(s, base.default_price_table);
+  assert.match(lead, /A gain of 2 points is still possible\./);
+  assert.doesNotMatch(lead, /@\$|per scenario/);
+});
+
+test('the quality floor check reads as valid tool use', () => {
+  assert.equal(L.checkName('quality_floor', 'agent'), 'Agent’s valid tool use');
+});

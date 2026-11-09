@@ -191,7 +191,7 @@ export function summarizeChecks(checks: readonly Check[], agentArm = 'agent'): C
 const CHECK_NAMES: Record<string, string> = {
   leakage: 'Copies of DEV text',
   power_cap: 'Enough test cases',
-  quality_floor: 'Agent used its own tools',
+  quality_floor: 'Agent’s valid tool use',
   null_rate: 'Share of low-confidence cases',
   score_drift: 'Score drift from DEV',
   domain_auc: 'Test looks like DEV',
@@ -370,6 +370,9 @@ export function replaySteps(c: StoryCase): Rich[] {
 }
 
 // ---------- scene 9: recap ----------
+/** Start of the engine's per-scenario cost reason (decision.py), kept out of the plain lead. */
+export const SCENARIO_REASON = 'Lower expected cost per scenario';
+
 const VERDICT_HEADINGS: Record<string, string> = {
   DEPLOY_AGENT: 'The verdict: deploy your agent.',
   USE_SIMPLER: 'The verdict: use the simpler model.',
@@ -390,7 +393,10 @@ export function recapLead(story: Story, table: string): string {
   const v = story.verdict;
   if (story.source === 'sealed' && (v.verdict === 'INVALID' || v.verdict === 'NEED_MORE_DATA')) {
     // No winner is named: the engine's own reasons say why, and the evidence level follows.
-    const why = v.reasons.length > 0 ? v.reasons.join(' ') : 'The engine gave no reason.';
+    // the per-scenario cost line is engine detail (price table@error cost); it stays in the audit
+    // bundle and the cost scene shows the same comparison in plain words
+    const shown = v.reasons.filter((r) => !r.startsWith(SCENARIO_REASON));
+    const why = shown.length > 0 ? shown.join(' ') : 'The engine gave no reason.';
     return `${why} Evidence level: ${v.evidence_level}.`;
   }
   const agent = v.arms.find((a) => a.name === v.agent_arm) as CostArm;
@@ -416,11 +422,17 @@ export function recapLead(story: Story, table: string): string {
         : who === 'equal'
           ? `, and both cost the same ${span}.`
           : `; which one is cheaper depends on the error cost ${span}.`;
-  // USE_SIMPLER although the agent is not behind: say why (the pre-registered minimum gap)
+  // say why in the pre-registered terms: USE_SIMPLER although the agent is not behind (the minimum
+  // gap), and DEPLOY_AGENT (the gap, plus a lower expected cost in at least one pricing case)
+  const gap = `${(v.min_gap * 100).toFixed(1)} points set before the test`;
   const why =
-    story.source === 'sealed' && v.verdict === 'USE_SIMPLER' && s !== 'behind'
-      ? ` Your agent does not lead by the ${(v.min_gap * 100).toFixed(1)} points set before the test, so the simpler model wins.`
-      : '';
+    story.source !== 'sealed'
+      ? ''
+      : v.verdict === 'USE_SIMPLER' && s !== 'behind'
+        ? ` Your agent does not lead by the ${gap}, so the simpler model wins.`
+        : v.verdict === 'DEPLOY_AGENT'
+          ? ` Your agent leads by at least the ${gap} and costs less at some error cost under at least one price table, so it wins.`
+          : '';
   const close =
     story.source === 'rehearsal'
       ? ' This is a DEV rehearsal: the sealed test gives the final verdict.'
