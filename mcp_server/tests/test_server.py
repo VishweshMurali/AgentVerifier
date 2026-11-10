@@ -13,6 +13,9 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from verifier_mcp.server import build_server
 
+from agent_committee.data import build_split as build_split_cli
+from agent_committee.scenarios import get_scenario
+
 REPO = Path(__file__).resolve().parents[2]
 PKG = REPO / "mcp_server" / "src" / "verifier_mcp"
 PER_LABEL = 30
@@ -64,14 +67,16 @@ def test_full_flow_and_no_tool_output_contains_a_test_case(repo):
     check = call(server, "check_dataset", name="demo")
     assert check["n_cases"] == 3 * PER_LABEL and check["problems"] == []
     assert check["prereg"].startswith("missing") and check["split_built"] is False
+    assert check["build_command"] is None  # no prereg yet
     outputs.append(check)
     outputs.append(call(server, "prereg_template", name="demo"))
     write_prereg(repo)
-    with pytest.raises(ToolError, match="irreversible"):
-        call(server, "build_split", name="demo")
-    manifest = call(server, "build_split", name="demo", confirm=True)
+    ready = call(server, "check_dataset", name="demo")
+    assert ready["build_command"] == "uv run python -m agent_committee.data --scenario demo"
+    outputs.append(ready)
+    # the owner runs that command by hand (no endpoint can build a split)
+    manifest = build_split_cli(get_scenario("demo", repo), repo)
     assert manifest["n_dev"] + manifest["n_test"] == 3 * PER_LABEL
-    outputs.append(manifest)
     stats = call(server, "dev_stats", name="demo")
     assert stats["n_dev"] == manifest["n_dev"] and stats["manifest"]["n_test"] == manifest["n_test"]
     outputs.append(stats)
@@ -79,8 +84,7 @@ def test_full_flow_and_no_tool_output_contains_a_test_case(repo):
     assert listed["demo"]["split_built"] and listed["demo"]["source"] == "local"
     assert listed["banking77"]["source"] == "built-in"
     outputs.append(listed)
-    with pytest.raises(ToolError, match="already exists"):
-        call(server, "build_split", name="demo", confirm=True)
+    assert call(server, "check_dataset", name="demo")["build_command"] is None  # built already
 
     sealed = (repo / "sealed" / "demo" / "test.jsonl").read_text(encoding="utf-8").splitlines()
     test_texts = [json.loads(line)["text"] for line in sealed]
@@ -144,7 +148,7 @@ def test_huggingface_dataset_is_declared_without_downloading(repo, monkeypatch):
     }
 
 
-def test_read_only_server_has_no_write_tools_and_split_is_marked_destructive(repo):
+def test_no_endpoint_builds_a_split_and_http_default_is_read_only(repo):
     assert set(tool_names(build_server(repo, allow_writes=False))) == {
         "list_scenarios",
         "check_dataset",
@@ -152,7 +156,8 @@ def test_read_only_server_has_no_write_tools_and_split_is_marked_destructive(rep
         "dev_stats",
     }
     tools = tool_names(build_server(repo))
-    assert tools["build_split"].annotations.destructive_hint is True
+    read_only = {"list_scenarios", "check_dataset", "prereg_template", "dev_stats"}
+    assert set(tools) == {*read_only, "add_dataset"}
     assert tools["list_scenarios"].annotations.read_only_hint is True
 
 
@@ -190,3 +195,11 @@ def test_a_half_filled_prereg_and_a_broken_scenario_file_are_reported_not_raised
     broken.write_text("name: bad\nsource: {kind: ftp}\n", encoding="utf-8")
     listed = {s["name"]: s for s in call(server, "list_scenarios")}
     assert "error" in listed["bad"] and listed["demo"]["source"] == "local"
+
+
+def test_a_yaml_syntax_error_in_one_scenario_file_does_not_hide_the_rest(repo):
+    broken = repo / "scenarios" / "bad" / "scenario.yaml"
+    broken.parent.mkdir(parents=True)
+    broken.write_text("name: bad\nsource: {kind: local, path: [unclosed\n", encoding="utf-8")
+    listed = {s["name"]: s for s in call(build_server(repo), "list_scenarios")}
+    assert "error" in listed["bad"] and listed["banking77"]["source"] == "built-in"

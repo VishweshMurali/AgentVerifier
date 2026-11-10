@@ -10,7 +10,7 @@ services:
     volumes:
       - ..:/repo          # splits and scenario files land in your checkout
       - hf-cache:/hf-cache # Hugging Face downloads survive restarts
-    # read-only tools only; to enable add_dataset and build_split over HTTP, use:
+    # read-only tools only; to enable add_dataset over HTTP, use:
     # command: ["--http", "--host", "0.0.0.0", "--port", "8765", "--allow-writes"]
 
 volumes:

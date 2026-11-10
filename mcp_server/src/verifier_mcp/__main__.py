@@ -2,9 +2,9 @@
 
     uv run --project mcp_server python -m verifier_mcp            # stdio (Claude Desktop)
     uv run --project mcp_server python -m verifier_mcp --http     # read-only HTTP, 127.0.0.1:8765
-    ... --http --allow-writes                                     # HTTP with the write tools
+    ... --http --allow-writes                                     # HTTP with add_dataset
 
-Stdio always has the write tools: the client that launched it is the owner's. HTTP has no auth,
+Stdio always has the write tool: the client that launched it is the owner's. HTTP has no auth,
 so it binds to 127.0.0.1 and is read-only unless --allow-writes is given.
 """
 
@@ -20,7 +20,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--http", action="store_true", help="streamable HTTP instead of stdio")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8765)
-    ap.add_argument("--allow-writes", action="store_true", help="HTTP only: enable write tools")
+    ap.add_argument("--allow-writes", action="store_true", help="HTTP only: enable add_dataset")
     args = ap.parse_args(argv)
     if args.http:
         server = build_server(args.repo, allow_writes=args.allow_writes)

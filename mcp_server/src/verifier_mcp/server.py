@@ -1,13 +1,14 @@
 """MCP data endpoints for the Agent Verifier (FastMCP).
 
 Read tools (always on): list_scenarios, check_dataset, prereg_template, dev_stats.
-Write tools (stdio, or HTTP started with --allow-writes): add_dataset, build_split.
+Write tool (stdio, or HTTP started with --allow-writes): add_dataset (reversible: one file).
 
 Rules this module keeps (tests enforce them):
 - It never opens the sealed TEST set: no import of `agent_committee.seal` or `runner`, and no
   tool returns case text, only counts and hashes.
-- `build_split` is irreversible (it fixes a scenario's sealed TEST and hashes once): it needs
-  `confirm=True` and is marked destructive.
+- Building a split is NOT an endpoint. It fixes a scenario's sealed TEST forever, the same kind
+  of act as the freeze tag, so only the owner runs it, from the CLI. `check_dataset` prints the
+  exact command once its checks pass.
 - Local datasets must live in the repo's gitignored `sources/` folder.
 - The prereg (costs, prices, minimum gap) stays the owner's: `prereg_template` returns a template
   with TODO markers and writes nothing.
@@ -17,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
+from yaml import YAMLError
 
 from agent_committee import data
 from agent_committee.scenarios import (
@@ -32,8 +34,9 @@ from agent_committee.scenarios import (
 
 INSTRUCTIONS = (
     "Data endpoints of the Agent Verifier. Typical flow: add_dataset -> check_dataset -> the owner "
-    "writes the scenario's prereg.yaml (prereg_template helps) -> build_split(confirm=True), once "
-    "-> dev_stats. No tool ever returns sealed TEST cases."
+    "writes the scenario's prereg.yaml (prereg_template helps) -> the owner builds the split once "
+    "from the CLI (check_dataset gives the command) -> dev_stats. No tool ever returns sealed "
+    "TEST cases, and no tool can build a split."
 )
 
 PREREG_TEMPLATE = """# Pre-registration for scenario {name}. Fill every TODO yourself, then commit
@@ -73,7 +76,11 @@ def build_server(repo: str | Path = ".", allow_writes: bool = True) -> FastMCP:
             try:
                 s = get_scenario(name, root)
                 source = read_scenario_file(name, root).source.kind if s.definition else "built-in"
-            except (ValueError, OSError) as exc:  # one broken scenario.yaml must not hide the rest
+            except (
+                ValueError,
+                OSError,
+                YAMLError,
+            ) as exc:  # one broken scenario.yaml must not hide the rest
                 out.append({"name": name, "error": str(exc)})
                 continue
             out.append(
@@ -92,7 +99,13 @@ def build_server(repo: str | Path = ".", allow_writes: bool = True) -> FastMCP:
     def check_dataset(name: str) -> dict[str, Any]:
         """Dry run: load the dataset and run the input checks (unique ids, cases per label, groups,
         expected test size against the prereg's min_test_n). Writes nothing; counts only."""
-        return data.check_scenario(get_scenario(name, root), root)
+        result = data.check_scenario(get_scenario(name, root), root)
+        ready = not result["problems"] and result["prereg"] == "found" and not result["split_built"]
+        # the owner runs this once, by hand: it fixes the scenario's sealed TEST forever
+        result["build_command"] = (
+            f"uv run python -m agent_committee.data --scenario {name}" if ready else None
+        )
+        return result
 
     @mcp.tool(annotations=read_only)
     def prereg_template(name: str) -> str:
@@ -143,17 +156,5 @@ def build_server(repo: str | Path = ".", allow_writes: bool = True) -> FastMCP:
             spec = ScenarioFile(name=name, description=description, source=source)
             written = add_scenario(spec, root)
             return {"scenario": name, "written": written.relative_to(root).as_posix()}
-
-        @mcp.tool(annotations={"destructiveHint": True, "idempotentHint": False})
-        def build_split(name: str, confirm: bool = False) -> dict[str, Any]:
-            """IRREVERSIBLE: build the scenario's DEV/TEST split once, per its prereg. It writes
-            DEV and hashes (committed) and the sealed TEST (gitignored), and can never be rebuilt.
-            Run check_dataset first; pass confirm=True to proceed. Returns the manifest (counts and
-            hashes only)."""
-            if confirm is not True:
-                raise ValueError(
-                    "build_split is irreversible: call check_dataset, then confirm=True"
-                )
-            return data.build_split(get_scenario(name, root), root)
 
     return mcp

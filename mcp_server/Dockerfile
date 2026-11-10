@@ -20,6 +20,6 @@ COPY mcp_server/src ./mcp_server/src
 RUN uv sync --project mcp_server --frozen --no-dev
 
 EXPOSE 8765
-# Read-only by default; add --allow-writes in compose.yaml to enable add_dataset/build_split.
+# Read-only by default; add --allow-writes in compose.yaml to enable add_dataset.
 ENTRYPOINT ["uv", "run", "--project", "mcp_server", "--frozen", "--no-sync", "python", "-m", "verifier_mcp", "--repo", "/repo"]
 CMD ["--http", "--host", "0.0.0.0", "--port", "8765"]
