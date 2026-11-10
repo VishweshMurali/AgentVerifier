@@ -144,13 +144,15 @@ def load_huggingface(
     id_prefix: str,
     config: str | None = None,
     group: str | None = None,
+    revision: str | None = None,
 ) -> list[Case]:
     """Pool the given splits of a Hugging Face dataset into Cases with stable ids
     (`<id_prefix>-<split>-<row>`). Class-label columns become their names. `group` names an
     optional column whose value ties cases together (see SplitConfig.grouped)."""
     from datasets import load_dataset  # heavy import, only needed when building the split
 
-    ds = load_dataset(dataset, config) if config else load_dataset(dataset)
+    kwargs = {"revision": revision} if revision else {}  # never trust_remote_code
+    ds = load_dataset(dataset, config, **kwargs) if config else load_dataset(dataset, **kwargs)
     cases: list[Case] = []
     for split in splits:
         feature = ds[split].features[label]

@@ -12,7 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-OLLAMA_TAGS = "http://localhost:11434/api/tags"
+from agent_committee.llm import BASE_URL  # the one Ollama address setting
+
+OLLAMA_TAGS = BASE_URL.rstrip("/").removesuffix("/v1") + "/api/tags"
 RUN_MARKER = "sealed_run.started"  # same name as agent_committee.runner.RUN_MARKER
 
 

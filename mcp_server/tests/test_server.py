@@ -99,7 +99,7 @@ def test_full_flow_and_no_tool_output_contains_a_test_case(repo):
         ({"name": "demo", "kind": "local", "path": "../outside.jsonl"}, "inside sources/"),
         ({"name": "demo", "kind": "local", "path": "sources/x.txt"}, "jsonl or .csv"),
         ({"name": "../evil", "kind": "local", "path": "sources/demo.jsonl"}, "lowercase"),
-        ({"name": "banking77", "kind": "local", "path": "sources/demo.jsonl"}, "built-in"),
+        ({"name": "banking77", "kind": "local", "path": "sources/demo.jsonl"}, "menu option"),
         ({"name": "rehearsal", "kind": "local", "path": "sources/demo.jsonl"}, "reserved"),
         ({"name": "demo", "kind": "pickle", "path": "sources/demo.jsonl"}, "kind must be"),
     ],
@@ -150,14 +150,15 @@ def test_huggingface_dataset_is_declared_without_downloading(repo, monkeypatch):
 
 def test_no_endpoint_builds_a_split_and_http_default_is_read_only(repo):
     assert set(tool_names(build_server(repo, allow_writes=False))) == {
+        "list_datasets",
         "list_scenarios",
         "check_dataset",
         "prereg_template",
         "dev_stats",
     }
     tools = tool_names(build_server(repo))
-    read_only = {"list_scenarios", "check_dataset", "prereg_template", "dev_stats"}
-    assert set(tools) == {*read_only, "add_dataset"}
+    read_only = {"list_datasets", "list_scenarios", "check_dataset", "prereg_template", "dev_stats"}
+    assert set(tools) == {*read_only, "add_dataset", "choose_dataset"}
     assert tools["list_scenarios"].annotations.read_only_hint is True
 
 
@@ -203,3 +204,38 @@ def test_a_yaml_syntax_error_in_one_scenario_file_does_not_hide_the_rest(repo):
     broken.write_text("name: bad\nsource: {kind: local, path: [unclosed\n", encoding="utf-8")
     listed = {s["name"]: s for s in call(build_server(repo), "list_scenarios")}
     assert "error" in listed["bad"] and listed["banking77"]["source"] == "built-in"
+
+
+# ---------- the dataset menu ----------
+def test_list_datasets_shows_the_menu(repo):
+    options = [m["option"] for m in call(build_server(repo), "list_datasets")]
+    assert options == ["banking77", "clinc150", "emotion", "own"]
+
+
+def test_choose_dataset_by_option(repo):
+    out = call(build_server(repo), "choose_dataset", option="emotion")
+    assert out["status"] == "chosen" and (repo / "scenarios/emotion/scenario.yaml").is_file()
+
+
+def test_choose_dataset_without_a_pick_list_returns_the_menu(repo):
+    out = call(build_server(repo), "choose_dataset")
+    assert [m["option"] for m in out["pick_one"]][:3] == ["banking77", "clinc150", "emotion"]
+    assert not (repo / "scenarios").exists()
+
+
+def test_add_dataset_cannot_take_a_menu_options_name(repo):
+    with pytest.raises(ToolError, match="use choose_dataset"):
+        call(
+            build_server(repo),
+            "add_dataset",
+            name="clinc150",
+            kind="local",
+            path="sources/demo.jsonl",
+        )
+
+
+def test_preload_is_refused_on_stdio():
+    from verifier_mcp.__main__ import main
+
+    with pytest.raises(SystemExit):
+        main(["--preload"])

@@ -103,6 +103,8 @@ class HuggingFaceSource(_Spec):
     label: str = Field(min_length=1)
     splits: list[str] = Field(min_length=1)
     group: str | None = None
+    # the dataset commit to load (frozen with the scenario), so the data can't change under it
+    revision: str | None = None
 
 
 class LocalSource(_Spec):
@@ -135,6 +137,11 @@ def local_source(repo: str | Path, path: str) -> Path:
     return resolved
 
 
+def loader_for(spec: ScenarioFile, repo: str | Path = ".") -> Loader:
+    """The loader a scenario file declares (downloads only when called)."""
+    return _loader(spec, Path(repo))
+
+
 def _loader(spec: ScenarioFile, repo: Path) -> Loader:
     from agent_committee import data
 
@@ -150,6 +157,7 @@ def _loader(spec: ScenarioFile, repo: Path) -> Loader:
         id_prefix=spec.name,
         config=src.config,
         group=src.group,
+        revision=src.revision,
     )
 
 

@@ -443,3 +443,25 @@ def test_fetch_served_digest_reads_the_tags_endpoint():
 def test_fetch_served_digest_failures_are_llm_unavailable(payload, status):
     with pytest.raises(LLMUnavailable):
         fetch_served_digest("llama3.1:8b", http_client=_tags_client(payload, status))
+
+
+def test_the_ollama_address_is_one_env_setting_with_the_v1_default():
+    import os
+    import subprocess
+    import sys
+
+    code = "from agent_committee import llm; print(llm.BASE_URL)"
+    env = {k: v for k, v in os.environ.items() if k != "OLLAMA_BASE_URL"}
+    default = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
+    assert default.stdout.strip() == "http://localhost:11434/v1"
+    env["OLLAMA_BASE_URL"] = "http://host.docker.internal:11434/v1"
+    moved = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)
+    assert moved.stdout.strip() == "http://host.docker.internal:11434/v1"
+
+
+def test_the_ollama_address_works_with_or_without_v1():
+    from agent_committee.llm import _base_url
+
+    assert _base_url(None) == "http://localhost:11434/v1"
+    assert _base_url("http://host.docker.internal:11434") == "http://host.docker.internal:11434/v1"
+    assert _base_url("http://h:11434/v1/") == "http://h:11434/v1"

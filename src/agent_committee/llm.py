@@ -15,6 +15,7 @@ The key has the model tag; pass `model_digest` to also pin the exact weights.
 import hashlib
 import json
 import math
+import os
 import sqlite3
 import threading
 import time
@@ -33,7 +34,19 @@ from openai import (
     OpenAI,
 )
 
-BASE_URL = "http://localhost:11434/v1"
+DEFAULT_BASE_URL = "http://localhost:11434/v1"
+
+
+# the one place the Ollama address is set; a container points it at the host with
+# OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+def _base_url(value: str | None) -> str:
+    """The OpenAI-compatible endpoint; accepts the address with or without /v1 (Open WebUI and
+    others set OLLAMA_BASE_URL without it)."""
+    url = (value or DEFAULT_BASE_URL).rstrip("/")
+    return url if url.endswith("/v1") else url + "/v1"
+
+
+BASE_URL = _base_url(os.environ.get("OLLAMA_BASE_URL"))
 MODEL = "llama3.1:8b"
 TIMEOUT_S = 60.0
 MAX_RETRIES = 3

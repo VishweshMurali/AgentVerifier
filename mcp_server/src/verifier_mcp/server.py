@@ -1,7 +1,10 @@
 """MCP data endpoints for the Agent Verifier (FastMCP).
 
-Read tools (always on): list_scenarios, check_dataset, prereg_template, dev_stats.
-Write tool (stdio, or HTTP started with --allow-writes): add_dataset (reversible: one file).
+Read tools (always on): list_datasets (the menu), list_scenarios, check_dataset,
+prereg_template, dev_stats.
+Write tools (stdio, or HTTP started with --allow-writes): choose_dataset (a menu option; without
+one it returns the menu, since the 2026-07-28 MCP protocol has no server-initiated pick-list) and
+add_dataset (your own file). Each writes one scenario.yaml, which can be deleted again.
 
 Rules this module keeps (tests enforce them):
 - It never opens the sealed TEST set: no import of `agent_committee.seal` or `runner`, and no
@@ -20,7 +23,7 @@ from typing import Any
 from fastmcp import FastMCP
 from yaml import YAMLError
 
-from agent_committee import data
+from agent_committee import catalog, data
 from agent_committee.scenarios import (
     SCENARIOS,
     HuggingFaceSource,
@@ -33,7 +36,8 @@ from agent_committee.scenarios import (
 )
 
 INSTRUCTIONS = (
-    "Data endpoints of the Agent Verifier. Typical flow: add_dataset -> check_dataset -> the owner "
+    "Data endpoints of the Agent Verifier. Typical flow: list_datasets -> choose_dataset (or "
+    "add_dataset for your own file) -> check_dataset -> the owner "
     "writes the scenario's prereg.yaml (prereg_template helps) -> the owner builds the split once "
     "from the CLI (check_dataset gives the command) -> dev_stats. No tool ever returns sealed "
     "TEST cases, and no tool can build a split."
@@ -67,6 +71,12 @@ def build_server(repo: str | Path = ".", allow_writes: bool = True) -> FastMCP:
     root = Path(repo).resolve()
     mcp = FastMCP("agent-verifier-data", instructions=INSTRUCTIONS)
     read_only = {"readOnlyHint": True, "openWorldHint": False}
+
+    @mcp.tool(annotations=read_only)
+    def list_datasets() -> list[dict[str, Any]]:
+        """The dataset menu: standard datasets to pick from (Banking77, CLINC150, Emotion) and
+        'your own dataset', each with its status and which arms can run on it."""
+        return catalog.menu(root)
 
     @mcp.tool(annotations=read_only)
     def list_scenarios() -> list[dict[str, Any]]:
@@ -120,6 +130,15 @@ def build_server(repo: str | Path = ".", allow_writes: bool = True) -> FastMCP:
 
     if allow_writes:
 
+        @mcp.tool(annotations={"destructiveHint": False, "idempotentHint": True})
+        def choose_dataset(option: str | None = None) -> Any:
+            """Pick a standard dataset from the menu (see list_datasets). Without `option`, the
+            menu is returned so the user can pick; call again with their choice. Downloads
+            nothing and builds no split; choosing again only reports the status."""
+            if option is None:
+                return {"pick_one": catalog.menu(root), "how": "call again with option=<name>"}
+            return catalog.choose(option, root)
+
         @mcp.tool(annotations={"destructiveHint": False, "idempotentHint": False})
         def add_dataset(
             name: str,
@@ -139,6 +158,8 @@ def build_server(repo: str | Path = ".", allow_writes: bool = True) -> FastMCP:
             optional group) columns. kind="huggingface": `dataset`, `text`, `label` column names,
             `splits` to pool, optional `config` and `group` column. Downloads nothing.
             """
+            if name in catalog.PRESETS:
+                raise ValueError(f"{name!r} is a menu option: use choose_dataset")
             if kind == "local":
                 source = LocalSource(kind="local", path=path or "")
             elif kind == "huggingface":

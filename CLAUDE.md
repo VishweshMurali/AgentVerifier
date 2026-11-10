@@ -30,7 +30,7 @@ Banking77 is the first task and proves the method.
 - Every verdict has an evidence level: `REAL`, `SYNTHETIC_CHECKED` or `SYNTHETIC`. `SYNTHETIC` alone never picks a winner: it gives `NEED_MORE_DATA` with the estimate shown, or `INVALID` when the run itself is broken (no scorer, failed floor, failed INVALID check).
 - Each scenario declares a plain-code scorer, otherwise `INVALID`. The agent must pass a quality floor before the sealed run, otherwise `INVALID`.
 - The headline is the break-even error cost. No error cost is invented. Each verdict saves an audit bundle.
-- Stack: Python 3.12, uv, openai SDK -> Ollama (`http://localhost:11434/v1`, model `llama3.1:8b`, temperature 0), LangGraph, scikit-learn, numpy, scipy, pydantic, datasets, SQLite, pytest, ruff, jinja2 (HTML report), pyyaml (approved by the user for prereg.yaml). Front end: React + Vite + TypeScript (approved 2026-11-04), built to the locked design in `design/frontend/SPEC.md`. Local server: FastAPI + uvicorn (approved 2026-11-04), in `server/` with its own pyproject. MCP data endpoints: fastmcp + Docker (approved 2026-11-09), in `mcp_server/` with its own pyproject.
+- Stack: Python 3.12, uv, openai SDK -> Ollama (`http://localhost:11434/v1`, overridable with env `OLLAMA_BASE_URL`, model `llama3.1:8b`, temperature 0), LangGraph, scikit-learn, numpy, scipy, pydantic, datasets, SQLite, pytest, ruff, jinja2 (HTML report), pyyaml (approved by the user for prereg.yaml). Front end: React + Vite + TypeScript (approved 2026-11-04), built to the locked design in `design/frontend/SPEC.md`. Local server: FastAPI + uvicorn (approved 2026-11-04), in `server/` with its own pyproject. MCP data endpoints: fastmcp + Docker (approved 2026-11-09), in `mcp_server/` with its own pyproject.
 
 ## Phases (implement only the current one; STOP and report after each; wait for "continue")
 - A: CLAUDE.md, pydantic schemas, prereg.yaml template, data loader (stratified DEV/TEST split + seed), sealed test + hash + unseal guard, throughput benchmark.
@@ -54,6 +54,7 @@ src/agent_committee/
   schemas.py     pydantic models: Case, ArmPrediction, PriceTable, Prereg, Verdict, VerdictJSON
   prereg.py      load/validate prereg.yaml
   scenarios.py   scenario registry (Banking77 = scenario 1, v1 paths and tag); frozen with the arms
+  catalog.py     dataset menu: Banking77, CLINC150, Emotion presets (pinned HF revisions) + your own file
   data.py        scenario loaders (Banking77, Hugging Face, local jsonl/csv), stratified split, writes DEV + sealed TEST + hashes
   seal.py        ONLY reader of sealed TEST; enforces the scenario's freeze tag + hash (Phase D runner only)
   throughput.py  calls/hour benchmark logic
@@ -87,5 +88,6 @@ tests/
 - Benchmark: `uv run python scripts/benchmark_throughput.py`
 - Rehearse Phase D on DEV (never opens TEST): `uv run python -m agent_committee.runner --rehearse`
 - The one sealed run (after the user's `arms-frozen` tag): `uv run python -m agent_committee.runner`
-- MCP data endpoints: stdio `uv run --project mcp_server python -m verifier_mcp`; HTTP `... --http` (127.0.0.1:8765, read-only unless `--allow-writes`); Docker `docker compose -f mcp_server/compose.yaml up --build`; tests `uv run --project mcp_server pytest mcp_server/tests`
+- Dataset menu: `uv run python -m agent_committee.catalog` (`--choose NAME`)
+- MCP data endpoints (tools: list_datasets, choose_dataset, list_scenarios, check_dataset, prereg_template, dev_stats, add_dataset): stdio `uv run --project mcp_server python -m verifier_mcp`; HTTP `... --http` (127.0.0.1:8765, read-only unless `--allow-writes`); Docker `docker compose -f mcp_server/compose.yaml up --build`; tests `uv run --project mcp_server pytest mcp_server/tests`
 - Local server + live page: `npm --prefix frontend run build:server` then `uv run --project server python -m verifier_server` (http://127.0.0.1:8000); tests `uv run --project server pytest server/tests`
