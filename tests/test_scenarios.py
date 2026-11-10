@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 V1_DEV_SHA = "58b6be3f948a2ce2a3c737385e8e6d99f1c56b728d07ae47ba8e6ee1a579d0d4"
 V1_TEST_SHA = "d10c80b02189dd2f52c5255a6331a05ce5d64804604011741652937cedaa9514"
 V1_PREREG_SHA = "1b83181605925cdb899559b67b728e45d9c4eb6cc7da7a48b31ebd3b97596501"
+V1_LAYER_FINGERPRINT = "f5292dc4d5ae11888bc8e6ddc2f5645519a9bf833362fbe1846e672bc849563d"
 V1_FROZEN_DATA = [
     "data/dev.jsonl",
     "data/dev.sha256",
@@ -331,3 +332,10 @@ def test_build_split_applies_the_prereg_grouped_setting(tmp_path):
     set_split(repo, s, grouped=True)
     m = build_split(s, repo=repo)
     assert m["grouped"] is True and m["n_groups_shared"] == 0
+
+
+def test_banking77_layer_rebuilds_to_the_v1_fingerprint():
+    """The v1 linear layer, rebuilt from the committed DEV pool (reads DEV only)."""
+    from agent_committee.seal import rebuild_fingerprint
+
+    assert rebuild_fingerprint(ROOT) == V1_LAYER_FINGERPRINT
