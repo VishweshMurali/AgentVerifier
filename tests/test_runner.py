@@ -1,10 +1,13 @@
+import json
 import zlib
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from agent_committee import runner
+from agent_committee.arms.evaluate import SIMPLER as _SIMPLER
 from agent_committee.prereg import load_prereg
 from agent_committee.schemas import ArmName, ArmPrediction, Case, Verdict
 
@@ -205,3 +208,62 @@ def test_only_the_sealed_branch_imports_the_seal():
     in_else = {id(n) for b in choose.orelse for n in ast.walk(b) if imports_seal(n)}
     everywhere = {id(n) for n in ast.walk(tree) if imports_seal(n)}
     assert in_else and everywhere == in_else
+
+
+# ---------- v2 P3 ladder ----------
+_ROOT = Path(__file__).resolve().parents[1]
+_AN, _AP, _json = ArmName, ArmPrediction, json
+
+
+def _pred(case_id, label, arm=_AN.LINEAR, pt=0, ct=0, lat=0.0):
+    return _AP(
+        case_id=case_id, arm=arm, pred=label, prompt_tokens=pt, completion_tokens=ct, latency_s=lat
+    )
+
+
+def test_runner_and_dev_evaluation_know_the_same_arms():
+    assert set(runner.RUNNABLE) == set(_SIMPLER) | {"agent"}
+
+
+def test_runner_runs_exactly_the_arms_of_the_dev_report():
+    v1 = _json.loads(
+        (_ROOT / "src/agent_committee/arms/dev_report.json").read_text(encoding="utf-8")
+    )
+    assert runner.arms_to_run(v1["results"]) == ["linear", "prompt", "agent"]  # v1 unchanged
+    v2 = {n: {} for n in ("majority", "linear", "naive_bayes", "prompt", "agent", "cascade")}
+    assert runner.arms_to_run(v2) == ["majority", "linear", "naive_bayes", "prompt", "agent"]
+    assert runner.arms_to_run({"linear": {}, "prompt": {}}) is None  # no agent
+    assert runner.arms_to_run({"agent": {}, "cascade": {}}) is None  # cascade without linear
+    assert runner.arms_to_run({"agent": {}, "gpt_judge": {}}) is None  # unknown arm
+
+
+class Fixed:
+    def __init__(self, name, preds):
+        self.name, self._preds = name, iter(preds)
+
+    def predict(self, case_id, text):
+        return next(self._preds)
+
+
+def test_run_arms_derives_the_cascade_only_when_asked():
+    cases = [Case(id=str(i), text="t", label="a") for i in range(3)]
+
+    def arms():
+        return {
+            "linear": Fixed("linear", [_pred(str(i), lab) for i, lab in enumerate("aab")]),
+            "agent": Fixed(
+                "agent",
+                [_pred(str(i), lab, _AN.AGENT, 10, 1, 0.5) for i, lab in enumerate("bba")],
+            ),
+        }
+
+    plain = runner.run_arms(arms(), cases, lambda p, g: p == g, log=lambda _m: None)
+    assert set(plain.runs) == {"linear", "agent"}
+    with_cascade = runner.run_arms(
+        arms(), cases, lambda p, g: p == g, log=lambda _m: None, cascade_flags=[False, True, True]
+    )
+    run = with_cascade.runs["cascade"]
+    assert run.correct.tolist() == [True, False, True]
+    assert np.array_equal(run.prompt_tokens, [0, 10, 10])
+    assert sum(r["arm"] == "cascade" for r in with_cascade.rows) == 3
+    assert with_cascade.own_tool_rate == plain.own_tool_rate  # the floor reads the agent only

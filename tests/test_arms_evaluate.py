@@ -107,3 +107,37 @@ def test_cli_refuses_existing_out(tmp_path):
     out = tmp_path / "r.json"
     out.write_text("{}")
     assert evaluate.main(["--out", str(out)]) == 1
+
+
+# ---------- v2 P3 ladder ----------
+DEFAULT_ARMS, SIMPLER = evaluate.DEFAULT_ARMS, evaluate.SIMPLER
+best_simpler, summarize = evaluate.best_simpler, evaluate.summarize
+_ArmName, _ArmPrediction = ArmName, ArmPrediction
+
+
+def pred(case_id, label, arm=_ArmName.LINEAR, pt=0):
+    return _ArmPrediction(case_id=case_id, arm=arm, pred=label, prompt_tokens=pt)
+
+
+def test_default_dev_run_covers_the_whole_ladder():
+    assert DEFAULT_ARMS.split(",") == [*SIMPLER, "agent"]
+
+
+def test_simpler_set_is_the_ladder_without_the_cascade():
+    assert SIMPLER == ("majority", "linear", "naive_bayes", "prompt")
+    results = {
+        n: {"accuracy": acc}
+        for n, acc in [("majority", 0.1), ("linear", 0.8), ("naive_bayes", 0.8), ("cascade", 0.99)]
+    }
+    assert (
+        best_simpler(results) == "linear"
+    )  # tie with Naive Bayes goes to the simpler, earlier arm
+
+
+def test_summarize_counts_flagged_accuracy_and_costs():
+    cases = [Case(id=str(i), text="t", label="a") for i in range(4)]
+    decisions = [type("D", (), {"null": n})() for n in (False, True, True, False)]
+    preds = [pred("0", "a", pt=1), pred("1", "a", pt=2), pred("2", "b"), pred("3", None)]
+    r = summarize(preds, cases, decisions)
+    assert (r["correct"], r["n"], r["unparseable"], r["prompt_tokens"]) == (2, 4, 1, 3)
+    assert (r["flagged_cases"], r["flagged_correct"]) == (2, 1)

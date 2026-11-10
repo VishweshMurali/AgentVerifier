@@ -14,13 +14,14 @@ import hashlib
 import json
 import subprocess
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 from agent_committee import checks
+from agent_committee.arms.cascade import cascade_predictions
 from agent_committee.arms.config import MODEL_DIGEST
 from agent_committee.arms.splits import make_arms_split
 from agent_committee.data import load_dev
@@ -43,6 +44,7 @@ DEV_REPORT = BANKING77.dev_report
 FALSE_ALARM_REPS = 100
 RUN_MARKER = "sealed_run.started"  # written right after unsealing; blocks any second sealed run
 AGENT = "agent"
+CASCADE = "cascade"
 PROGRESS_EVERY = 200
 
 
@@ -65,16 +67,26 @@ def run_arms(
     cases: list[Case],
     scorer: Callable[[str | None, str], bool],
     log: Callable[[str], None] = print,
+    cascade_flags: Sequence[bool] | None = None,
 ) -> PairedRun:
-    """Each arm answers every case in the same order. Gold labels reach only the scorer."""
-    runs, rows = {}, []
-    own, back = 0.0, 0.0
+    """Each arm answers every case in the same order. Gold labels reach only the scorer.
+
+    With `cascade_flags` (the layer's Null flags on `cases`), the cascade is derived from the
+    linear and agent predictions after both ran (it makes no model calls of its own).
+    """
+    made: dict[str, list] = {}
     for name, arm in arms.items():
         preds = []
         for i, c in enumerate(cases, 1):
             preds.append(arm.predict(c.id, c.text))
             if i % PROGRESS_EVERY == 0:
                 log(f"{name}: {i}/{len(cases)}")
+        made[name] = preds
+    if cascade_flags is not None:
+        made[CASCADE] = cascade_predictions(made["linear"], made[AGENT], cascade_flags)
+    runs, rows = {}, []
+    own, back = 0.0, 0.0
+    for name, preds in made.items():
         correct = np.array([scorer(p.pred, c.label) for p, c in zip(preds, cases, strict=True)])
         runs[name] = ArmRun(
             name,
@@ -175,6 +187,28 @@ def build_checks(
     return out
 
 
+RUNNABLE = ("majority", "linear", "naive_bayes", "prompt", AGENT)
+
+
+def arms_to_run(dev_results: Mapping[str, object]) -> list[str] | None:
+    """The arms a scenario's frozen DEV report scored, minus the derived cascade, in ladder order
+    (RUNNABLE; Banking77 v1 runs linear, prompt, agent as before). None when the report cannot be
+    run: an unknown arm, no agent, or a cascade without linear."""
+    if set(dev_results) - {*RUNNABLE, CASCADE}:
+        return None
+    names = [n for n in RUNNABLE if n in dev_results]
+    if AGENT not in names:
+        return None
+    if CASCADE in dev_results and "linear" not in names:
+        return None
+    return names
+
+
+def fitted(arm, pool: list[Case]):
+    arm.fit(pool)
+    return arm
+
+
 def sealed_run_traces(out_dir: Path) -> list[Path]:
     """Files left by an earlier sealed run. Any of them means the one sealed run already began."""
     names = ("verdict.json", "predictions.jsonl", RUN_MARKER)
@@ -227,9 +261,11 @@ def evaluate(
     leak, kept = checks.leakage(cases, reference, prereg.checks)
     log(f"{len(kept)} cases kept, {len(cases) - len(kept)} dropped as copies of DEV")
     scorer = resolve_scorer(prereg.scorer.target)
-    paired = run_arms(arms, kept, scorer, log)
-    predictions_sha = write_predictions(paired.rows, out_dir / "predictions.jsonl")
     decisions = [layer.decide(c.text) for c in kept]
+    # the cascade runs only where the DEV report has it (Banking77's v1 report does not)
+    flags = [d.null for d in decisions] if CASCADE in dev_report["results"] else None
+    paired = run_arms(arms, kept, scorer, log, cascade_flags=flags)
+    predictions_sha = write_predictions(paired.rows, out_dir / "predictions.jsonl")
     held_decisions = [layer.decide(c.text) for c in held_out]
     simpler = dev_report["best_simpler_arm"]
     found = build_checks(
@@ -281,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from agent_committee.arms import agent as agent_arm
     from agent_committee.arms import prompt as prompt_arm
+    from agent_committee.arms.classic import MajorityArm, NaiveBayesArm
     from agent_committee.arms.labels import build_label_book
     from agent_committee.arms.linear import LinearArm, make_layer
     from agent_committee.llm import LLMClient
@@ -288,6 +325,11 @@ def main(argv: list[str] | None = None) -> int:
     prereg = load_prereg(repo / s.prereg_path, task=s.name)
     dev_report = json.loads((repo / s.dev_report).read_text(encoding="utf-8"))
     dev = load_dev(repo / s.data_dir)
+    names = arms_to_run(dev_report["results"])
+    if names is None:
+        # checked before anything is unsealed
+        print(f"DEV report arms cannot be run: {sorted(dev_report['results'])}", file=sys.stderr)
+        return 1
     split = make_arms_split(dev)
     layer = make_layer(split.pool)
     if layer.fingerprint() != dev_report["layer"]["fingerprint"]:
@@ -326,11 +368,15 @@ def main(argv: list[str] | None = None) -> int:
     }
     book = build_label_book(split.pool)
     with LLMClient(phase=phase, model_digest=MODEL_DIGEST) as client:
-        arms = {
-            "linear": LinearArm(layer),
-            "prompt": prompt_arm.make_arm(split.pool, book, layer, client),
-            AGENT: agent_arm.make_arm(split.pool, book, layer, client),
+        # exactly the arms the scenario's frozen DEV report scored (the cascade is derived)
+        factories = {
+            "linear": lambda: LinearArm(layer),
+            "prompt": lambda: prompt_arm.make_arm(split.pool, book, layer, client),
+            AGENT: lambda: agent_arm.make_arm(split.pool, book, layer, client),
+            "majority": lambda: fitted(MajorityArm(), split.pool),
+            "naive_bayes": lambda: fitted(NaiveBayesArm(), split.pool),
         }
+        arms = {n: factories[n]() for n in names}
         verdict = evaluate(
             prereg, cases, reference, split.pool, held_out, layer, arms, dev_report, audit, out_dir
         )

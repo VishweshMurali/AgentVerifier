@@ -18,6 +18,10 @@ class ArmName(StrEnum):
     LINEAR = "linear"
     PROMPT = "prompt"
     AGENT = "agent"
+    # v2 P3 ladder: classic rungs (no LLM) and the cascade derived from linear + agent
+    MAJORITY = "majority"
+    NAIVE_BAYES = "naive_bayes"
+    CASCADE = "cascade"
 
 
 class EvidenceLevel(StrEnum):

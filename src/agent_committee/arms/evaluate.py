@@ -1,6 +1,10 @@
 """Score arms on the DEV eval split only and write arms/dev_report.json.
 
-    python -m agent_committee.arms.evaluate --arms linear,prompt,agent [--out PATH]
+    python -m agent_committee.arms.evaluate [--arms NAMES] [--out PATH]
+
+Default arms (DEFAULT_ARMS): majority, linear, naive_bayes (no LLM), prompt, agent. With both
+linear and agent, the cascade (linear on confident cases, agent on Null-flagged ones) is added
+from their predictions.
 
 Refuses to overwrite an existing report. One linear layer is fitted once and shared by all arms.
 LLM arms are built through a lazy factory
@@ -14,22 +18,37 @@ from pathlib import Path
 
 from agent_committee.arms import config
 from agent_committee.arms.base import Arm
+from agent_committee.arms.cascade import cascade_predictions
+from agent_committee.arms.classic import MajorityArm, NaiveBayesArm
 from agent_committee.arms.labels import build_label_book
 from agent_committee.arms.linear import Decision, LinearArm, LinearLayer, make_layer
 from agent_committee.arms.splits import ARMS_SPLIT_SEED, make_arms_split
 from agent_committee.data import load_dev
-from agent_committee.schemas import Case
+from agent_committee.schemas import ArmPrediction, Case
 from agent_committee.scorers import Scorer, get_scorer
 
 REPORT_PATH = Path(__file__).with_name("dev_report.json")
-SIMPLER = ("linear", "prompt")  # arms the agent has to beat
+# arms the agent has to beat, simplest first (ties go to the earlier one); the cascade is not one
+SIMPLER = ("majority", "linear", "naive_bayes", "prompt")
+DEFAULT_ARMS = ",".join(
+    [*SIMPLER, "agent"]
+)  # the whole ladder; the cascade is added from linear + agent
 
 
 def score(
     arm: Arm, cases: list[Case], decisions: list[Decision], scorer: Scorer | None = None
 ) -> dict:
     """One arm's results. `decisions` are the shared layer's, aligned with `cases`."""
-    preds = [arm.predict(c.id, c.text) for c in cases]
+    return summarize([arm.predict(c.id, c.text) for c in cases], cases, decisions, scorer)
+
+
+def summarize(
+    preds: list[ArmPrediction],
+    cases: list[Case],
+    decisions: list[Decision],
+    scorer: Scorer | None = None,
+) -> dict:
+    """Results of predictions already made, aligned with `cases` and `decisions`."""
     scorer = scorer or get_scorer("exact_label")
     right = [scorer(p.pred, c.label) for p, c in zip(preds, cases, strict=True)]
     flagged = [ok for ok, d in zip(right, decisions, strict=True) if d.null]
@@ -91,6 +110,10 @@ def write_report(path: Path, report: dict) -> None:
 def _build(name: str, pool: list[Case], layer: LinearLayer) -> Arm:
     if name == "linear":
         return LinearArm(layer)
+    if name in ("majority", "naive_bayes"):
+        arm = MajorityArm() if name == "majority" else NaiveBayesArm()
+        arm.fit(pool)
+        return arm
     if name in ("prompt", "agent"):
         book = build_label_book(pool)
         if name == "prompt":
@@ -103,7 +126,7 @@ def _build(name: str, pool: list[Case], layer: LinearLayer) -> Arm:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--arms", default="linear,prompt,agent")
+    ap.add_argument("--arms", default=DEFAULT_ARMS)
     ap.add_argument("--out", type=Path, default=REPORT_PATH)
     args = ap.parse_args(argv)
     if args.out.exists():
@@ -112,10 +135,17 @@ def main(argv: list[str] | None = None) -> int:
     split = make_arms_split(load_dev("data"))
     layer = make_layer(split.pool)
     decisions = [layer.decide(c.text) for c in split.eval]
-    results = {}
+    results, preds = {}, {}
     for name in args.arms.split(","):
-        results[name] = score(_build(name, split.pool, layer), split.eval, decisions)
+        arm = _build(name, split.pool, layer)
+        preds[name] = [arm.predict(c.id, c.text) for c in split.eval]
+        results[name] = summarize(preds[name], split.eval, decisions)
         print(name, results[name])
+    if "linear" in preds and "agent" in preds:
+        flagged = [d.null for d in decisions]
+        cascade = cascade_predictions(preds["linear"], preds["agent"], flagged)
+        results["cascade"] = summarize(cascade, split.eval, decisions)
+        print("cascade", results["cascade"])
     summary = layer_report(layer, split.eval, decisions)
     write_report(args.out, build_report(results, split.counts(), summary))
     return 0

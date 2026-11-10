@@ -65,7 +65,8 @@ src/agent_committee/
   decision.py    decision engine: verdict rules, break-even, VerdictJSON
   runner.py      Phase D runner, the ONLY sealed-test reader; `--rehearse` runs it on DEV instead
   report.py      results/report.html from verdict.json (templates/report.html.j2)
-  arms/          base protocol, config, splits, labels, linear (shared layer + arm 1), prompt, agent, tools, evaluate
+  arms/          base protocol, config, splits, labels, linear (shared layer + arm 1), prompt, agent, tools, evaluate,
+                 classic (majority + Naive Bayes rungs), cascade (derived from linear + agent; report-only)
 server/          FastAPI local API + page (own uv project; never imports seal or runner)
 scripts/benchmark_throughput.py   thin CLI around throughput.py
 scripts/power_analysis.py         required N across discordance rates
