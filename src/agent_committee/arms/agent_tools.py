@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+from agent_committee.arms.config import BANKING77_TASK, TaskPhrase
 from agent_committee.arms.labels import LabelBook
 from agent_committee.arms.linear import LinearLayer
 from agent_committee.arms.retrieval import Retriever
@@ -20,32 +21,40 @@ EXAMPLES_PER_LABEL = 2
 SEARCH_DEPTH = 300
 N_CLOSEST_LABELS = 3
 
-TOOLS: list[dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": SEARCH,
-            "description": "Find likely labels and labelled banking queries for your search words.",
-            "parameters": {
-                "type": "object",
-                "properties": {"query": {"type": "string"}},
-                "required": ["query"],
+
+def tools_for(task: TaskPhrase) -> list[dict[str, Any]]:
+    """The agent's tool schema; the search description names the scenario's examples."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": SEARCH,
+                "description": (
+                    f"Find likely labels and labelled {task.items} for your search words."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": READ_LABEL,
-            "description": "Read the definition of one intent label.",
-            "parameters": {
-                "type": "object",
-                "properties": {"label": {"type": "string"}},
-                "required": ["label"],
+        {
+            "type": "function",
+            "function": {
+                "name": READ_LABEL,
+                "description": "Read the definition of one intent label.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"label": {"type": "string"}},
+                    "required": ["label"],
+                },
             },
         },
-    },
-]
+    ]
+
+
+TOOLS: list[dict[str, Any]] = tools_for(BANKING77_TASK)  # Banking77 (v1)
 
 
 REQUIRED_ARG = {SEARCH: "query", READ_LABEL: "label"}

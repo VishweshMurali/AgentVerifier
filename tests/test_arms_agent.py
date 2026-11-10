@@ -276,3 +276,49 @@ def test_bad_tool_calls_return_readable_errors():
     assert box.run("other", "{}").startswith("Invalid call")
     assert box.run(SEARCH, json.dumps({"wrong": 1})).startswith("Invalid call")
     assert {t["function"]["name"] for t in TOOLS} == {SEARCH, READ_LABEL}
+
+
+# ---------- v1 bytes pinned: the agent prompt and tool schema are in every cache key ----------
+V1_AGENT_PROMPT_SHA256 = "fb3f9d0009d7f831e64aaee468173c0922784aa196e654662f7c4402266d9095"
+V1_TOOLS_SHA256 = "6eecd19ba4a4adaa1d4a162e528972a24fac91220ad3e88152d308a86b580694"
+
+
+def test_banking77_agent_prompt_and_tools_are_byte_identical_to_v1():
+    import hashlib
+
+    prompt = build_system_prompt(("card_arrival", "lost_or_stolen_card"))
+    assert hashlib.sha256(prompt.encode()).hexdigest() == V1_AGENT_PROMPT_SHA256
+    tools = json.dumps(TOOLS, sort_keys=True).encode()
+    assert hashlib.sha256(tools).hexdigest() == V1_TOOLS_SHA256
+
+
+def test_a_scenario_task_phrase_reaches_both_llm_arms_identically():
+    from agent_committee.arms import prompt
+    from agent_committee.arms.agent_tools import tools_for
+    from agent_committee.arms.config import BANKING77_TASK, TaskPhrase, task_from_dict
+
+    task = TaskPhrase("a short message", "messages", "emotion", "Pick the strongest emotion.")
+    opening = (
+        "You classify a short message into exactly one emotion label. Pick the strongest emotion. "
+    )
+    assert build_system_prompt(SHORTLIST, task).startswith(opening)
+    assert prompt.build_system_prompt(BOOK, SHORTLIST, task=task).startswith(opening)
+    assert "labelled messages" in tools_for(task)[0]["function"]["description"]
+    assert "banking" not in json.dumps(tools_for(task)) + build_system_prompt(SHORTLIST, task)
+    assert task_from_dict(task.as_dict()) == task
+    assert task_from_dict(BANKING77_TASK.as_dict()) == BANKING77_TASK
+    for bad in ({"item": "x"}, {**task.as_dict(), "extra": "y"}, {**task.as_dict(), "hint": " "}):
+        with pytest.raises(ValueError):
+            task_from_dict(bad)
+
+
+def test_the_agent_sends_its_scenario_tools_and_prompt():
+    from agent_committee.arms.config import TaskPhrase
+
+    task = TaskPhrase("a short message", "messages", "emotion")
+    script = Script(SEARCHED, reply("card_arrival"))
+    client = LLMClient(":memory:", phase="build", transport=script)
+    make_arm(POOL, BOOK, LAYER, client, task).predict("a", "x")
+    first = script.requests[0]
+    assert first["messages"][0]["content"].startswith("You classify a short message")
+    assert "labelled messages" in first["tools"][0]["function"]["description"]

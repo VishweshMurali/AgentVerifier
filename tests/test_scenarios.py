@@ -142,12 +142,12 @@ def test_a_prereg_written_for_another_scenario_is_refused(tmp_path):
 def test_a_scenario_without_arms_config_cannot_be_unsealed_or_run(tmp_path, monkeypatch, capsys):
     repo, s = demo_repo(tmp_path)
     build_split(s, repo=repo)
-    with pytest.raises(SealError, match="no arms config"):
+    with pytest.raises(SealError, match="no task phrase"):
         check_unseal_conditions(repo, s)
     monkeypatch.setitem(scenarios.SCENARIOS, "demo", s)
     for extra in ([], ["--rehearse"]):
         assert runner.main(["--repo", str(repo), "--scenario", "demo", *extra]) == 1
-        assert "no arms config" in capsys.readouterr().err
+        assert "no task phrase" in capsys.readouterr().err
 
 
 def test_unknown_scenario_is_refused():
@@ -478,3 +478,96 @@ def test_without_exclusions_the_split_still_refuses_the_small_label(tmp_path):
     assert "exclude_labels" not in (repo / "scenarios/demo/scenario.yaml").read_text()
     with pytest.raises(ValueError, match="fewer than 30 cases"):
         build_split(s, repo=repo)
+
+
+# ---------- per-dataset task phrase ----------
+def test_a_scenario_with_a_task_phrase_is_ready_and_one_without_is_not(tmp_path):
+    from agent_committee.scenarios import LocalSource, ScenarioFile, TaskPhraseSpec, add_scenario
+
+    (tmp_path / "sources").mkdir()
+    src = LocalSource(kind="local", path="sources/a.jsonl")
+    phrase = TaskPhraseSpec(item="a short message", items="messages", label_kind="emotion")
+    add_scenario(ScenarioFile(name="ready", source=src, task_phrase=phrase), tmp_path)
+    add_scenario(ScenarioFile(name="plain", source=src), tmp_path)
+    ready, plain = get_scenario("ready", tmp_path), get_scenario("plain", tmp_path)
+    assert ready.arms_ready and ready.task_phrase == {
+        "item": "a short message",
+        "items": "messages",
+        "label_kind": "emotion",
+    }
+    assert not plain.arms_ready and plain.task_phrase is None
+    assert "task_phrase" not in (tmp_path / "scenarios/plain/scenario.yaml").read_text()
+
+
+def test_runner_refuses_a_dev_report_scored_with_another_task_phrase(tmp_path, monkeypatch, capsys):
+    from dataclasses import replace
+
+    repo, s = demo_repo(tmp_path)
+    build_split(s, repo=repo)
+    phrase = {"item": "a short message", "items": "messages", "label_kind": "emotion"}
+    ready = replace(s, arms_ready=True, task_phrase=phrase)
+    (repo / s.dev_report).write_text(json.dumps({"results": {"agent": {}}, "layer": {}}))
+    monkeypatch.setitem(scenarios.SCENARIOS, "demo", ready)
+    assert runner.main(["--repo", str(repo), "--scenario", "demo", "--rehearse"]) == 1
+    assert "scored with task phrase" in capsys.readouterr().err
+
+
+def test_a_non_llm_preview_of_another_dataset_records_no_task_phrase(tmp_path):
+    from agent_committee.arms import evaluate
+
+    repo, s = demo_repo(tmp_path)
+    build_split(s, repo=repo)
+    out = repo / "preview.json"
+    args = [
+        "--data-dir",
+        str(repo / s.data_dir),
+        "--out",
+        str(out),
+        "--arms",
+        "majority,linear,naive_bayes",
+    ]
+    assert evaluate.main(args) == 0
+    report = json.loads(out.read_text())
+    assert report["task_phrase"] is None and set(report["results"]) == {
+        "majority",
+        "linear",
+        "naive_bayes",
+    }
+
+
+def test_check_dataset_prints_the_exact_dev_run_command_with_the_task_phrase(tmp_path):
+    from dataclasses import replace
+
+    from agent_committee.data import check_scenario, dev_run_command
+
+    repo, s = demo_repo(tmp_path)
+    assert check_scenario(s, repo)["dev_run_command"] is None  # no split yet
+    build_split(s, repo=repo)
+    assert dev_run_command(s).endswith("--arms majority,linear,naive_bayes")
+    phrase = {"item": "a short message", "items": "messages", "label_kind": "emotion"}
+    cmd = check_scenario(replace(s, task_phrase=phrase), repo)["dev_run_command"]
+    assert cmd == (
+        "uv run python -m agent_committee.arms.evaluate --data-dir data/demo "
+        '--out scenarios/demo/dev_report.json --task-item "a short message" '
+        '--task-items "messages" --task-label-kind "emotion"'
+    )
+
+
+def test_pretag_for_a_dataset_with_a_phrase_reaches_the_report_checks(tmp_path):
+    from agent_committee.scenarios import LocalSource, ScenarioFile, TaskPhraseSpec, add_scenario
+    from agent_committee.seal import check_pretag
+
+    repo, _ = demo_repo(tmp_path)
+    (repo / "sources").mkdir()
+    (repo / "cases.jsonl").rename(repo / "sources" / "demo.jsonl")
+    phrase = TaskPhraseSpec(item="a short message", items="messages", label_kind="emotion")
+    spec = ScenarioFile(name="demo", source=LocalSource(kind="local", path="sources/demo.jsonl"),
+                        task_phrase=phrase)  # fmt: skip
+    add_scenario(spec, repo)
+    s = get_scenario("demo", repo)
+    build_split(s, repo=repo)
+    (repo / s.dev_report).write_text(json.dumps({"results": {"agent": {}}, "task_phrase": None,
+        "layer": {"null_threshold": 0.5, "shortlist_k": 5, "fingerprint": "x"}}))  # fmt: skip
+    problems = " | ".join(check_pretag(repo, s))
+    assert "no task phrase" not in problems
+    assert "was scored with task phrase None" in problems

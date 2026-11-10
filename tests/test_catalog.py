@@ -17,10 +17,7 @@ def test_menu_offers_the_checked_presets_and_your_own_dataset(tmp_path):
         by["banking77"]["arms"] == catalog.BANKING77_ARMS and "used in v1" in catalog.BANKING77_ARMS
     )
     assert by["clinc150"]["status"] == "available"
-    assert (
-        by["clinc150"]["arms"] == catalog.NEW_DATASET_ARMS
-        and "no rehearsal or verdict" in by["clinc150"]["arms"]
-    )
+    assert by["clinc150"]["arms"] == catalog.READY_ARMS and "DEV run" in by["clinc150"]["arms"]
     assert "cases" not in by["clinc150"]  # sizes only from a built manifest
 
 

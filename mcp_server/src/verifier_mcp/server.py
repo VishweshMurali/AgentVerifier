@@ -29,6 +29,7 @@ from agent_committee.scenarios import (
     HuggingFaceSource,
     LocalSource,
     ScenarioFile,
+    TaskPhraseSpec,
     add_scenario,
     file_scenarios,
     get_scenario,
@@ -151,12 +152,21 @@ def build_server(repo: str | Path = ".", allow_writes: bool = True) -> FastMCP:
             config: str | None = None,
             group: str | None = None,
             description: str = "",
+            task_item: str | None = None,
+            task_items: str | None = None,
+            task_label_kind: str | None = None,
+            task_hint: str | None = None,
         ) -> dict[str, Any]:
             """Declare a dataset as scenario `name` (writes scenarios/<name>/scenario.yaml once).
 
             kind="local": `path` to a .jsonl or .csv under sources/ with id, text, label (and
             optional group) columns. kind="huggingface": `dataset`, `text`, `label` column names,
             `splits` to pool, optional `config` and `group` column. Downloads nothing.
+
+            Task phrase (optional; without it only the non-LLM arms can run, so no verdict): the
+            LLM arms are told "You classify {task_item} into exactly one {task_label_kind}
+            label.", the search tool returns labelled {task_items}, and `task_hint` is one
+            optional extra sentence.
             """
             if name in catalog.PRESETS:
                 raise ValueError(f"{name!r} is a menu option: use choose_dataset")
@@ -174,7 +184,19 @@ def build_server(repo: str | Path = ".", allow_writes: bool = True) -> FastMCP:
                 )
             else:
                 raise ValueError("kind must be 'local' or 'huggingface'")
-            spec = ScenarioFile(name=name, description=description, source=source)
+            phrase_parts = (task_item, task_items, task_label_kind)
+            if any(phrase_parts) and not all(phrase_parts):
+                raise ValueError("a task phrase needs task_item, task_items and task_label_kind")
+            phrase = (
+                TaskPhraseSpec(
+                    item=task_item, items=task_items, label_kind=task_label_kind, hint=task_hint
+                )
+                if all(phrase_parts)
+                else None
+            )
+            spec = ScenarioFile(
+                name=name, description=description, source=source, task_phrase=phrase
+            )
             written = add_scenario(spec, root)
             return {"scenario": name, "written": written.relative_to(root).as_posix()}
 

@@ -239,3 +239,16 @@ def test_preload_is_refused_on_stdio():
 
     with pytest.raises(SystemExit):
         main(["--preload"])
+
+
+def test_add_dataset_with_a_task_phrase_makes_it_ready(repo):
+    server = build_server(repo)
+    call(
+        server, "add_dataset", name="demo", kind="local", path="sources/demo.jsonl",
+        task_item="a support ticket", task_items="support tickets", task_label_kind="category",
+    )  # fmt: skip
+    spec = yaml.safe_load((repo / "scenarios/demo/scenario.yaml").read_text(encoding="utf-8"))
+    assert spec["task_phrase"]["item"] == "a support ticket"
+    with pytest.raises(ToolError, match="needs task_item, task_items and task_label_kind"):
+        call(server, "add_dataset", name="demo2", kind="local", path="sources/demo.jsonl",
+             task_item="half a phrase")  # fmt: skip

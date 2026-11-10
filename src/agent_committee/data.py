@@ -318,6 +318,23 @@ def scenario_cases(scenario) -> tuple[list[Case], int]:
     return kept, len(cases) - len(kept)
 
 
+def dev_run_command(scenario) -> str:
+    """The exact DEV-run command for a built split: every arm with the scenario's own task phrase
+    (non-LLM arms only without one). Plain double-quoted strings work in bash and PowerShell."""
+    base = (
+        f"uv run python -m agent_committee.arms.evaluate --data-dir {scenario.data_dir} "
+        f"--out {scenario.dev_report}"
+    )
+    phrase = getattr(scenario, "task_phrase", None)
+    if not phrase:
+        return base + " --arms majority,linear,naive_bayes"
+    flags = {"item": "--task-item", "items": "--task-items", "label_kind": "--task-label-kind",
+             "hint": "--task-hint"}  # fmt: skip
+    if any('"' in v for v in phrase.values()):
+        raise ValueError("task phrase strings must not contain double quotes")
+    return base + "".join(f' {flags[k]} "{v}"' for k, v in phrase.items())
+
+
 def check_scenario(scenario, repo: str | Path = ".") -> dict:
     """Dry run before a split: load the cases and run the input checks. Writes nothing.
 
@@ -367,6 +384,9 @@ def check_scenario(scenario, repo: str | Path = ".") -> dict:
         "meets_min_test_n": None if min_test_n is None else expected_test >= min_test_n,
         "problems": problems,
         "split_built": (repo / scenario.data_dir / DEV_FILE).exists(),
+        "dev_run_command": dev_run_command(scenario)
+        if (repo / scenario.data_dir / DEV_FILE).exists()
+        else None,
     }
 
 

@@ -21,7 +21,12 @@ import json
 import subprocess
 from pathlib import Path
 
-from agent_committee.arms.config import MODEL_DIGEST, NULL_THRESHOLD, SHORTLIST_K
+from agent_committee.arms.config import (
+    MODEL_DIGEST,
+    NULL_THRESHOLD,
+    SHORTLIST_K,
+    task_from_dict,
+)
 from agent_committee.arms.linear import THRESHOLD_DECIMALS, make_layer, tune_threshold
 from agent_committee.arms.splits import make_arms_split
 from agent_committee.data import (
@@ -151,6 +156,16 @@ def _scenario_linear_problems(repo: Path, s: Scenario, null_threshold: float, k:
         reported = (round(float(layer["null_threshold"]), THRESHOLD_DECIMALS), layer["shortlist_k"])
     except (OSError, ValueError, KeyError, TypeError):
         return [f"{s.dev_report} has no layer settings"]
+    # the DEV report must have been scored with this scenario's own task phrase
+    phrase = task_from_dict(s.task_phrase).as_dict() if s.task_phrase else None
+    try:
+        report_phrase = json.loads((repo / s.dev_report).read_text(encoding="utf-8")).get(
+            "task_phrase"
+        )
+    except (OSError, ValueError):
+        report_phrase = None
+    if report_phrase != phrase:
+        return [f"{s.dev_report} was scored with task phrase {report_phrase}, not {phrase}"]
     mine = (round(null_threshold, THRESHOLD_DECIMALS), k)
     if mine != reported:
         return [f"{s.prereg_path} linear settings {mine} do not match {s.dev_report} {reported}"]
@@ -162,7 +177,7 @@ def _scenario_linear_problems(repo: Path, s: Scenario, null_threshold: float, k:
 def _prereg_problems(repo: Path, s: Scenario = BANKING77) -> list[str]:
     """Sections the pre-registration must settle before the tag."""
     if not s.arms_ready:
-        return [f"scenario {s.name!r} has no arms config yet"]
+        return [f"scenario {s.name!r} has no task phrase in its scenario.yaml"]
     try:
         prereg = load_prereg(repo / s.prereg_path, task=s.name)
     except ValueError as exc:
@@ -192,7 +207,9 @@ def check_unseal_conditions(repo: str | Path = ".", s: Scenario = BANKING77) -> 
     FROZEN_PATHS, REQUIRED_AT_TAG = frozen_paths(s), required_at_tag(s)  # noqa: N806
 
     if not s.arms_ready:
-        raise SealError(f"scenario {s.name!r} has no arms config yet; it cannot be unsealed")
+        raise SealError(
+            f"scenario {s.name!r} has no task phrase in its scenario.yaml; it cannot be unsealed"
+        )
 
     if _git(repo, "rev-parse", "--verify", "--quiet", TAG_REF).returncode != 0:
         raise SealError(f"git tag '{FREEZE_TAG}' does not exist; arms are not frozen")

@@ -48,6 +48,8 @@ class Scenario:
     definition: str | None = None
     # labels left out before the split (e.g. too few cases); applied by data.scenario_cases
     exclude_labels: tuple[str, ...] = ()
+    # what the LLM arms are told the task is (arms.config.TaskPhrase keys); None: Banking77's
+    task_phrase: dict[str, str] | None = None
 
     @classmethod
     def standard(
@@ -56,12 +58,16 @@ class Scenario:
         loader: Loader,
         definition: str | None = None,
         exclude_labels: tuple[str, ...] = (),
+        task_phrase: dict[str, str] | None = None,
     ) -> "Scenario":
-        """A new scenario in its own folders, frozen by the tag `arms-frozen-<name>`."""
+        """A new scenario in its own folders, frozen by the tag `arms-frozen-<name>`. It is
+        ready for the LLM arms, the runner and the seal once it has its own task phrase."""
         check_name(name)
         return cls(
             definition=definition,
             exclude_labels=exclude_labels,
+            task_phrase=task_phrase,
+            arms_ready=task_phrase is not None,
             name=name,
             freeze_tag=f"arms-frozen-{name}",
             prereg_path=f"scenarios/{name}/prereg.yaml",
@@ -122,6 +128,16 @@ class LocalSource(_Spec):
     path: str = Field(min_length=1)
 
 
+class TaskPhraseSpec(_Spec):
+    """What the LLM arms are told: 'You classify {item} into exactly one {label_kind} label.'
+    The search tool returns labelled {items}. `hint` is an optional extra sentence."""
+
+    item: str = Field(min_length=1)
+    items: str = Field(min_length=1)
+    label_kind: str = Field(min_length=1)
+    hint: str | None = Field(default=None, min_length=1)
+
+
 class ScenarioFile(_Spec):
     """Contents of scenarios/<name>/scenario.yaml."""
 
@@ -130,6 +146,8 @@ class ScenarioFile(_Spec):
     source: Annotated[HuggingFaceSource | LocalSource, Field(discriminator="kind")]
     # labels to leave out before the split, each named in the data (None: keep every label)
     exclude_labels: list[Annotated[str, Field(min_length=1)]] | None = None
+    # without it, only the non-LLM arms can run (no rehearsal, no verdict)
+    task_phrase: TaskPhraseSpec | None = None
 
 
 def definition_path(name: str) -> str:
@@ -206,6 +224,7 @@ def get_scenario(name: str, repo: str | Path = ".") -> Scenario:
         _loader(spec, Path(repo)),
         definition=definition_path(name),
         exclude_labels=tuple(spec.exclude_labels or ()),
+        task_phrase=spec.task_phrase.model_dump(exclude_none=True) if spec.task_phrase else None,
     )
 
 

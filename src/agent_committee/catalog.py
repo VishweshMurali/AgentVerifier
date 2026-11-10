@@ -21,18 +21,19 @@ from agent_committee.scenarios import (
     HuggingFaceSource,
     Scenario,
     ScenarioFile,
+    TaskPhraseSpec,
     add_scenario,
     definition_path,
     loader_for,
     read_scenario_file,
 )
 
-# until each dataset has its own task description, the prompt and agent arms speak of banking,
-# so a new dataset is blocked from the runner and the seal (arms_ready=False)
+# a dataset without its own task phrase is blocked from the LLM arms, the runner and the seal
 NEW_DATASET_ARMS = (
     "DEV preview with non-LLM arms only (majority, linear, Naive Bayes); no rehearsal or verdict "
     "until a per-dataset task phrase exists"
 )
+READY_ARMS = "all arms, once its split is built and its DEV run is done"
 BANKING77_ARMS = "all arms; DEV rehearsals only, its sealed test was used in v1"
 
 
@@ -70,6 +71,11 @@ PRESETS: dict[str, Preset] = {
                     splits=["train", "validation", "test"],
                     revision="155b9c710419136e17307b80d0a13e68cd46b4ec",
                 ),
+                task_phrase=TaskPhraseSpec(
+                    item="a request to a virtual assistant",
+                    items="assistant requests",
+                    label_kind="intent",
+                ),
             ),
         ),
         Preset(
@@ -87,6 +93,9 @@ PRESETS: dict[str, Preset] = {
                     label="label",
                     splits=["train", "validation", "test"],
                     revision="cab853a1dbdf4c42c2b3ef2173804746df8825fe",
+                ),
+                task_phrase=TaskPhraseSpec(
+                    item="a short message", items="messages", label_kind="emotion"
                 ),
             ),
         ),
@@ -106,6 +115,11 @@ PRESETS: dict[str, Preset] = {
                     label="label_text",
                     splits=["train", "validation", "test"],
                     revision="940fd47a81eaa7f2cc7b129674d945d618ac38c2",
+                ),
+                task_phrase=TaskPhraseSpec(
+                    item="a voice-assistant command",
+                    items="voice-assistant commands",
+                    label_kind="intent",
                 ),
                 exclude_labels=[
                     "audio_volume_other",
@@ -145,7 +159,11 @@ def _status(preset: Preset, repo: Path) -> dict[str, Any]:
         "title": preset.title,
         "description": preset.description,
         "status": status,
-        "arms": BANKING77_ARMS if s.arms_ready else NEW_DATASET_ARMS,
+        "arms": BANKING77_ARMS
+        if preset.spec is None
+        else READY_ARMS
+        if preset.spec.task_phrase is not None
+        else NEW_DATASET_ARMS,
     }
     if built:  # sizes only from a built manifest
         manifest = json.loads((repo / s.data_dir / MANIFEST_FILE).read_text(encoding="utf-8"))

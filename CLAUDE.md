@@ -15,6 +15,8 @@ Banking77 is the first task and proves the method.
   3. Hand-built LangGraph reference agent with the shortlist (tools: retrieve similar DEV examples, read label definitions; then decide). No label list is given.
   v2 additions (approved 2026-11-09, P3): a majority-label floor; Naive Bayes as the third classic rung; a cascade
   (linear on confident cases, the agent only on Null-flagged ones). Non-LLM rungs are priced at $0 (local).
+  Per-dataset task phrase (approved 2026-11-10): each scenario.yaml says what one case is and what a label is; both LLM
+  arms get the identical phrase. Banking77's wording is unchanged (v1 prompt, agent prompt and tool schema pinned).
 - Null is a flag for low-confidence cases (the lowest 10% on tune), not a score. All arms answer them, and accuracy on those cases is reported per arm.
 - Agent rules: a no-tool answer is sent back once, the last call must answer, a malformed tool call scores wrong. Maximum 4 model calls per case.
 - No RAG for now. `search` stays a single swappable tool.
@@ -84,7 +86,7 @@ tests/
 - Check everything (what CI runs): `uv run python scripts/check.py` (`--no-install`, `--fast`)
 - Tests: `uv run pytest`   Lint: `uv run ruff check . && uv run ruff format --check .`
 - Build split (once): `uv run python -m agent_committee.data`
-- DEV run of another scenario (non-LLM arms only until a per-scenario task phrase exists): `uv run python -m agent_committee.arms.evaluate --data-dir data/<name> --out scenarios/<name>/dev_report.json --arms majority,linear,naive_bayes`
+- DEV run of another scenario: the exact command (with its `--task-item/--task-items/--task-label-kind` from scenario.yaml) is printed by `check_dataset` once the split is built; without a task phrase only `--arms majority,linear,naive_bayes` run
 - Benchmark: `uv run python scripts/benchmark_throughput.py`
 - Rehearse Phase D on DEV (never opens TEST): `uv run python -m agent_committee.runner --rehearse`
 - The one sealed run (after the user's `arms-frozen` tag): `uv run python -m agent_committee.runner`

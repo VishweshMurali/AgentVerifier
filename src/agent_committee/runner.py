@@ -22,7 +22,7 @@ import numpy as np
 
 from agent_committee import checks
 from agent_committee.arms.cascade import cascade_predictions
-from agent_committee.arms.config import MODEL_DIGEST
+from agent_committee.arms.config import BANKING77_TASK, MODEL_DIGEST, task_from_dict
 from agent_committee.arms.splits import make_arms_split
 from agent_committee.data import load_dev
 from agent_committee.decision import ArmRun, decide
@@ -312,7 +312,8 @@ def main(argv: list[str] | None = None) -> int:
     s = get_scenario(args.scenario, repo)
     if not s.arms_ready:
         # the arms would run on another scenario's null threshold, shortlist and DEV report
-        print(f"scenario {s.name!r} has no arms config yet; refusing", file=sys.stderr)
+        print(f"scenario {s.name!r} has no task phrase in its scenario.yaml; refusing",
+              file=sys.stderr)  # fmt: skip
         return 1
 
     from agent_committee.arms import agent as agent_arm
@@ -328,6 +329,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{s.name!r} needs prereg.linear and its DEV report {s.dev_report}", file=sys.stderr)
         return 1
     dev_report = json.loads((repo / s.dev_report).read_text(encoding="utf-8"))
+    task = task_from_dict(s.task_phrase) if s.task_phrase else BANKING77_TASK
+    # Banking77's v1 report predates the field: it was scored with the Banking77 phrase
+    reported = dev_report.get("task_phrase", BANKING77_TASK.as_dict())
+    if reported != task.as_dict():
+        print(f"the DEV report was scored with task phrase {reported}, not {task.as_dict()}",
+              file=sys.stderr)  # fmt: skip
+        return 1
     dev = load_dev(repo / s.data_dir)
     names = arms_to_run(dev_report["results"])
     if names is None:
@@ -376,8 +384,8 @@ def main(argv: list[str] | None = None) -> int:
         # exactly the arms the scenario's frozen DEV report scored (the cascade is derived)
         factories = {
             "linear": lambda: LinearArm(layer),
-            "prompt": lambda: prompt_arm.make_arm(split.pool, book, layer, client),
-            AGENT: lambda: agent_arm.make_arm(split.pool, book, layer, client),
+            "prompt": lambda: prompt_arm.make_arm(split.pool, book, layer, client, task),
+            AGENT: lambda: agent_arm.make_arm(split.pool, book, layer, client, task),
             "majority": lambda: fitted(MajorityArm(), split.pool),
             "naive_bayes": lambda: fitted(NaiveBayesArm(), split.pool),
         }

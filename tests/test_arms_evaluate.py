@@ -153,5 +153,12 @@ def test_llm_arms_are_refused_on_another_dataset_until_a_task_phrase_exists(tmp_
         evaluate.main(["--data-dir", str(tmp_path), "--out", str(out), "--arms", "linear,agent"])
         == 1
     )
-    assert "describe the task as banking queries" in capsys.readouterr().err
+    assert "need the scenario's task phrase" in capsys.readouterr().err
     assert not out.exists()
+
+
+def test_a_bad_task_phrase_is_refused(tmp_path, capsys):
+    out = tmp_path / "r.json"
+    args = ["--data-dir", str(tmp_path), "--out", str(out), "--task-item", "x"]
+    assert evaluate.main(args) == 1
+    assert "--task-*" in capsys.readouterr().err and not out.exists()

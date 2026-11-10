@@ -1,6 +1,7 @@
 """Score arms on the DEV eval split only and write arms/dev_report.json.
 
-    python -m agent_committee.arms.evaluate [--arms NAMES] [--out PATH]
+    python -m agent_committee.arms.evaluate [--arms NAMES] [--out PATH] [--data-dir DIR]
+        [--task-item S --task-items S --task-label-kind S [--task-hint S]]
 
 Default arms (DEFAULT_ARMS): majority, linear, naive_bayes (no LLM), prompt, agent. With both
 linear and agent, the cascade (linear on confident cases, agent on Null-flagged ones) is added
@@ -107,7 +108,9 @@ def write_report(path: Path, report: dict) -> None:
     path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def _build(name: str, pool: list[Case], layer: LinearLayer) -> Arm:
+def _build(
+    name: str, pool: list[Case], layer: LinearLayer, task: config.TaskPhrase = config.BANKING77_TASK
+) -> Arm:
     if name == "linear":
         return LinearArm(layer)
     if name in ("majority", "naive_bayes"):
@@ -120,7 +123,7 @@ def _build(name: str, pool: list[Case], layer: LinearLayer) -> Arm:
             from agent_committee.arms.prompt import make_arm
         else:
             from agent_committee.arms.agent import make_arm
-        return make_arm(pool, book, layer)
+        return make_arm(pool, book, layer, task=task)
     raise ValueError(f"unknown arm {name!r}")
 
 
@@ -130,21 +133,43 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--data-dir", type=Path, default=None, help="a scenario's DEV folder")
     ap.add_argument("--shortlist-k", type=int, default=config.SHORTLIST_K)
+    # the scenario's task phrase, as plain strings (JSON on a Windows command line loses quotes);
+    # check_dataset prints the exact command with these filled from scenario.yaml
+    ap.add_argument("--task-item", default=None)
+    ap.add_argument("--task-items", default=None)
+    ap.add_argument("--task-label-kind", default=None)
+    ap.add_argument("--task-hint", default=None)
     args = ap.parse_args(argv)
     if args.data_dir is not None and args.out is None:
         # another scenario's report must never land on Banking77's
         print("--data-dir needs --out (the scenario's own DEV report path)", file=sys.stderr)
         return 1
     llm = sorted({"prompt", "agent"} & set(args.arms.split(",")))
-    if args.data_dir is not None and llm:
-        # the LLM arms still describe the task as banking queries: refuse rather than run an
-        # unfair comparison on another dataset (until a per-dataset task phrase exists)
+    given = {
+        k: v
+        for k, v in zip(
+            config.TASK_KEYS,
+            (args.task_item, args.task_items, args.task_label_kind, args.task_hint),
+            strict=True,
+        )
+        if v is not None
+    }
+    try:
+        task = config.task_from_dict(given) if given else None
+    except ValueError as exc:
+        print(f"--task-*: {exc}", file=sys.stderr)
+        return 1
+    if args.data_dir is not None and llm and task is None:
+        # without the scenario's own phrase the LLM arms would be told about banking queries
         print(
-            f"{llm} describe the task as banking queries; on another dataset run only "
-            "--arms majority,linear,naive_bayes until a per-dataset task phrase exists",
+            f"{llm} need the scenario's task phrase on another dataset: pass --task-item, "
+            "--task-items and --task-label-kind (check_dataset prints the command), or run "
+            "only --arms majority,linear,naive_bayes",
             file=sys.stderr,
         )
         return 1
+    if task is None and args.data_dir is None:
+        task = config.BANKING77_TASK
     out = args.out or REPORT_PATH
     if out.exists():
         print(f"{out} exists; refusing to overwrite", file=sys.stderr)
@@ -155,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     decisions = [layer.decide(c.text) for c in split.eval]
     results, preds = {}, {}
     for name in args.arms.split(","):
-        arm = _build(name, split.pool, layer)
+        arm = _build(name, split.pool, layer, task or config.BANKING77_TASK)
         preds[name] = [arm.predict(c.id, c.text) for c in split.eval]
         results[name] = summarize(preds[name], split.eval, decisions)
         print(name, results[name])
@@ -165,7 +190,11 @@ def main(argv: list[str] | None = None) -> int:
         results["cascade"] = summarize(cascade, split.eval, decisions)
         print("cascade", results["cascade"])
     summary = layer_report(layer, split.eval, decisions)
-    write_report(out, build_report(results, split.counts(), summary))
+    report = build_report(results, split.counts(), summary)
+    # the runner refuses a scenario whose phrase differs; a non-LLM preview of another dataset
+    # records none (it never told a model anything)
+    report["task_phrase"] = task.as_dict() if task else None
+    write_report(out, report)
     return 0
 
 

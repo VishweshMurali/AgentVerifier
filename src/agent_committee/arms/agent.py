@@ -22,8 +22,13 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from agent_committee.arms.agent_tools import TOOLS, ToolBox, call_problem
-from agent_committee.arms.config import AGENT_MAX_TOOL_TURNS, MODEL_DIGEST
+from agent_committee.arms.agent_tools import ToolBox, call_problem, tools_for
+from agent_committee.arms.config import (
+    AGENT_MAX_TOOL_TURNS,
+    BANKING77_TASK,
+    MODEL_DIGEST,
+    TaskPhrase,
+)
 from agent_committee.arms.labels import LabelBook
 from agent_committee.arms.linear import LinearLayer
 from agent_committee.arms.parsing import PromptTooLong, guarded_chat, parse_answer
@@ -42,10 +47,12 @@ class MalformedToolCall(ValueError):
     pass
 
 
-def build_system_prompt(shortlist: tuple[str, ...]) -> str:
+def build_system_prompt(shortlist: tuple[str, ...], task: TaskPhrase = BANKING77_TASK) -> str:
     return (
-        "You classify a banking customer query into exactly one intent label. "
-        "Likely candidate labels, most likely first:\n" + "\n".join(shortlist) + "\n"
+        task.sentence()
+        + "Likely candidate labels, most likely first:\n"
+        + "\n".join(shortlist)
+        + "\n"
         "Check before you answer: call search_examples with your own search words, and call "
         "read_label_definition to compare labels. The right label may be missing from the "
         "candidates, so search again in other words if the results look wrong. Then reply with "
@@ -101,7 +108,15 @@ def _normalize_calls(raw: list[dict[str, Any]], start: int) -> list[dict[str, An
 class AgentArm:
     name = ArmName.AGENT
 
-    def __init__(self, client: LLMClient, book: LabelBook, layer: LinearLayer) -> None:
+    def __init__(
+        self,
+        client: LLMClient,
+        book: LabelBook,
+        layer: LinearLayer,
+        task: TaskPhrase = BANKING77_TASK,
+    ) -> None:
+        self._task = task
+        self._tools_schema = tools_for(task)
         self._client = client
         self._book = book
         self._layer = layer
@@ -146,7 +161,7 @@ class AgentArm:
                 state["messages"],
                 arm=self.name.value,
                 max_tokens=THINK_MAX_TOKENS,
-                tools=TOOLS,
+                tools=self._tools_schema,
             )
         except (PromptTooLong, MalformedResponse) as exc:
             return self._stopped(state, exc)
@@ -268,7 +283,7 @@ class AgentArm:
         return self._graph.invoke(
             {
                 "messages": [
-                    {"role": "system", "content": build_system_prompt(shortlist)},
+                    {"role": "system", "content": build_system_prompt(shortlist, self._task)},
                     {"role": "user", "content": text},
                 ],
                 "pending": [],
@@ -290,9 +305,13 @@ class AgentArm:
 
 
 def make_arm(
-    pool: list[Case], book: LabelBook, layer: LinearLayer, client: LLMClient | None = None
+    pool: list[Case],
+    book: LabelBook,
+    layer: LinearLayer,
+    client: LLMClient | None = None,
+    task: TaskPhrase = BANKING77_TASK,
 ) -> AgentArm:
     client = client or LLMClient(phase="build", model_digest=MODEL_DIGEST)
-    arm = AgentArm(client, book, layer)
+    arm = AgentArm(client, book, layer, task)
     arm.fit(pool)
     return arm
