@@ -6,7 +6,8 @@ scenario. Each preset was checked once against the real data (2026-11-10): colum
 at least 30 cases per label. Sizes shown to users come from a check or a built manifest, never
 from this file.
 
-Banking77 is built in. MASSIVE was left out: 4 of its 60 intents have fewer than 30 cases.
+Banking77 is built in. MASSIVE keeps 56 of its 60 intents: the 4 with fewer than 30 cases are
+excluded (owner decision 2026-11-10), which its manifest records.
 """
 
 import json
@@ -87,6 +88,31 @@ PRESETS: dict[str, Preset] = {
                     splits=["train", "validation", "test"],
                     revision="cab853a1dbdf4c42c2b3ef2173804746df8825fe",
                 ),
+            ),
+        ),
+        Preset(
+            "massive_en",
+            "MASSIVE (English): voice-assistant commands",
+            "Spoken-style commands to a voice assistant (alarms, music, weather...). 56 of 60 "
+            "intents; 4 with fewer than 30 cases removed.",
+            ScenarioFile(
+                name="massive_en",
+                description="MASSIVE intents (mteb/amazon_massive_intent, en), all splits pooled",
+                source=HuggingFaceSource(
+                    kind="huggingface",
+                    dataset="mteb/amazon_massive_intent",
+                    config="en",
+                    text="text",
+                    label="label_text",
+                    splits=["train", "validation", "test"],
+                    revision="940fd47a81eaa7f2cc7b129674d945d618ac38c2",
+                ),
+                exclude_labels=[
+                    "audio_volume_other",
+                    "cooking_query",
+                    "general_greet",
+                    "music_dislikeness",
+                ],
             ),
         ),
     )

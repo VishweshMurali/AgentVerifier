@@ -205,6 +205,8 @@ def write_split(
     data_dir: str | Path = "data",
     sealed_dir: str | Path = "sealed",
     min_test_n: int | None = None,
+    excluded_labels: list[str] | None = None,
+    n_excluded_cases: int = 0,
 ) -> dict:
     """Write DEV (committed), sealed TEST (gitignored) and both hashes + a manifest (committed).
 
@@ -250,6 +252,10 @@ def write_split(
         manifest["realised_test_fraction"] = round(len(test) / len(dev + test), 4)
         manifest["n_groups_dev"], manifest["n_groups_test"] = len(dev_groups), len(test_groups)
         manifest["n_groups_shared"] = len(dev_groups & test_groups)
+    if excluded_labels:
+        # the verdict covers only the labels kept: say which were left out, and how many cases
+        manifest["excluded_labels"] = sorted(excluded_labels)
+        manifest["n_excluded_cases"] = n_excluded_cases
     if min_test_n is not None:
         # the prereg's own power bound (checks.min_test_n), on the actual TEST size
         manifest["min_test_n"] = min_test_n
@@ -279,8 +285,9 @@ def build_split(scenario, repo: str | Path = ".") -> dict:
         # refuse before loading (a Hugging Face loader downloads); write_split checks every file
         raise FileExistsError(f"split already exists for {scenario.name!r}, refusing to rebuild")
     prereg = load_prereg(repo / scenario.prereg_path, task=scenario.name)
+    cases, n_excluded = scenario_cases(scenario)
     dev, test = split_cases(
-        scenario.loader(),
+        cases,
         prereg.split.test_fraction,
         prereg.split.seed,
         grouped=prereg.split.grouped,
@@ -294,7 +301,21 @@ def build_split(scenario, repo: str | Path = ".") -> dict:
         data_dir=repo / scenario.data_dir,
         sealed_dir=repo / sealed_dir(scenario),
         min_test_n=prereg.checks.min_test_n if prereg.checks else None,
+        excluded_labels=list(getattr(scenario, "exclude_labels", ())),
+        n_excluded_cases=n_excluded,
     )
+
+
+def scenario_cases(scenario) -> tuple[list[Case], int]:
+    """A scenario's cases with its excluded labels left out, and how many cases that removed.
+    Every excluded label must exist in the data (a typo would otherwise exclude nothing)."""
+    cases = scenario.loader()
+    excluded = set(getattr(scenario, "exclude_labels", ()))
+    unknown = sorted(excluded - {c.label for c in cases})
+    if unknown:
+        raise ValueError(f"excluded labels not in the data: {unknown}")
+    kept = [c for c in cases if c.label not in excluded]
+    return kept, len(cases) - len(kept)
 
 
 def check_scenario(scenario, repo: str | Path = ".") -> dict:
@@ -315,14 +336,18 @@ def check_scenario(scenario, repo: str | Path = ".") -> dict:
         except ValueError as exc:  # e.g. a template with TODOs still in it
             prereg_state = f"invalid, split defaults used: {str(exc).splitlines()[0]}"
     split = prereg.split if prereg else SplitConfig(seed=0, test_fraction=0.25)
-    cases = scenario.loader()
+    try:
+        cases, n_excluded = scenario_cases(scenario)
+        load_problems: list[str] = []
+    except ValueError as exc:  # e.g. a typo in exclude_labels: reported, not raised
+        cases, n_excluded, load_problems = [], 0, [str(exc)]
     per_label = Counter(c.label for c in cases)
     groups = {c.group for c in cases if c.group is not None}
     try:
         check_cases(cases, grouped=split.grouped, min_per_label=split.min_cases_per_label)
-        problems: list[str] = []
+        problems: list[str] = list(load_problems)
     except ValueError as exc:
-        problems = [str(exc)]
+        problems = [*load_problems, str(exc)]
     expected_test = round(len(cases) * split.test_fraction)
     min_test_n = prereg.checks.min_test_n if prereg and prereg.checks else None
     return {
@@ -330,6 +355,8 @@ def check_scenario(scenario, repo: str | Path = ".") -> dict:
         "prereg": prereg_state,
         "n_cases": len(cases),
         "n_labels": len(per_label),
+        "excluded_labels": sorted(getattr(scenario, "exclude_labels", ())),
+        "n_excluded_cases": n_excluded,
         "min_cases_per_label": min(per_label.values()) if per_label else 0,
         "max_cases_per_label": max(per_label.values()) if per_label else 0,
         "n_groups": len(groups),
@@ -353,6 +380,7 @@ def dev_stats(scenario, repo: str | Path = ".") -> dict:
         "n_dev", "n_test", "n_labels", "seed", "test_fraction", "grouped",
         "realised_test_fraction", "n_groups_dev", "n_groups_test", "n_groups_shared",
         "min_test_n", "meets_min_test_n", "n_test_texts_duplicated_in_dev",
+        "excluded_labels", "n_excluded_cases",
     )  # fmt: skip
     return {
         "scenario": scenario.name,

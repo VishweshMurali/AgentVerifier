@@ -421,3 +421,60 @@ def test_runner_refuses_a_ready_scenario_without_linear_settings_or_dev_report(
     monkeypatch.setitem(scenarios.SCENARIOS, "demo", replace(s, arms_ready=True))
     assert runner.main(["--repo", str(repo), "--scenario", "demo", "--rehearse"]) == 1
     assert "needs prereg.linear and its DEV report" in capsys.readouterr().err
+
+
+# ---------- excluded labels (MASSIVE: 4 intents under 30 cases) ----------
+def excluding_repo(tmp_path, exclude):
+    from agent_committee.scenarios import LocalSource, ScenarioFile, add_scenario
+
+    repo, _ = demo_repo(tmp_path)
+    (repo / "sources").mkdir()
+    rows = [json.loads(line) for line in (repo / "cases.jsonl").read_text().splitlines()]
+    rows += [{"id": f"t{i}", "text": f"tiny {i}", "label": "tiny"} for i in range(3)]
+    write_cases(repo / "sources" / "demo.jsonl", rows)
+    spec = ScenarioFile(
+        name="demo",
+        source=LocalSource(kind="local", path="sources/demo.jsonl"),
+        exclude_labels=exclude,
+    )
+    add_scenario(spec, repo)
+    return repo, get_scenario("demo", repo)
+
+
+def test_excluded_labels_are_left_out_before_the_split_and_recorded(tmp_path):
+    from agent_committee.data import check_scenario
+
+    repo, s = excluding_repo(tmp_path, ["tiny"])
+    assert s.exclude_labels == ("tiny",)
+    check = check_scenario(s, repo)
+    assert check["problems"] == [] and check["n_excluded_cases"] == 3
+    assert check["excluded_labels"] == ["tiny"] and check["n_labels"] == 3
+    manifest = build_split(s, repo=repo)
+    assert manifest["excluded_labels"] == ["tiny"] and manifest["n_excluded_cases"] == 3
+    assert "tiny" not in {c.label for c in load_dev(repo / s.data_dir)}
+    from agent_committee.data import dev_stats
+
+    stats = dev_stats(s, repo)["manifest"]
+    assert stats["excluded_labels"] == ["tiny"] and stats["n_excluded_cases"] == 3
+    assert "exclude_labels" in (repo / "scenarios/demo/scenario.yaml").read_text()
+
+
+def test_an_excluded_label_missing_from_the_data_is_refused(tmp_path):
+    from agent_committee.data import scenario_cases
+
+    _, s = excluding_repo(tmp_path, ["tiny", "typo_label"])
+    with pytest.raises(ValueError, match="typo_label"):
+        scenario_cases(s)
+    from agent_committee.data import check_scenario
+
+    repo = tmp_path
+    assert "typo_label" in check_scenario(s, repo)["problems"][0]  # reported in the dry run
+    with pytest.raises(ValueError, match="typo_label"):
+        build_split(s, repo=repo)  # but a split is never built
+
+
+def test_without_exclusions_the_split_still_refuses_the_small_label(tmp_path):
+    repo, s = excluding_repo(tmp_path, None)
+    assert "exclude_labels" not in (repo / "scenarios/demo/scenario.yaml").read_text()
+    with pytest.raises(ValueError, match="fewer than 30 cases"):
+        build_split(s, repo=repo)

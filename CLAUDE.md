@@ -54,7 +54,7 @@ src/agent_committee/
   schemas.py     pydantic models: Case, ArmPrediction, PriceTable, Prereg, Verdict, VerdictJSON
   prereg.py      load/validate prereg.yaml
   scenarios.py   scenario registry (Banking77 = scenario 1, v1 paths and tag); frozen with the arms
-  catalog.py     dataset menu: Banking77, CLINC150, Emotion presets (pinned HF revisions) + your own file
+  catalog.py     dataset menu: Banking77, CLINC150, Emotion, MASSIVE-en (56 intents) presets (pinned HF revisions) + your own file
   data.py        scenario loaders (Banking77, Hugging Face, local jsonl/csv), stratified split, writes DEV + sealed TEST + hashes
   seal.py        ONLY reader of sealed TEST; enforces the scenario's freeze tag + hash (Phase D runner only)
   throughput.py  calls/hour benchmark logic

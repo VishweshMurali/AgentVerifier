@@ -46,13 +46,22 @@ class Scenario:
     arms_ready: bool = False
     # scenarios/<name>/scenario.yaml for a scenario declared by file (frozen with it); None in code
     definition: str | None = None
+    # labels left out before the split (e.g. too few cases); applied by data.scenario_cases
+    exclude_labels: tuple[str, ...] = ()
 
     @classmethod
-    def standard(cls, name: str, loader: Loader, definition: str | None = None) -> "Scenario":
+    def standard(
+        cls,
+        name: str,
+        loader: Loader,
+        definition: str | None = None,
+        exclude_labels: tuple[str, ...] = (),
+    ) -> "Scenario":
         """A new scenario in its own folders, frozen by the tag `arms-frozen-<name>`."""
         check_name(name)
         return cls(
             definition=definition,
+            exclude_labels=exclude_labels,
             name=name,
             freeze_tag=f"arms-frozen-{name}",
             prereg_path=f"scenarios/{name}/prereg.yaml",
@@ -119,6 +128,8 @@ class ScenarioFile(_Spec):
     name: str
     description: str = ""
     source: Annotated[HuggingFaceSource | LocalSource, Field(discriminator="kind")]
+    # labels to leave out before the split, each named in the data (None: keep every label)
+    exclude_labels: list[Annotated[str, Field(min_length=1)]] | None = None
 
 
 def definition_path(name: str) -> str:
@@ -190,7 +201,12 @@ def get_scenario(name: str, repo: str | Path = ".") -> Scenario:
         known = sorted({*SCENARIOS, *file_scenarios(repo)})
         raise ValueError(f"unknown scenario {name!r}; registered: {known}")
     spec = read_scenario_file(name, repo)
-    return Scenario.standard(name, _loader(spec, Path(repo)), definition=definition_path(name))
+    return Scenario.standard(
+        name,
+        _loader(spec, Path(repo)),
+        definition=definition_path(name),
+        exclude_labels=tuple(spec.exclude_labels or ()),
+    )
 
 
 def add_scenario(spec: ScenarioFile, repo: str | Path = ".") -> Path:

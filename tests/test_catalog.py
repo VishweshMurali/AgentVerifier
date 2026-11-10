@@ -10,7 +10,7 @@ from agent_committee.scenarios import get_scenario
 
 def test_menu_offers_the_checked_presets_and_your_own_dataset(tmp_path):
     menu = catalog.menu(tmp_path)
-    assert [m["option"] for m in menu] == ["banking77", "clinc150", "emotion", "own"]
+    assert [m["option"] for m in menu] == ["banking77", "clinc150", "emotion", "massive_en", "own"]
     by = {m["option"]: m for m in menu}
     assert by["banking77"]["status"] == "built in"
     assert (
@@ -60,7 +60,7 @@ def test_preload_downloads_but_writes_no_scenario_and_never_raises(tmp_path, mon
 
     monkeypatch.setattr(catalog, "loader_for", fake_loader)
     out = catalog.preload(tmp_path)
-    assert calls == ["clinc150", "emotion"]
+    assert calls == ["clinc150", "emotion", "massive_en"]
     assert out["clinc150"] == "ready: 3 cases" and out["emotion"].startswith("failed:")
     assert not (tmp_path / "scenarios").exists()
 

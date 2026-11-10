@@ -209,7 +209,7 @@ def test_a_yaml_syntax_error_in_one_scenario_file_does_not_hide_the_rest(repo):
 # ---------- the dataset menu ----------
 def test_list_datasets_shows_the_menu(repo):
     options = [m["option"] for m in call(build_server(repo), "list_datasets")]
-    assert options == ["banking77", "clinc150", "emotion", "own"]
+    assert options == ["banking77", "clinc150", "emotion", "massive_en", "own"]
 
 
 def test_choose_dataset_by_option(repo):
