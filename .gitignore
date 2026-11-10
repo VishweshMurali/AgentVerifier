@@ -16,3 +16,9 @@ COORDINATION.md
 
 # Phase D dress rehearsals on DEV: local only, never a verdict
 results/rehearsal/
+
+# Raw datasets for local scenarios: they hold TEST cases too, so never committed
+sources/
+
+# Per-scenario rehearsals
+results/*/rehearsal/

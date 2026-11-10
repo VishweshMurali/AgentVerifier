@@ -339,3 +339,45 @@ def test_banking77_layer_rebuilds_to_the_v1_fingerprint():
     from agent_committee.seal import rebuild_fingerprint
 
     assert rebuild_fingerprint(ROOT) == V1_LAYER_FINGERPRINT
+
+
+# ---------- datasets declared by scenario.yaml ----------
+def test_a_file_declared_scenario_is_found_frozen_and_split(tmp_path):
+    from agent_committee.scenarios import (
+        LocalSource,
+        ScenarioFile,
+        add_scenario,
+        file_scenarios,
+    )
+
+    repo, _ = demo_repo(tmp_path)
+    (repo / "sources").mkdir()
+    (repo / "cases.jsonl").rename(repo / "sources" / "demo.jsonl")
+    add_scenario(
+        ScenarioFile(name="demo", source=LocalSource(kind="local", path="sources/demo.jsonl")), repo
+    )
+    assert file_scenarios(repo) == ["demo"]
+    s = get_scenario("demo", repo)
+    assert s.definition == "scenarios/demo/scenario.yaml" and s.definition in frozen_paths(s)
+    assert build_split(s, repo=repo)["n_labels"] == 3
+    with pytest.raises(FileExistsError):
+        add_scenario(
+            ScenarioFile(name="demo", source=LocalSource(kind="local", path="sources/demo.jsonl")),
+            repo,
+        )
+
+
+def test_scenario_files_reject_unknown_fields_and_a_mismatched_name(tmp_path):
+    from pydantic import ValidationError
+
+    from agent_committee.scenarios import read_scenario_file
+
+    folder = tmp_path / "scenarios" / "demo"
+    folder.mkdir(parents=True)
+    path = folder / "scenario.yaml"
+    path.write_text("name: demo\nsource: {kind: local, path: sources/a.jsonl, code: os.system}\n")
+    with pytest.raises(ValidationError):
+        read_scenario_file("demo", tmp_path)
+    path.write_text("name: other\nsource: {kind: local, path: sources/a.jsonl}\n")
+    with pytest.raises(ValueError, match="declares name 'other'"):
+        read_scenario_file("demo", tmp_path)

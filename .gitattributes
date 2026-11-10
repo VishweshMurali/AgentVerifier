@@ -2,3 +2,6 @@
 data/*.jsonl -text
 data/*.sha256 -text
 sealed/** binary
+# Per-scenario DEV files and hashes (data/<name>/) keep exact bytes too.
+data/**/*.jsonl -text
+data/**/*.sha256 -text

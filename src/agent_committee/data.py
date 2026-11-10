@@ -295,6 +295,73 @@ def build_split(scenario, repo: str | Path = ".") -> dict:
     )
 
 
+def check_scenario(scenario, repo: str | Path = ".") -> dict:
+    """Dry run before a split: load the cases and run the input checks. Writes nothing.
+
+    Uses the scenario's prereg split settings when it exists, else the defaults (and says so).
+    Counts only: no case text leaves this function.
+    """
+    from agent_committee.prereg import load_prereg
+    from agent_committee.schemas import SplitConfig
+
+    repo = Path(repo)
+    prereg_file = repo / scenario.prereg_path
+    prereg, prereg_state = None, "missing: split defaults used"
+    if prereg_file.is_file():
+        try:
+            prereg, prereg_state = load_prereg(prereg_file, task=scenario.name), "found"
+        except ValueError as exc:  # e.g. a template with TODOs still in it
+            prereg_state = f"invalid, split defaults used: {str(exc).splitlines()[0]}"
+    split = prereg.split if prereg else SplitConfig(seed=0, test_fraction=0.25)
+    cases = scenario.loader()
+    per_label = Counter(c.label for c in cases)
+    groups = {c.group for c in cases if c.group is not None}
+    try:
+        check_cases(cases, grouped=split.grouped, min_per_label=split.min_cases_per_label)
+        problems: list[str] = []
+    except ValueError as exc:
+        problems = [str(exc)]
+    expected_test = round(len(cases) * split.test_fraction)
+    min_test_n = prereg.checks.min_test_n if prereg and prereg.checks else None
+    return {
+        "scenario": scenario.name,
+        "prereg": prereg_state,
+        "n_cases": len(cases),
+        "n_labels": len(per_label),
+        "min_cases_per_label": min(per_label.values()) if per_label else 0,
+        "max_cases_per_label": max(per_label.values()) if per_label else 0,
+        "n_groups": len(groups),
+        "grouped": split.grouped,
+        "required_min_per_label": split.min_cases_per_label,
+        "expected_test_n": expected_test,
+        "min_test_n": min_test_n,
+        "meets_min_test_n": None if min_test_n is None else expected_test >= min_test_n,
+        "problems": problems,
+        "split_built": (repo / scenario.data_dir / DEV_FILE).exists(),
+    }
+
+
+def dev_stats(scenario, repo: str | Path = ".") -> dict:
+    """Counts from a scenario's committed DEV split and its manifest. Never opens TEST."""
+    repo = Path(repo)
+    dev = load_dev(repo / scenario.data_dir)
+    per_label = Counter(c.label for c in dev)
+    manifest = json.loads((repo / scenario.data_dir / MANIFEST_FILE).read_text(encoding="utf-8"))
+    keep = (
+        "n_dev", "n_test", "n_labels", "seed", "test_fraction", "grouped",
+        "realised_test_fraction", "n_groups_dev", "n_groups_test", "n_groups_shared",
+        "min_test_n", "meets_min_test_n", "n_test_texts_duplicated_in_dev",
+    )  # fmt: skip
+    return {
+        "scenario": scenario.name,
+        "n_dev": len(dev),
+        "n_labels_dev": len(per_label),
+        "min_cases_per_label_dev": min(per_label.values()),
+        "max_cases_per_label_dev": max(per_label.values()),
+        "manifest": {k: manifest[k] for k in keep if k in manifest},
+    }
+
+
 def main(argv: list[str] | None = None) -> None:
     """Build a scenario's split (once): `python -m agent_committee.data [--scenario NAME]`."""
     import argparse
@@ -304,7 +371,7 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description="Build a scenario's DEV/TEST split (once).")
     ap.add_argument("--scenario", default="banking77")
     args = ap.parse_args(argv)
-    manifest = build_split(get_scenario(args.scenario))
+    manifest = build_split(get_scenario(args.scenario, "."))
     print(json.dumps(manifest, indent=2))
     if manifest.get("meets_min_test_n") is False:
         print(

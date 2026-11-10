@@ -1,0 +1,17 @@
+# docker compose -f mcp_server/compose.yaml up --build
+# MCP endpoint: http://127.0.0.1:8765/mcp (published on localhost only: the HTTP transport has no auth)
+services:
+  verifier-mcp:
+    build:
+      context: ..
+      dockerfile: mcp_server/Dockerfile
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - ..:/repo          # splits and scenario files land in your checkout
+      - hf-cache:/hf-cache # Hugging Face downloads survive restarts
+    # read-only tools only; to enable add_dataset and build_split over HTTP, use:
+    # command: ["--http", "--host", "0.0.0.0", "--port", "8765", "--allow-writes"]
+
+volumes:
+  hf-cache:

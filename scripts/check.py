@@ -53,6 +53,11 @@ def steps(install: bool, fast: bool) -> list[tuple[str, list[str], Path]]:
             ["uv", "run", "--project", "server", "pytest", "-q", "server/tests"],
             ROOT,
         ),
+        (
+            "mcp tests",
+            ["uv", "run", "--project", "mcp_server", "pytest", "-q", "mcp_server/tests"],
+            ROOT,
+        ),
     ]
     if install:
         out.append(("front-end install", [npm(), "ci"], fe))

@@ -309,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--scenario", default=BANKING77.name)
     args = ap.parse_args(argv)
     repo = Path(args.repo)
-    s = get_scenario(args.scenario)
+    s = get_scenario(args.scenario, repo)
     if not s.arms_ready:
         # the arms would run on another scenario's null threshold, shortlist and DEV report
         print(f"scenario {s.name!r} has no arms config yet; refusing", file=sys.stderr)

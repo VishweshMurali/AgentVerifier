@@ -1,0 +1,29 @@
+[project]
+name = "agent-verifier-mcp"
+version = "0.1.0"
+description = "MCP data endpoints for the Agent Verifier: list, add, check and split datasets, read DEV stats. Never exposes TEST."
+authors = [
+    { name = "Vishwesh Murali", email = "vishweshmurali@gmail.com" }
+]
+requires-python = ">=3.12"
+# A separate project, so the frozen pyproject.toml and uv.lock of the pipeline stay untouched.
+dependencies = [
+    "agent-committee",
+    "fastmcp>=4.1.6",
+]
+
+[tool.uv.sources]
+agent-committee = { path = "..", editable = true }
+
+[tool.uv.build-backend]
+module-name = "verifier_mcp"
+
+[build-system]
+requires = ["uv_build>=0.12.1,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.3",
+]

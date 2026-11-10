@@ -72,7 +72,8 @@ def frozen_paths(s: Scenario) -> list[str]:
     data = [f"{s.data_dir}/{name}" for name in DATA_FILES]
     # Banking77's DEV report lives in arms/ (already frozen); any other scenario's is listed itself
     report = [] if s.dev_report.startswith(f"{ARMS_PATH}/") else [s.dev_report]
-    return [s.prereg_path, *FROZEN_CODE, *data, *report]
+    definition = [s.definition] if s.definition else []
+    return [s.prereg_path, *FROZEN_CODE, *data, *report, *definition]
 
 
 def required_at_tag(s: Scenario) -> list[str]:
@@ -259,7 +260,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     from agent_committee.scenarios import get_scenario
 
-    s = get_scenario(args.scenario)
+    s = get_scenario(args.scenario, args.repo)
     problems = check_pretag(args.repo, s)
     for p in problems:
         print("NOT READY:", p)
