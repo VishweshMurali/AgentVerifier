@@ -21,7 +21,7 @@ from agent_committee.arms.base import Arm
 from agent_committee.arms.cascade import cascade_predictions
 from agent_committee.arms.classic import MajorityArm, NaiveBayesArm
 from agent_committee.arms.labels import build_label_book
-from agent_committee.arms.linear import Decision, LinearArm, LinearLayer, make_layer
+from agent_committee.arms.linear import Decision, LinearArm, LinearLayer, calibrated_layer
 from agent_committee.arms.splits import ARMS_SPLIT_SEED, make_arms_split
 from agent_committee.data import load_dev
 from agent_committee.schemas import ArmPrediction, Case
@@ -127,13 +127,31 @@ def _build(name: str, pool: list[Case], layer: LinearLayer) -> Arm:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--arms", default=DEFAULT_ARMS)
-    ap.add_argument("--out", type=Path, default=REPORT_PATH)
+    ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--data-dir", type=Path, default=None, help="a scenario's DEV folder")
+    ap.add_argument("--shortlist-k", type=int, default=config.SHORTLIST_K)
     args = ap.parse_args(argv)
-    if args.out.exists():
-        print(f"{args.out} exists; refusing to overwrite", file=sys.stderr)
+    if args.data_dir is not None and args.out is None:
+        # another scenario's report must never land on Banking77's
+        print("--data-dir needs --out (the scenario's own DEV report path)", file=sys.stderr)
         return 1
-    split = make_arms_split(load_dev("data"))
-    layer = make_layer(split.pool)
+    llm = sorted({"prompt", "agent"} & set(args.arms.split(",")))
+    if args.data_dir is not None and llm:
+        # the LLM arms still describe the task as banking queries: refuse rather than run an
+        # unfair comparison on another dataset (until a per-dataset task phrase exists)
+        print(
+            f"{llm} describe the task as banking queries; on another dataset run only "
+            "--arms majority,linear,naive_bayes until a per-dataset task phrase exists",
+            file=sys.stderr,
+        )
+        return 1
+    out = args.out or REPORT_PATH
+    if out.exists():
+        print(f"{out} exists; refusing to overwrite", file=sys.stderr)
+        return 1
+    split = make_arms_split(load_dev(args.data_dir or "data"))
+    # the Null threshold is always the tune 10th percentile (0.486288 on Banking77)
+    layer = calibrated_layer(split.pool, split.tune, args.shortlist_k)
     decisions = [layer.decide(c.text) for c in split.eval]
     results, preds = {}, {}
     for name in args.arms.split(","):
@@ -147,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         results["cascade"] = summarize(cascade, split.eval, decisions)
         print("cascade", results["cascade"])
     summary = layer_report(layer, split.eval, decisions)
-    write_report(args.out, build_report(results, split.counts(), summary))
+    write_report(out, build_report(results, split.counts(), summary))
     return 0
 
 

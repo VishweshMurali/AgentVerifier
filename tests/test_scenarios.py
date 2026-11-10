@@ -381,3 +381,43 @@ def test_scenario_files_reject_unknown_fields_and_a_mismatched_name(tmp_path):
     path.write_text("name: other\nsource: {kind: local, path: sources/a.jsonl}\n")
     with pytest.raises(ValueError, match="declares name 'other'"):
         read_scenario_file("demo", tmp_path)
+
+
+# ---------- P3b: per-scenario layer settings ----------
+def test_banking77_layer_from_its_prereg_and_from_calibration_is_the_v1_layer():
+    from agent_committee.arms.linear import calibrated_layer, make_layer
+    from agent_committee.arms.splits import make_arms_split
+
+    prereg = load_prereg(ROOT / "prereg.yaml")
+    split = make_arms_split(load_dev(ROOT / "data"))
+    from_prereg = make_layer(split.pool, prereg.linear.null_threshold, prereg.linear.shortlist_k)
+    assert from_prereg.fingerprint() == V1_LAYER_FINGERPRINT  # the runner's path
+    calibrated = calibrated_layer(split.pool, split.tune)  # the DEV evaluation's path
+    assert calibrated.threshold == 0.486288
+    assert calibrated.fingerprint() == V1_LAYER_FINGERPRINT
+
+
+def test_a_new_scenarios_threshold_must_be_its_own_tune_percentile(tmp_path):
+    from agent_committee.seal import _scenario_linear_problems, rebuild_threshold
+
+    repo, s = demo_repo(tmp_path)
+    build_split(s, repo=repo)
+    own = rebuild_threshold(repo, s.data_dir, 2)
+    report = repo / s.dev_report
+    report.write_text(json.dumps({"layer": {"null_threshold": own, "shortlist_k": 2}}))
+    assert _scenario_linear_problems(repo, s, own, 2) == []
+    assert "do not match" in _scenario_linear_problems(repo, s, 0.486288, 2)[0]
+    report.write_text(json.dumps({"layer": {"null_threshold": 0.486288, "shortlist_k": 2}}))
+    assert "not the tune 10th percentile" in _scenario_linear_problems(repo, s, 0.486288, 2)[0]
+
+
+def test_runner_refuses_a_ready_scenario_without_linear_settings_or_dev_report(
+    tmp_path, monkeypatch, capsys
+):
+    from dataclasses import replace
+
+    repo, s = demo_repo(tmp_path)
+    build_split(s, repo=repo)
+    monkeypatch.setitem(scenarios.SCENARIOS, "demo", replace(s, arms_ready=True))
+    assert runner.main(["--repo", str(repo), "--scenario", "demo", "--rehearse"]) == 1
+    assert "needs prereg.linear and its DEV report" in capsys.readouterr().err

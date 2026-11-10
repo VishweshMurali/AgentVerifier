@@ -89,9 +89,34 @@ class LinearLayer:
             raise RuntimeError("fit() first")
 
 
-def make_layer(pool: list[Case]) -> LinearLayer:
-    layer = LinearLayer()
+def make_layer(
+    pool: list[Case],
+    threshold: float = config.NULL_THRESHOLD,
+    shortlist_k: int = config.SHORTLIST_K,
+) -> LinearLayer:
+    layer = LinearLayer(threshold, shortlist_k)
     layer.fit(pool)
+    return layer
+
+
+THRESHOLD_PERCENTILE = 10  # Null flags the lowest 10% of top scores on tune (locked decision)
+THRESHOLD_DECIMALS = 6
+
+
+def tune_threshold(layer: LinearLayer, tune: list[Case]) -> float:
+    """The Null threshold: the 10th percentile of the layer's top score on the tune cases,
+    rounded to 6 decimals (Banking77: 0.486288). The threshold never changes a score."""
+    scores = [layer.decide(c.text).score for c in tune]
+    return round(float(np.percentile(scores, THRESHOLD_PERCENTILE)), THRESHOLD_DECIMALS)
+
+
+def calibrated_layer(
+    pool: list[Case], tune: list[Case], shortlist_k: int = config.SHORTLIST_K
+) -> LinearLayer:
+    """A layer fitted on the pool with its threshold set from tune, before any flag or
+    fingerprint is read. One path for every scenario."""
+    layer = make_layer(pool, shortlist_k=shortlist_k)
+    layer.threshold = tune_threshold(layer, tune)
     return layer
 
 

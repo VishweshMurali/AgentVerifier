@@ -323,6 +323,10 @@ def main(argv: list[str] | None = None) -> int:
     from agent_committee.llm import LLMClient
 
     prereg = load_prereg(repo / s.prereg_path, task=s.name)
+    if prereg.linear is None or not (repo / s.dev_report).is_file():
+        # checked before anything is unsealed
+        print(f"{s.name!r} needs prereg.linear and its DEV report {s.dev_report}", file=sys.stderr)
+        return 1
     dev_report = json.loads((repo / s.dev_report).read_text(encoding="utf-8"))
     dev = load_dev(repo / s.data_dir)
     names = arms_to_run(dev_report["results"])
@@ -331,7 +335,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"DEV report arms cannot be run: {sorted(dev_report['results'])}", file=sys.stderr)
         return 1
     split = make_arms_split(dev)
-    layer = make_layer(split.pool)
+    # the pre-registered threshold and shortlist (Banking77: the v1 values, so the v1 fingerprint)
+    layer = make_layer(split.pool, prereg.linear.null_threshold, prereg.linear.shortlist_k)
     if layer.fingerprint() != dev_report["layer"]["fingerprint"]:
         print("the rebuilt linear layer does not match the DEV report", file=sys.stderr)
         return 1

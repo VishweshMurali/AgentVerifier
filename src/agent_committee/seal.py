@@ -22,7 +22,7 @@ import subprocess
 from pathlib import Path
 
 from agent_committee.arms.config import MODEL_DIGEST, NULL_THRESHOLD, SHORTLIST_K
-from agent_committee.arms.linear import make_layer
+from agent_committee.arms.linear import THRESHOLD_DECIMALS, make_layer, tune_threshold
 from agent_committee.arms.splits import make_arms_split
 from agent_committee.data import (
     SEALED_TEST_FILE,
@@ -99,10 +99,32 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=False)
 
 
-def rebuild_fingerprint(repo: Path, data_dir: str = BANKING77.data_dir) -> str:
+def rebuild_fingerprint(
+    repo: Path,
+    data_dir: str = BANKING77.data_dir,
+    threshold: float = NULL_THRESHOLD,
+    shortlist_k: int = SHORTLIST_K,
+) -> str:
     """Fit the layer again from the committed DEV pool. Reads DEV only."""
     pool = make_arms_split(load_dev(repo / data_dir)).pool
-    return make_layer(pool).fingerprint()
+    return make_layer(pool, threshold, shortlist_k).fingerprint()
+
+
+def rebuild_threshold(repo: Path, data_dir: str, shortlist_k: int) -> float:
+    """The tune 10th percentile, recomputed from the committed DEV split. Reads DEV only."""
+    split = make_arms_split(load_dev(repo / data_dir))
+    return tune_threshold(make_layer(split.pool, shortlist_k=shortlist_k), split.tune)
+
+
+def _linear_settings(repo: Path, s: Scenario) -> tuple[float, int]:
+    """The layer settings the scenario pre-registered (Banking77 v1: the arms/config values)."""
+    if s is BANKING77:
+        return NULL_THRESHOLD, SHORTLIST_K
+    prereg = load_prereg(repo / s.prereg_path, task=s.name)
+    if prereg.linear is None:
+        # _prereg_problems names the missing section; never fall back to Banking77's values
+        raise ValueError(f"{s.prereg_path} does not set linear")
+    return prereg.linear.null_threshold, prereg.linear.shortlist_k
 
 
 def _layer_problems(repo: Path, s: Scenario = BANKING77) -> list[str]:
@@ -112,8 +134,28 @@ def _layer_problems(repo: Path, s: Scenario = BANKING77) -> list[str]:
         recorded = data["layer"]["fingerprint"]
     except (OSError, ValueError, KeyError, TypeError):
         return [f"{s.dev_report} has no layer fingerprint"]
-    if rebuild_fingerprint(repo, s.data_dir) != recorded:
+    try:
+        threshold, shortlist_k = _linear_settings(repo, s)
+    except ValueError as exc:
+        return [str(exc)]
+    if rebuild_fingerprint(repo, s.data_dir, threshold, shortlist_k) != recorded:
         return [f"linear layer rebuilt from the pool does not match {s.dev_report}"]
+    return []
+
+
+def _scenario_linear_problems(repo: Path, s: Scenario, null_threshold: float, k: int) -> list[str]:
+    """A new scenario's pre-registered threshold must be its own tune 10th percentile, and equal
+    to what its DEV report recorded (both sides rounded to 6 decimals)."""
+    try:
+        layer = json.loads((repo / s.dev_report).read_text(encoding="utf-8"))["layer"]
+        reported = (round(float(layer["null_threshold"]), THRESHOLD_DECIMALS), layer["shortlist_k"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return [f"{s.dev_report} has no layer settings"]
+    mine = (round(null_threshold, THRESHOLD_DECIMALS), k)
+    if mine != reported:
+        return [f"{s.prereg_path} linear settings {mine} do not match {s.dev_report} {reported}"]
+    if round(rebuild_threshold(repo, s.data_dir, k), THRESHOLD_DECIMALS) != mine[0]:
+        return [f"{s.prereg_path} null_threshold is not the tune 10th percentile of its DEV"]
     return []
 
 
@@ -130,10 +172,16 @@ def _prereg_problems(repo: Path, s: Scenario = BANKING77) -> list[str]:
         for name in ("linear", "scorer", "quality_floor", "checks")
         if getattr(prereg, name) is None
     ]
-    if prereg.linear is not None and (
-        prereg.linear.null_threshold != NULL_THRESHOLD or prereg.linear.shortlist_k != SHORTLIST_K
-    ):
-        problems.append(f"{s.prereg_path} linear settings do not match arms/config")
+    if prereg.linear is not None and s is BANKING77:
+        if (prereg.linear.null_threshold, prereg.linear.shortlist_k) != (
+            NULL_THRESHOLD,
+            SHORTLIST_K,
+        ):
+            problems.append(f"{s.prereg_path} linear settings do not match arms/config")
+    elif prereg.linear is not None:
+        problems += _scenario_linear_problems(
+            repo, s, prereg.linear.null_threshold, prereg.linear.shortlist_k
+        )
     return problems
 
 

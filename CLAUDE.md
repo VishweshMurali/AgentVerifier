@@ -83,6 +83,7 @@ tests/
 - Check everything (what CI runs): `uv run python scripts/check.py` (`--no-install`, `--fast`)
 - Tests: `uv run pytest`   Lint: `uv run ruff check . && uv run ruff format --check .`
 - Build split (once): `uv run python -m agent_committee.data`
+- DEV run of another scenario (non-LLM arms only until a per-scenario task phrase exists): `uv run python -m agent_committee.arms.evaluate --data-dir data/<name> --out scenarios/<name>/dev_report.json --arms majority,linear,naive_bayes`
 - Benchmark: `uv run python scripts/benchmark_throughput.py`
 - Rehearse Phase D on DEV (never opens TEST): `uv run python -m agent_committee.runner --rehearse`
 - The one sealed run (after the user's `arms-frozen` tag): `uv run python -m agent_committee.runner`

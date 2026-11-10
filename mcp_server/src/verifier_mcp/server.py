@@ -57,8 +57,8 @@ price_tables: TODO  # exactly 3 tables: name, input_usd_per_mtok, output_usd_per
 scorer:
   name: exact_label
   target: agent_committee.scorers:exact_label
-linear: TODO  # null_threshold and shortlist_k come from THIS scenario's DEV evaluation, never
-#               from Banking77's prereg (its threshold is Banking77's own tune 10th percentile)
+# linear: filled from THIS dataset's DEV report after the DEV evaluation (null_threshold and
+#   shortlist_k), never from Banking77's prereg; the split comes first, so leave it out until then
 # quality_floor and checks: start from prereg.yaml (Banking77) and review every limit.
 """
 

@@ -186,7 +186,7 @@ def test_a_half_filled_prereg_and_a_broken_scenario_file_are_reported_not_raised
     server = build_server(repo)
     call(server, "add_dataset", name="demo", kind="local", path="sources/demo.jsonl")
     template = call(server, "prereg_template", name="demo")
-    assert "linear: TODO" in template and "never" in template
+    assert "# linear: filled from THIS dataset" in template and "linear: TODO" not in template
     (repo / "scenarios" / "demo" / "prereg.yaml").write_text(template, encoding="utf-8")
     check = call(server, "check_dataset", name="demo")
     assert check["prereg"].startswith("invalid, split defaults used") and check["n_cases"] == 90

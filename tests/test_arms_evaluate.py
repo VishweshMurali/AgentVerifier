@@ -141,3 +141,17 @@ def test_summarize_counts_flagged_accuracy_and_costs():
     r = summarize(preds, cases, decisions)
     assert (r["correct"], r["n"], r["unparseable"], r["prompt_tokens"]) == (2, 4, 1, 3)
     assert (r["flagged_cases"], r["flagged_correct"]) == (2, 1)
+
+
+def test_cli_needs_out_for_another_scenario_so_banking77s_report_is_never_overwritten(tmp_path):
+    assert evaluate.main(["--data-dir", str(tmp_path)]) == 1
+
+
+def test_llm_arms_are_refused_on_another_dataset_until_a_task_phrase_exists(tmp_path, capsys):
+    out = tmp_path / "r.json"
+    assert (
+        evaluate.main(["--data-dir", str(tmp_path), "--out", str(out), "--arms", "linear,agent"])
+        == 1
+    )
+    assert "describe the task as banking queries" in capsys.readouterr().err
+    assert not out.exists()
