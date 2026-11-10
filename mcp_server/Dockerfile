@@ -9,7 +9,8 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.1 /uv /bin/uv
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1 \
-    HF_HOME=/hf-cache
+    HF_HOME=/hf-cache \
+    UV_NO_SYNC=1
 
 WORKDIR /repo
 # Only what installing needs; data, sealed/, cache/ and sources/ never enter the image.

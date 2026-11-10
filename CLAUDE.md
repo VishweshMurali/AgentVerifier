@@ -90,4 +90,5 @@ tests/
 - The one sealed run (after the user's `arms-frozen` tag): `uv run python -m agent_committee.runner`
 - Dataset menu: `uv run python -m agent_committee.catalog` (`--choose NAME`)
 - MCP data endpoints (tools: list_datasets, choose_dataset, list_scenarios, check_dataset, prereg_template, dev_stats, add_dataset): stdio `uv run --project mcp_server python -m verifier_mcp`; HTTP `... --http` (127.0.0.1:8765, read-only unless `--allow-writes`); Docker `docker compose -f mcp_server/compose.yaml up --build`; tests `uv run --project mcp_server pytest mcp_server/tests`
+- Docker (page + MCP, Ollama on the host): `docker compose up --build`, page http://127.0.0.1:8000, MCP http://127.0.0.1:8765/mcp. Written, NOT yet built or tested. The sealed run stays a host command.
 - Local server + live page: `npm --prefix frontend run build:server` then `uv run --project server python -m verifier_server` (http://127.0.0.1:8000); tests `uv run --project server pytest server/tests`

@@ -1,3 +1,5 @@
+# Standalone MCP only. The root compose.yaml (page + MCP) supersedes this; run one of them,
+# not both (both publish 8765).
 # docker compose -f mcp_server/compose.yaml up --build
 # MCP endpoint: http://127.0.0.1:8765/mcp (published on localhost only: the HTTP transport has no auth)
 services:

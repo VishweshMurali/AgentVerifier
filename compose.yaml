@@ -1,0 +1,41 @@
+# Agent Verifier as a local server: the page + API and the MCP data endpoints.
+#   docker compose up --build
+#   page:  http://127.0.0.1:8000        MCP: http://127.0.0.1:8765/mcp
+# Ollama runs on the host (not in Docker). Published on localhost only: there is no auth.
+# The one sealed run is NOT run from Docker: it stays a manual command on the host.
+# The containers use their own, initially empty LLM cache (SQLite WAL cannot be shared with the
+# host), so the page's replayed case is absent and a first rehearsal calls Ollama for every case.
+x-common: &common
+  extra_hosts:
+    - "host.docker.internal:host-gateway"   # the host, also on Linux
+  volumes:
+    - .:/repo                 # splits, reports and verdicts land in your checkout
+    - llm-cache:/repo/cache   # containers' own LLM cache: SQLite WAL cannot be shared with the host
+    - hf-cache:/hf-cache      # downloaded datasets survive restarts
+  restart: unless-stopped
+
+services:
+  web:
+    <<: *common
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
+
+  mcp:
+    <<: *common
+    build:
+      context: .
+      dockerfile: mcp_server/Dockerfile
+    ports:
+      - "127.0.0.1:8765:8765"
+    # read-only tools; --preload downloads the menu's datasets in the background at start
+    command: ["--http", "--host", "0.0.0.0", "--port", "8765", "--preload"]
+    # to let MCP clients choose datasets or add their own over HTTP, add "--allow-writes"
+
+volumes:
+  llm-cache:
+  hf-cache:
