@@ -109,6 +109,8 @@ def main(argv: list[str] | None = None) -> int:
     base = Path(args.prereg) if args.prereg else repo / s.prereg_path
     if not base.is_file():
         base = repo / "prereg.yaml"
+        print(f"{s.name!r} has no prereg yet: using {base} (Banking77's ASSUMED prices, error "
+              "costs and check thresholds)")  # fmt: skip
     prereg = load_prereg(base)
     if not 0 < args.gap < 1:
         print("--gap is a fraction of accuracy, e.g. 0.05 for 5 points", file=sys.stderr)
@@ -136,7 +138,9 @@ def main(argv: list[str] | None = None) -> int:
           f"{len(clean)} DEV eval cases (copies of DEV removed)")  # fmt: skip
     if len(cases) < planned:
         print("  fewer cases than planned: expect NEED_MORE_DATA unless the gap is large")
-    print(f"  about {minutes:.1f} min of LLM calls if nothing is cached (this laptop)")
+    print(f"  about {minutes:.1f} min of LLM calls if nothing is cached (this laptop), plus "
+          f"fitting the free models and the checks (~1-2 min; random forest and boosting add "
+          f"~1-3 min more on large datasets)")  # fmt: skip
     print(f"  chance the full DEPLOY rule fires if the true gain is exactly {args.gap:.3f}: "
           f"{deploy_power:.0%}")  # fmt: skip
     if not args.yes and input("run it? [y/N] ").strip().lower() != "y":
@@ -176,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
         "planning_disagreement": PLANNING_DISAGREEMENT,
         "planned_cases": planned,
         "cases": len(cases),
+        "eval_cases": len(split.eval),
+        "copies_of_dev_removed": len(split.eval) - len(clean),
         "sample_seed": SAMPLE_SEED,
         "case_ids_sha256": hashlib.sha256(
             "\n".join(c.id for c in cases).encode("utf-8")
@@ -197,7 +203,8 @@ def main(argv: list[str] | None = None) -> int:
         "model_digest": MODEL_DIGEST,
         "layer_fingerprint": layer.fingerprint(),
     }
-    report = {"results": {CASCADE: {}}, "best_simpler_arm": comparator}
+    # the cascade (report-only) is derived from linear and the agent: only when both run
+    report = {"results": {CASCADE: {}} if "linear" in names else {}, "best_simpler_arm": comparator}
     book = build_label_book(split.pool)
     with LLMClient(phase="build", model_digest=MODEL_DIGEST) as client:
         arms = dict(free_arms)

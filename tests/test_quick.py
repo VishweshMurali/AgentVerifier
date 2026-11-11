@@ -128,8 +128,7 @@ class FakeClient:
         return None
 
 
-def test_end_to_end_on_banking77_dev_with_fake_llm_arms(tmp_path, monkeypatch):
-    """Real DEV data, real free arms; LLM arms faked. Plan first, exploratory verdict, no TEST."""
+def _fake_run(tmp_path, monkeypatch):
     from agent_committee import llm, scenarios
     from agent_committee.arms import agent as agent_arm
     from agent_committee.data import load_dev
@@ -143,6 +142,26 @@ def test_end_to_end_on_banking77_dev_with_fake_llm_arms(tmp_path, monkeypatch):
     monkeypatch.setattr(quick, "get_scenario", scenario)
     monkeypatch.setattr(llm, "LLMClient", FakeClient)
     monkeypatch.setattr(agent_arm, "make_arm", lambda *a, **k: FakeLLMArm("agent", 0.6, labels))
+
+
+def test_no_cascade_without_linear(tmp_path, monkeypatch):
+    """The cascade is derived from linear and the agent; a set without linear must still run."""
+    _fake_run(tmp_path, monkeypatch)
+    code = quick.main(
+        ["--scenario", "banking77", "--gap", "0.2", "--arms", "naive_bayes,agent", "--yes"]
+    )
+    assert code == 0
+    [run] = list((tmp_path / "quick").iterdir())
+    verdict = json.loads((run / "verdict.json").read_text(encoding="utf-8"))
+    assert "cascade" not in verdict["accuracy"]
+    assert (
+        json.loads((run / "plan.json").read_text(encoding="utf-8"))["comparator"] == "naive_bayes"
+    )
+
+
+def test_end_to_end_on_banking77_dev_with_fake_llm_arms(tmp_path, monkeypatch):
+    """Real DEV data, real free arms; LLM arms faked. Plan first, exploratory verdict, no TEST."""
+    _fake_run(tmp_path, monkeypatch)
     code = quick.main(
         ["--scenario", "banking77", "--gap", "0.15", "--arms", "linear,agent", "--yes"]
     )
