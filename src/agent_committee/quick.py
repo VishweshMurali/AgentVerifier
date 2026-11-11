@@ -15,6 +15,12 @@ equal looks; after each, the agent and the simpler model are compared against th
 cases used. A winner needs both the engine and the boundary to agree; the repeated confidence
 interval replaces the bootstrap one, and break-even is dropped after an early stop.
 
+Use-case scoping (`--scope`, owner approved 2026-11-11): the user picks the labels their agent
+handles. The test mix is every in-scope case, the near misses (labels the linear layer most
+often confuses with the scope on the pool) and a fixed-seed slice of everything else making up
+20%. A case outside the scope counts right when the model answers any label outside the scope.
+Reported per arm: accuracy on in-scope cases and how often other cases are wrongly claimed.
+
 It never opens TEST (no seal import) and every verdict it writes is marked exploratory
 (`rehearsal: true`). The sealed run (`runner`) is unchanged and stays fixed-sample. Owner
 decisions 2026-11-11: gap chosen by the user with the time shown; comparator = best free model on
@@ -25,6 +31,7 @@ import argparse
 import hashlib
 import json
 import sys
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -43,6 +50,10 @@ from agent_committee.scorers import resolve_scorer
 PLANNING_DISAGREEMENT = 0.20  # owner decision 2026-11-11 (Banking77 measured 14%)
 SAMPLE_SEED = 0  # fixed: a user may not re-draw the sample
 ORDER_SEED = 1  # fixed scoring order for the looks (early stopping, owner approved 2026-11-11)
+# use-case scoping (owner approved 2026-11-11): labels picked from a list
+NOT_MINE = "not_mine"
+OTHERS_SHARE = 0.20  # unrelated labels' share of the scoped test mix
+SCOPE_SEED = 2
 AGENT = "agent"
 CASCADE = "cascade"
 LLM_ARMS = ("prompt", AGENT)
@@ -151,6 +162,80 @@ def apply_early_stop(verdict, look: "sequential.Look", planned: int):
     )
 
 
+def near_misses(layer, pool: Sequence[Case], scope: Sequence[str]) -> list[str]:
+    """Out-of-scope labels the linear layer most often shortlists for in-scope pool cases (the
+    ones most easily confused with the scope), at most as many as the scope has; ties by name.
+    Computed on the training pool only, before any test case is scored."""
+    inside = set(scope)
+    counts: Counter[str] = Counter()
+    for c in pool:
+        if c.label in inside:
+            counts.update(lb for lb in layer.decide(c.text).shortlist if lb not in inside)
+    return sorted(counts, key=lambda lb: (-counts[lb], lb))[: len(inside)]
+
+
+def scoped(
+    cases: Sequence[Case], scope: Sequence[str], near: Sequence[str], seed: int = SCOPE_SEED
+) -> list[Case]:
+    """The scoped mix: every in-scope and near-miss case, plus a fixed-seed random slice of the
+    rest sized to OTHERS_SHARE of the mix. Cases outside the scope are relabelled NOT_MINE."""
+    inside, close = set(scope), set(near)
+    core = [c for c in cases if c.label in inside or c.label in close]
+    rest = sorted((c for c in cases if c.label not in inside | close), key=lambda c: c.id)
+    k = min(len(rest), round(len(core) * OTHERS_SHARE / (1 - OTHERS_SHARE)))
+    picked = np.random.default_rng(seed).choice(len(rest), size=k, replace=False)
+    mix = core + [rest[i] for i in picked]
+    return sorted(
+        (c if c.label in inside else c.model_copy(update={"label": NOT_MINE}) for c in mix),
+        key=lambda c: c.id,
+    )
+
+
+class _InScope:
+    """An arm whose answers outside the scope read as NOT_MINE. No answer stays no answer (a
+    malformed reply still scores wrong)."""
+
+    def __init__(self, arm, scope: Sequence[str]) -> None:
+        self._arm, self._scope = arm, set(scope)
+        self.name = getattr(arm, "name", None)
+
+    def predict(self, case_id: str, text: str):
+        p = self._arm.predict(case_id, text)
+        if p.pred is None or p.pred in self._scope:
+            return p
+        return p.model_copy(update={"pred": NOT_MINE})
+
+
+def in_scope(arm, scope: Sequence[str]):
+    """The arm itself without a scope; with one, its answers mapped to the scope."""
+    return _InScope(arm, scope) if scope else arm
+
+
+def scope_summary(predictions: Path, used: Sequence[Case], scope: Sequence[str]) -> dict:
+    """Per arm: accuracy on in-scope cases and the share of other cases claimed as in scope."""
+    gold = {c.id: c.label for c in used}
+    inside = set(scope)
+    tally: dict[str, list[int]] = {}
+    for line in predictions.read_text(encoding="utf-8").splitlines():
+        row = json.loads(line)
+        t = tally.setdefault(row["arm"], [0, 0, 0, 0])  # in right, in total, grabbed, others
+        if gold[row["case_id"]] in inside:
+            t[0] += row["correct"]
+            t[1] += 1
+        else:
+            t[2] += row["pred"] in inside
+            t[3] += 1
+    return {
+        arm: {
+            "in_scope_cases": t[1],
+            "in_scope_accuracy": t[0] / t[1] if t[1] else 0.0,
+            "other_cases": t[3],
+            "false_grab_rate": t[2] / t[3] if t[3] else 0.0,
+        }
+        for arm, t in tally.items()
+    }
+
+
 def estimate_minutes(n: int, arms: Sequence[str]) -> float:
     return n * sum(SECONDS_PER_CASE.get(a, 0.0) for a in arms) / 60
 
@@ -169,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--gap", type=float, required=True, help="smallest gain worth paying for")
     ap.add_argument("--arms", help="comma-separated arms (default: every runnable arm)")
     ap.add_argument("--prereg", help="base prereg (default: the scenario's, else prereg.yaml)")
+    ap.add_argument("--scope", help="comma-separated labels your agent handles (use-case scoping)")
     ap.add_argument("--repo", default=".")
     ap.add_argument("--yes", action="store_true", help="run without the size/time confirmation")
     args = ap.parse_args(argv)
@@ -209,7 +295,32 @@ def main(argv: list[str] | None = None) -> int:
     )
     # copies of DEV are removed before sampling, so the sample keeps its planned size
     _, clean = checks.leakage(split.eval, split.pool + split.tune, prereg.checks)
+    n_clean = len(clean)
+    from agent_committee.arms.linear import calibrated_layer
+
+    layer = calibrated_layer(split.pool, split.tune)
+    scope: list[str] = []
+    near: list[str] = []
+    pool_ref, tune_ref = split.pool, split.tune
+    if args.scope:
+        scope = sorted({a.strip() for a in args.scope.split(",") if a.strip()})
+        known = {c.label for c in dev}
+        wrong = [label for label in scope if label not in known]
+        if not scope or wrong or NOT_MINE in known:
+            print(f"--scope needs labels of this dataset; unknown: {wrong}", file=sys.stderr)
+            return 1
+        near = near_misses(layer, split.pool, scope)
+        # the test mix, and the references the checks compare it with, are built the same way
+        clean = scoped(clean, scope, near)
+        pool_ref, tune_ref = scoped(split.pool, scope, near), scoped(split.tune, scope, near)
+        print(
+            f"scope: {len(scope)} labels, near misses {near}, others {OTHERS_SHARE:.0%} of the mix"
+        )
     cases = sample_cases(clean, planned)
+    # held-out reference for the drift checks: tune plus the eval cases not drawn (none trained
+    # on, none scored); a small reference makes the checks' own false-alarm test noisy
+    drawn = {c.id for c in cases}
+    held_ref = tune_ref + [c for c in clean if c.id not in drawn]
     llm = [a for a in names if a in LLM_ARMS]
     minutes = estimate_minutes(len(cases), llm)
     deploy_power = power.deploy_rule_power(
@@ -237,11 +348,10 @@ def main(argv: list[str] | None = None) -> int:
         RandomForestArm,
     )
     from agent_committee.arms.labels import build_label_book
-    from agent_committee.arms.linear import LinearArm, calibrated_layer
+    from agent_committee.arms.linear import LinearArm
     from agent_committee.llm import LLMClient
 
     task = task_from_dict(s.task_phrase) if s.task_phrase else BANKING77_TASK
-    layer = calibrated_layer(split.pool, split.tune)
     free_factories = {
         "linear": lambda: LinearArm(layer),
         "majority": lambda: fitted(MajorityArm(), split.pool),
@@ -250,11 +360,12 @@ def main(argv: list[str] | None = None) -> int:
         "random_forest": lambda: fitted(RandomForestArm(), split.pool),
         "boosting": lambda: fitted(BoostingArm(), split.pool),
     }
-    free_arms = {n: free_factories[n]() for n in free}
-    comparator, tune_scores = pick_comparator(free_arms, split.tune)
+    free_arms = {n: in_scope(free_factories[n](), scope) for n in free}
+    comparator, tune_scores = pick_comparator(free_arms, tune_ref)
     print(f"simpler model to beat (best free model on tune): {comparator} {tune_scores}")
 
-    out_dir = repo / s.results_dir / "quick" / f"gap{args.gap:.3f}-n{len(cases)}"
+    tag = f"-scope{hashlib.sha256(','.join(scope).encode()).hexdigest()[:8]}" if scope else ""
+    out_dir = repo / s.results_dir / "quick" / f"gap{args.gap:.3f}-n{len(cases)}{tag}"
     order = look_order(cases)
     bounds = sequential.boundaries(prereg.alpha)
     plan = {
@@ -273,7 +384,17 @@ def main(argv: list[str] | None = None) -> int:
         "planned_cases": planned,
         "cases": len(cases),
         "eval_cases": len(split.eval),
-        "copies_of_dev_removed": len(split.eval) - len(clean),
+        "copies_of_dev_removed": len(split.eval) - n_clean,
+        "population": len(clean),
+        "scope": {
+            "labels": scope,
+            "near_misses": near,
+            "others_share": OTHERS_SHARE,
+            "others_seed": SCOPE_SEED,
+            "not_mine_label": NOT_MINE,
+        }
+        if scope
+        else None,
         "sample_seed": SAMPLE_SEED,
         "case_ids_sha256": hashlib.sha256(
             "\n".join(c.id for c in cases).encode("utf-8")
@@ -301,8 +422,10 @@ def main(argv: list[str] | None = None) -> int:
     with LLMClient(phase="build", model_digest=MODEL_DIGEST) as client:
         arms = dict(free_arms)
         if "prompt" in names:
-            arms["prompt"] = prompt_arm.make_arm(split.pool, book, layer, client, task)
-        arms[AGENT] = agent_arm.make_arm(split.pool, book, layer, client, task)
+            arms["prompt"] = in_scope(
+                prompt_arm.make_arm(split.pool, book, layer, client, task), scope
+            )
+        arms[AGENT] = in_scope(agent_arm.make_arm(split.pool, book, layer, client, task), scope)
         arms = {n: arms[n] for n in names}
         if prereg.scorer is None:  # no plain-code scorer: the engine returns INVALID unrun
             print("the prereg declares no scorer: INVALID", file=sys.stderr)
@@ -315,8 +438,10 @@ def main(argv: list[str] | None = None) -> int:
         judged = prereg.model_copy(
             update={"checks": prereg.checks.model_copy(update={"min_test_n": look.n})}
         )
+        # leakage is checked against all of DEV; drift is compared with references built
+        # the same way as the test mix (a scoped mix would otherwise look like drift)
         verdict = evaluate(
-            judged, used, split.pool + split.tune, split.pool, split.tune, layer, arms, report,
+            judged, used, split.pool + split.tune, pool_ref, held_ref, layer, arms, report,
             audit, out_dir,
         )  # fmt: skip
     note = (
@@ -324,8 +449,20 @@ def main(argv: list[str] | None = None) -> int:
         f"seed {SAMPLE_SEED}): exploratory, not a sealed verdict."
     )
     verdict = apply_early_stop(verdict, look, len(order))
+    extra = []
+    if scope:
+        summary = scope_summary(out_dir / "predictions.jsonl", used, scope)
+        (out_dir / "scope.json").write_text(json.dumps(summary, indent=2) + "\n", "utf-8")
+        extra = [
+            f"Scope: {len(scope)} labels; a case not in scope counts right when the model answers "
+            f"any label outside the scope ('{NOT_MINE}')."
+        ] + [
+            f"{arm}: {v['in_scope_accuracy']:.1%} right on in-scope cases, "
+            f"{v['false_grab_rate']:.1%} of other cases wrongly claimed as in scope"
+            for arm, v in summary.items()
+        ]
     verdict = verdict.model_copy(
-        update={"reasons": [note, DEV_CHECK_NOTE, *verdict.reasons], "rehearsal": True}
+        update={"reasons": [note, DEV_CHECK_NOTE, *extra, *verdict.reasons], "rehearsal": True}
     )
     (out_dir / "verdict.json").write_text(verdict.model_dump_json(indent=2) + "\n", "utf-8")
     print(f"verdict: {verdict.verdict.value} -> {out_dir / 'verdict.json'}")

@@ -246,3 +246,83 @@ def test_invalid_stays_invalid():
         reasons=["floor"], accuracy={},
     )  # fmt: skip
     assert quick.apply_early_stop(v, _look("agent"), 500) is v
+
+
+class ShortlistLayer:
+    """decide(text) shortlists by the case's own text: 'a ...' -> [a, x], 'b ...' -> [b, y, x]."""
+
+    def decide(self, text):
+        from types import SimpleNamespace
+
+        first = text.split()[0]
+        return SimpleNamespace(
+            shortlist={"a": ["a", "x"], "b": ["b", "y", "x"]}.get(first, [first])
+        )
+
+
+def test_near_misses_are_the_out_of_scope_labels_shortlisted_most_for_scope_cases():
+    pool = [Case(id=f"p{i}", text=f"{lb} t", label=lb) for i, lb in enumerate("aabbz")]
+    assert quick.near_misses(ShortlistLayer(), pool, ["a", "b"]) == ["x", "y"]  # x 4, y 2
+    assert quick.near_misses(ShortlistLayer(), pool, ["a"]) == ["x"]  # at most len(scope)
+
+
+def test_scoped_mix_keeps_scope_and_near_misses_and_a_fixed_slice_of_others():
+    cases = [Case(id=f"c{i:03d}", text="t", label=lb)
+             for i, lb in enumerate(["in"] * 30 + ["near"] * 10 + ["far"] * 100)]  # fmt: skip
+    mix = quick.scoped(cases, ["in"], ["near"])
+    labels = [c.label for c in mix]
+    assert labels.count("in") == 30 and labels.count(quick.NOT_MINE) == 10 + 10  # 10 = 40 * 0.25
+    assert mix == quick.scoped(list(reversed(cases)), ["in"], ["near"])
+    assert all(c.label in ("in", quick.NOT_MINE) for c in mix)
+
+
+def test_in_scope_maps_other_answers_to_not_mine_and_keeps_no_answer():
+    class Answers:
+        name = "x"
+
+        def __init__(self, pred):
+            self.pred = pred
+
+        def predict(self, case_id, text):
+            return ArmPrediction(case_id=case_id, arm=ArmName.LINEAR, pred=self.pred)
+
+    assert quick.in_scope(Answers("far"), ["in"]).predict("c", "t").pred == quick.NOT_MINE
+    assert quick.in_scope(Answers("in"), ["in"]).predict("c", "t").pred == "in"
+    assert quick.in_scope(Answers(None), ["in"]).predict("c", "t").pred is None
+    raw = Answers("far")
+    assert quick.in_scope(raw, []) is raw
+
+
+def test_scope_summary_counts_in_scope_accuracy_and_false_grabs(tmp_path):
+    used = [Case(id="1", text="t", label="in"), Case(id="2", text="t", label=quick.NOT_MINE)]
+    rows = [
+        {"arm": "agent", "case_id": "1", "pred": "in", "correct": True},
+        {"arm": "agent", "case_id": "2", "pred": "in", "correct": False},
+    ]
+    path = tmp_path / "p.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    s = quick.scope_summary(path, used, ["in"])["agent"]
+    assert s["in_scope_accuracy"] == 1.0 and s["false_grab_rate"] == 1.0
+
+
+def test_unknown_scope_labels_are_refused(capsys):
+    assert quick.main(["--scenario", "banking77", "--gap", "0.1", "--scope", "card_arrival,nope",
+                       "--arms", "linear,agent", "--yes"]) == 1  # fmt: skip
+    assert "nope" in capsys.readouterr().err
+
+
+def test_scoped_end_to_end_on_banking77_card_labels(tmp_path, monkeypatch):
+    _fake_run(tmp_path, monkeypatch)
+    scope = "card_arrival,card_delivery_estimate,activate_my_card,lost_or_stolen_card"
+    code = quick.main(["--scenario", "banking77", "--gap", "0.15", "--scope", scope,
+                       "--arms", "linear,agent", "--yes"])  # fmt: skip
+    assert code == 0
+    [run] = list((tmp_path / "quick").iterdir())
+    plan = json.loads((run / "plan.json").read_text(encoding="utf-8"))
+    assert plan["scope"]["labels"] == sorted(scope.split(","))
+    assert len(plan["scope"]["near_misses"]) == 4
+    summary = json.loads((run / "scope.json").read_text(encoding="utf-8"))
+    assert set(summary) >= {"linear", "agent"}
+    verdict = json.loads((run / "verdict.json").read_text(encoding="utf-8"))
+    assert verdict["verdict"] != "INVALID"  # the scoped mix is not mistaken for drift
+    assert any(r.startswith("Scope: 4 labels") for r in verdict["reasons"])
