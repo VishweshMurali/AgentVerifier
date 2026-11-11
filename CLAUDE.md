@@ -17,7 +17,8 @@ Banking77 is the first task and proves the method.
   (linear on confident cases, the agent only on Null-flagged ones). Non-LLM rungs are priced at $0 (local).
   Tier 1/2 rungs (approved 2026-11-10): linear SVM (tier 1), random forest (bagging) and gradient boosting (tier 2), all
   no-LLM on word+char TF-IDF (trees on a fixed 300-dim SVD), fixed settings and seeds (boosting's L2 = 1.0 added for
-  training stability after it diverged, not tuned on a score); a free arm wins a tie with a paid one.
+  training stability after it diverged; it was chosen after one DEV score was seen, so boosting's DEV scores are
+  exploratory, approved 2026-11-10); a free arm wins a tie with a paid one.
   Per-dataset task phrase (approved 2026-11-10): each scenario.yaml says what one case is and what a label is; both LLM
   arms get the identical phrase. Banking77's wording is unchanged (v1 prompt, agent prompt and tool schema pinned).
 - Null is a flag for low-confidence cases (the lowest 10% on tune), not a score. All arms answer them, and accuracy on those cases is reported per arm.
