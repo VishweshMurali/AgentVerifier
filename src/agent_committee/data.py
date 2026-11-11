@@ -322,7 +322,7 @@ def build_split(scenario, repo: str | Path = ".") -> dict:
 def planned_split(cases: list[Case], split) -> tuple[list[Case], list[Case]]:
     """The exact DEV/TEST split a build would write, after every check the arms will need: the
     input checks, the real deterministic split, and the arms' pool/tune/eval split of that DEV
-    (every TEST label learnable from the pool and scored in eval; tune and eval not empty).
+    (every kept label in the pool, the eval split and TEST; tune and eval not empty).
     Raises ValueError.
     Writes nothing; the dry run and build_split both use it, so 'ready' means buildable."""
     from agent_committee.arms.splits import make_arms_split  # no cycle: it imports schemas only
@@ -337,13 +337,17 @@ def planned_split(cases: list[Case], split) -> tuple[list[Case], list[Case]]:
     arms = make_arms_split(dev)
     if not arms.tune or not arms.eval:
         raise ValueError("the arms split of DEV left tune or eval empty: too few cases")
-    unlearnable = sorted({c.label for c in test} - {c.label for c in arms.pool})
-    if unlearnable:
-        raise ValueError(f"TEST labels no arm can learn (not in the DEV pool): {unlearnable[:5]}")
-    unscored = sorted({c.label for c in test} - {c.label for c in arms.eval})
-    if unscored:
-        # the DEV report (and the choice of the best simpler arm) would never have seen them
-        raise ValueError(f"TEST labels missing from the DEV eval split: {unscored[:5]}")
+    # every label kept for the scenario must be learnable, scored on DEV and judged on TEST
+    # (R10-D1: comparing TEST with eval alone misses a label absent from both)
+    kept = {c.label for c in cases}
+    for where, have in (
+        ("the DEV pool (no arm can learn it)", arms.pool),
+        ("the DEV eval split (never scored on DEV)", arms.eval),
+        ("TEST (the verdict would never judge it)", test),
+    ):
+        missing = sorted(kept - {c.label for c in have})
+        if missing:
+            raise ValueError(f"labels missing from {where}: {missing[:5]}")
     return dev, test
 
 
@@ -364,11 +368,11 @@ NO_LLM_ARMS = ("majority", "linear", "naive_bayes", "linear_svm", "random_forest
 
 
 def dev_run_command(scenario) -> str:
-    """The exact DEV-run command for a built split, by scenario name only: evaluate reads the DEV
+    """The exact DEV-run command for a built split, by scenario name only: dev_run reads the DEV
     folder, report path and task phrase from the scenario's own files, so no task text passes
     through a shell (C9-Q1). Without a task phrase only the non-LLM arms run. The name is
     checked by scenarios.check_name (letters, digits, underscores), so it is shell-safe."""
-    base = f"uv run python -m agent_committee.arms.evaluate --scenario {scenario.name}"
+    base = f"uv run python -m agent_committee.dev_run --scenario {scenario.name}"
     if not getattr(scenario, "task_phrase", None):
         return base + " --arms " + ",".join(NO_LLM_ARMS)
     return base

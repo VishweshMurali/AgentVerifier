@@ -412,6 +412,32 @@ def test_cached_bad_reply_behaves_like_a_live_one():
     c._db.execute("UPDATE cache SET response_json = ?", ("not json",))
     with pytest.raises(MalformedResponse):
         c.chat(MSG, arm="prompt")
+    # R10-L1: deeply nested stored JSON is malformed with its stored usage, not a RecursionError
+    c._db.execute("UPDATE cache SET response_json = ?", ("[" * 200_000 + "]" * 200_000,))
+    with pytest.raises(MalformedResponse) as info:
+        c.chat(MSG, arm="prompt")
+    assert (info.value.prompt_tokens, info.value.completion_tokens) == (9, 2)
+
+
+def test_surrogate_finish_reason_is_malformed_with_usage_and_nothing_stored():
+    """R10-L1: a string finish_reason with a lone surrogate failed at the cache insert and lost
+    the known usage; it is malformed at the boundary instead."""
+    c = client(Fake([_resp("a", 10, 2, finish="stop" + chr(0xDC00))]))
+    with pytest.raises(MalformedResponse) as info:
+        c.chat(MSG, arm="prompt")
+    assert (info.value.prompt_tokens, info.value.completion_tokens) == (10, 2)
+    assert c._db.execute("SELECT COUNT(*) FROM cache").fetchone()[0] == 0
+    row = c._db.execute("SELECT status, prompt_tokens, completion_tokens FROM calls").fetchone()
+    assert row == ("failed", 10, 2)
+
+
+@pytest.mark.parametrize("envelope", [[1, 2], "text", 5, None])
+def test_a_non_object_response_envelope_is_malformed_not_an_attribute_error(envelope):
+    """R10-L1: the outer transport envelope itself must be an object."""
+    c = client(Fake([envelope]))
+    with pytest.raises(MalformedResponse, match="not an object"):
+        c.chat(MSG, arm="prompt")
+    assert c._db.execute("SELECT COUNT(*) FROM cache").fetchone()[0] == 0
 
 
 def test_outage_is_still_llm_unavailable_not_malformed():
@@ -486,3 +512,21 @@ def test_the_ollama_address_works_with_or_without_v1():
     assert _base_url(None) == "http://localhost:11434/v1"
     assert _base_url("http://host.docker.internal:11434") == "http://host.docker.internal:11434/v1"
     assert _base_url("http://h:11434/v1/") == "http://h:11434/v1"
+
+
+def test_lone_surrogate_text_is_a_malformed_reply_not_a_hashing_crash():
+    """R6-L2: content or a tool argument holding a lone surrogate (from a JSON escape) could not be
+    hashed into the next request; it is malformed at the boundary, usage kept, nothing stored."""
+    bad_text = "card " + chr(0xD800)
+    tool = {"id": "1", "type": "function",
+            "function": {"name": "read_label_definition", "arguments": bad_text}}  # fmt: skip
+    for message in ({"content": bad_text}, {"content": None, "tool_calls": [tool]}):
+        reply = {
+            "choices": [{"message": message, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 7, "completion_tokens": 2},
+        }
+        c = client(Fake([reply]))
+        with pytest.raises(MalformedResponse, match="not valid Unicode") as info:
+            c.chat(MSG, arm="agent")
+        assert (info.value.prompt_tokens, info.value.completion_tokens) == (7, 2)
+        assert c._db.execute("SELECT COUNT(*) FROM cache").fetchone()[0] == 0

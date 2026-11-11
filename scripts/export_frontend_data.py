@@ -129,7 +129,7 @@ class CachedReplies:
             raise LLMUnavailable("cache miss: the export makes no model calls")
         try:
             message = json.loads(row[0])
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, RecursionError) as exc:  # deep nesting too (R10-L1)
             raise MalformedResponse(
                 f"malformed cached reply: {exc}", prompt_tokens=row[1], completion_tokens=row[2]
             ) from None

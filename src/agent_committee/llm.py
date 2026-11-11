@@ -236,7 +236,24 @@ def validate_message(
         not isinstance(calls, list) or not all(isinstance(c, dict) for c in calls)
     ):
         raise bad(f"tool_calls is not a list of objects: {calls!r}")
+    try:
+        # a lone surrogate (e.g. from a "\ud800" escape) cannot be hashed into the next request's
+        # key, nor stored as UTF-8: refuse it here, at the boundary (R6-L2)
+        json.dumps(message, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        raise bad("message holds text that is not valid Unicode") from None
+    except RecursionError:
+        raise bad("message nests too deeply") from None
     return message
+
+
+def _is_unicode(text: str) -> bool:
+    """False for text holding a lone surrogate (it cannot be encoded as UTF-8 or stored)."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _token_count(usage: dict[str, Any], field: str) -> int:
@@ -350,7 +367,8 @@ class LLMClient:
         if row:
             try:
                 validate_message(json.loads(row[0]), prompt_tokens=row[1], completion_tokens=row[2])
-            except (MalformedResponse, ValueError) as exc:
+            # RecursionError: deeply nested stored JSON (R10-L1), malformed with its stored usage
+            except (MalformedResponse, ValueError, RecursionError) as exc:
                 bad = exc
                 if not isinstance(exc, MalformedResponse):
                     bad = MalformedResponse(
@@ -371,6 +389,12 @@ class LLMClient:
         completion_tokens: int | None = None
         try:
             response, latency = self._call_with_retries(request, state)
+            if not isinstance(response, dict):  # the outer envelope itself (R10-L1)
+                raise MalformedResponse(
+                    f"malformed model response: not an object: {response!r}"[:300],
+                    prompt_tokens=None,
+                    completion_tokens=None,
+                )
             usage = response.get("usage") or {}
             if not isinstance(usage, dict):  # e.g. a list or number: no usage to account (R6-L1)
                 raise LLMUsageMissing(f"response usage is not an object: {usage!r}")
@@ -391,8 +415,10 @@ class LLMClient:
             )
             message_json = json.dumps(message)
             finish_reason = choice.get("finish_reason")
-            if finish_reason is not None and not isinstance(finish_reason, str):
-                # checked before anything is stored: SQLite cannot bind it (R6-L1)
+            if finish_reason is not None and (
+                not isinstance(finish_reason, str) or not _is_unicode(finish_reason)
+            ):
+                # checked before anything is stored: SQLite cannot bind it (R6-L1, R10-L1)
                 raise MalformedResponse(
                     f"malformed model response: finish_reason {finish_reason!r}",
                     prompt_tokens=prompt_tokens,

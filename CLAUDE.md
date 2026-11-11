@@ -59,6 +59,7 @@ src/agent_committee/
   schemas.py     pydantic models: Case, ArmPrediction, PriceTable, Prereg, Verdict, VerdictJSON
   prereg.py      load/validate prereg.yaml
   scenarios.py   scenario registry (Banking77 = scenario 1, v1 paths and tag); frozen with the arms
+  dev_run.py     DEV run of a scenario by name (reads its scenario files; outside arms/)
   catalog.py     dataset menu: Banking77, CLINC150, Emotion, MASSIVE-en (56 intents) presets (pinned HF revisions) + your own file
   data.py        scenario loaders (Banking77, Hugging Face, local jsonl/csv), stratified split, writes DEV + sealed TEST + hashes
   seal.py        ONLY reader of sealed TEST; enforces the scenario's freeze tag + hash (Phase D runner only)
@@ -89,7 +90,7 @@ tests/
 - Check everything (what CI runs): `uv run python scripts/check.py` (`--no-install`, `--fast`)
 - Tests: `uv run pytest`   Lint: `uv run ruff check . && uv run ruff format --check .`
 - Build split (once): `uv run python -m agent_committee.data`
-- DEV run of another scenario: `uv run python -m agent_committee.arms.evaluate --scenario NAME` (folder, report path and task phrase read from its files; `check_dataset` prints it once the split is built); without a task phrase only the non-LLM arms run (`--arms majority,linear,naive_bayes,linear_svm,random_forest,boosting`)
+- DEV run of another scenario: `uv run python -m agent_committee.dev_run --scenario NAME` (folder, report path and task phrase read from its files, passed to `arms.evaluate` in-process; `check_dataset` prints it once the split is built); without a task phrase only the non-LLM arms run (`--arms majority,linear,naive_bayes,linear_svm,random_forest,boosting`)
 - Benchmark: `uv run python scripts/benchmark_throughput.py`
 - Rehearse Phase D on DEV (never opens TEST): `uv run python -m agent_committee.runner --rehearse`
 - The one sealed run (after the user's `arms-frozen` tag): `uv run python -m agent_committee.runner`

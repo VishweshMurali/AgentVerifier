@@ -577,26 +577,38 @@ def test_check_dataset_prints_the_exact_dev_run_command_with_the_task_phrase(tmp
     assert check_scenario(s, repo)["dev_run_command"] is None  # no split yet
     build_split(s, repo=repo)
     assert dev_run_command(s) == (
-        "uv run python -m agent_committee.arms.evaluate --scenario demo "
+        "uv run python -m agent_committee.dev_run --scenario demo "
         "--arms majority,linear,naive_bayes,linear_svm,random_forest,boosting"
     )
     # C9-Q1: with a phrase the command carries only the name; no task text reaches the shell
     phrase = {"item": "a $HOME `x` message", "items": "messages", "label_kind": "emotion"}
     cmd = check_scenario(replace(s, task_phrase=phrase), repo)["dev_run_command"]
-    assert cmd == "uv run python -m agent_committee.arms.evaluate --scenario demo"
+    assert cmd == "uv run python -m agent_committee.dev_run --scenario demo"
 
 
-def test_evaluate_by_scenario_name_reads_folder_report_and_phrase_from_files(tmp_path, monkeypatch):
-    from agent_committee.arms import evaluate
+def test_dev_run_by_scenario_name_reads_folder_report_and_phrase_from_files(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    from agent_committee import dev_run
 
     repo, s = demo_repo(tmp_path)
     build_split(s, repo=repo)
+    phrase = {"item": "-a $HOME message", "items": "messages", "label_kind": "emotion"}
+    monkeypatch.setitem(scenarios.SCENARIOS, "demo", replace(s, task_phrase=phrase))
+    args = dev_run.evaluate_args("demo", repo, "majority,linear")
+    # one token per value: a phrase starting with '-' is never read as a flag
+    assert "--task-item=-a $HOME message" in args and f"--out={repo / s.dev_report}" in args
+    # R10-A1: Banking77 too runs on the requested repository, with its built-in v1 phrase
+    b77 = dev_run.evaluate_args("banking77", repo)
+    assert f"--data-dir={repo / 'data'}" in b77
+    assert f"--out={repo / 'src/agent_committee/arms/dev_report.json'}" in b77
+    assert "--task-item=a banking customer query" in b77
     monkeypatch.setitem(scenarios.SCENARIOS, "demo", s)
-    args = ["--scenario", "demo", "--repo", str(repo), "--arms", "majority,linear"]
-    assert evaluate.main([*args, "--out", "x.json"]) == 1  # mixing forms is refused
-    assert evaluate.main(args) == 0
+    run = ["--scenario", "demo", "--repo", str(repo), "--arms", "majority,linear"]
+    assert dev_run.main(run) == 0
     report = json.loads((repo / s.dev_report).read_text())
     assert set(report["results"]) == {"majority", "linear"} and report["task_phrase"] is None
+    assert dev_run.main(["--scenario", "nope", "--repo", str(repo)]) == 1
 
 
 def test_a_whitespace_only_task_phrase_field_is_refused_when_declared():
@@ -697,3 +709,23 @@ def test_a_test_label_missing_from_the_dev_eval_split_is_not_ready(monkeypatch):
     split = SimpleNamespace(test_fraction=0.25, seed=7, grouped=True, min_cases_per_label=2)
     with pytest.raises(ValueError, match="missing from the DEV eval split"):
         planned_split(grouped_cases(n_groups=40), split)
+
+
+def test_a_kept_label_missing_from_both_test_and_eval_is_not_ready(monkeypatch):
+    """R10-D1: a label absent from TEST and from DEV eval alike passed a TEST-vs-eval comparison;
+    every kept label is now checked against the pool, the eval split and TEST."""
+    from types import SimpleNamespace
+
+    from agent_committee import data
+
+    real = data.split_cases
+
+    def test_without_b(*args, **kwargs):
+        dev, test = real(*args, **kwargs)
+        moved = [c for c in test if c.label == "b"]
+        return sorted(dev + moved, key=lambda c: c.id), [c for c in test if c.label != "b"]
+
+    monkeypatch.setattr(data, "split_cases", test_without_b)
+    split = SimpleNamespace(test_fraction=0.25, seed=7, grouped=True, min_cases_per_label=2)
+    with pytest.raises(ValueError, match="labels missing from TEST"):
+        data.planned_split(grouped_cases(n_groups=40), split)

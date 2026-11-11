@@ -160,6 +160,21 @@ def test_cached_replies_return_what_llmclient_stored(tmp_path):
         assert client.chat(MESSAGES, arm="agent", tools=TOOLS, max_tokens=50).message == got.message
 
 
+def test_cached_replies_treat_deeply_nested_json_as_malformed(tmp_path):
+    """R10-L1: the read-only replay must not escape with a bare RecursionError."""
+    import sqlite3
+
+    from agent_committee.llm import MalformedResponse
+
+    db, _ = filled_cache(tmp_path)
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE cache SET response_json = ?", ("[" * 200_000 + "]" * 200_000,))
+    with export.CachedReplies(db, phase="build", model_digest="dg") as replies:
+        with pytest.raises(MalformedResponse) as info:
+            replies.chat(MESSAGES, arm="agent", tools=TOOLS, max_tokens=50)
+    assert (info.value.prompt_tokens, info.value.completion_tokens) == (11, 3)
+
+
 @pytest.mark.parametrize(
     "change",
     [

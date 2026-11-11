@@ -275,3 +275,50 @@ def test_run_arms_derives_the_cascade_only_when_asked():
     assert np.array_equal(run.prompt_tokens, [0, 10, 10])
     assert sum(r["arm"] == "cascade" for r in with_cascade.rows) == 3
     assert with_cascade.own_tool_rate == plain.own_tool_rate  # the floor reads the agent only
+
+
+def test_the_whole_ladder_runs_through_checks_decision_and_report(tmp_path):
+    """Every runnable arm plus the derived cascade, with a tier-1 arm (linear SVM) as the DEV
+    report's best simpler arm, as it may be on CLINC150: the verdict path and the HTML report
+    must take all of them (these files freeze with the next scenario's tag)."""
+    from agent_committee.report import render_report
+
+    test = cases(300, "t", 3)
+    accuracy = {"majority": 0.25, "linear": 0.85, "naive_bayes": 0.8, "linear_svm": 0.9,
+                "random_forest": 0.83, "boosting": 0.82, "prompt": 0.75}  # fmt: skip
+    arms = {n: FakeArm(n, acc) for n, acc in accuracy.items()}
+    arms["prompt"].tokens = 230
+    arms["agent"] = FakeArm("agent", 0.88, tokens=700)
+    for a in arms.values():
+        a.labels = {c.id: c.label for c in test}
+    names = runner.arms_to_run({**{n: {} for n in arms}, "cascade": {}})
+    assert names == list(runner.RUNNABLE)
+    report = {
+        "best_simpler_arm": "linear_svm",
+        "results": {
+            **{n: {"correct": int(200 * acc), "n": 200} for n, acc in accuracy.items()},
+            "agent": {"correct": 176, "n": 200},
+            "cascade": {"correct": 180, "n": 200},
+        },
+    }
+    pool = cases(200, "p", 1)
+    v = runner.evaluate(
+        PREREG,
+        test,
+        pool,
+        pool,
+        cases(100, "h", 2),
+        FakeLayer(),
+        {n: arms[n] for n in names},
+        report,
+        AUDIT,
+        tmp_path,
+        false_alarm_reps=2,
+        log=lambda _: None,
+    )
+    assert v.agent_arm == "agent" and v.simpler_arm == "linear_svm"
+    assert {a.name for a in v.arms} == {*runner.RUNNABLE, "cascade"}
+    lines = (tmp_path / "predictions.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == (len(names) + 1) * 300  # every arm and the cascade, every case
+    html = render_report(v)
+    assert "linear_svm" in html and "boosting" in html and "random_forest" in html

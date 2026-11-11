@@ -70,6 +70,8 @@ def call_problem(name: str, arguments: str) -> str | None:
         args = json.loads(arguments)
     except (TypeError, ValueError):
         return f"arguments are not JSON: {arguments!r}"
+    except RecursionError:  # deeply nested JSON (R6-L2): malformed, scored wrong, never a crash
+        return "arguments nest too deeply"
     if not isinstance(args, dict):
         return f"arguments are not an object: {arguments!r}"
     if not isinstance(args.get(REQUIRED_ARG[name]), str):
@@ -116,7 +118,7 @@ class ToolBox:
         """Tool output as text. Bad calls return an error the model can read and recover from."""
         try:
             args = json.loads(arguments)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             return f"Invalid JSON arguments for {name}"
         if not isinstance(args, dict):
             return f"Invalid arguments for {name}"

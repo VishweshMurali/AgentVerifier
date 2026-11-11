@@ -322,3 +322,11 @@ def test_the_agent_sends_its_scenario_tools_and_prompt():
     first = script.requests[0]
     assert first["messages"][0]["content"].startswith("You classify a short message")
     assert "labelled messages" in first["tools"][0]["function"]["description"]
+
+
+def test_deeply_nested_tool_arguments_are_a_malformed_call_not_a_crash():
+    """R6-L2: json.loads raised RecursionError on deep nesting; it is a malformed call."""
+    from agent_committee.arms.agent_tools import SEARCH, call_problem
+
+    deep = "[" * 200_000 + "]" * 200_000
+    assert call_problem(SEARCH, deep) is not None

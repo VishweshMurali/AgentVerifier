@@ -150,10 +150,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--arms", default=DEFAULT_ARMS)
     ap.add_argument("--out", type=Path, default=None)
     ap.add_argument("--data-dir", type=Path, default=None, help="a scenario's DEV folder")
-    # a scenario by name: its DEV folder, report path and task phrase come from its files, so no
-    # task text passes through a shell (C9-Q1); the form check_dataset prints
-    ap.add_argument("--scenario", default=None)
-    ap.add_argument("--repo", type=Path, default=Path("."))
     ap.add_argument("--shortlist-k", type=int, default=config.SHORTLIST_K)
     # the scenario's task phrase, as plain strings (JSON on a Windows command line loses quotes);
     # check_dataset prints the exact command with these filled from scenario.yaml
@@ -162,24 +158,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--task-label-kind", default=None)
     ap.add_argument("--task-hint", default=None)
     args = ap.parse_args(argv)
-    if args.scenario is not None:
-        manual = (args.data_dir, args.out, args.task_item, args.task_items)
-        if any(v is not None for v in (*manual, args.task_label_kind, args.task_hint)):
-            print("--scenario takes its folder, report and task phrase from the scenario's "
-                  "files: drop --data-dir, --out and --task-*", file=sys.stderr)  # fmt: skip
-            return 1
-        from agent_committee.scenarios import get_scenario
-
-        try:
-            s = get_scenario(args.scenario, args.repo)
-        except ValueError as exc:
-            print(str(exc), file=sys.stderr)
-            return 1
-        args.data_dir, args.out = args.repo / s.data_dir, args.repo / s.dev_report
-        # Banking77 (built in) has no scenario.yaml phrase: it is the v1 default
-        phrase = s.task_phrase or (config.BANKING77_TASK.as_dict() if s.name == "banking77" else {})
-        for key, value in phrase.items():
-            setattr(args, f"task_{key}", value)
     if args.data_dir is not None and args.out is None:
         # another scenario's report must never land on Banking77's
         print("--data-dir needs --out (the scenario's own DEV report path)", file=sys.stderr)
