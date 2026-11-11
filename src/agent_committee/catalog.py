@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from agent_committee.data import DEV_FILE, MANIFEST_FILE
 from agent_committee.scenarios import (
     BANKING77,
@@ -175,7 +177,22 @@ def _status(preset: Preset, repo: Path) -> dict[str, Any]:
 def menu(repo: str | Path = ".") -> list[dict[str, Any]]:
     """Every standard option with its status, then 'your own dataset'."""
     repo = Path(repo)
-    return [*(_status(p, repo) for p in PRESETS.values()), dict(BRING_YOUR_OWN)]
+    return [*(_safe_status(p, repo) for p in PRESETS.values()), dict(BRING_YOUR_OWN)]
+
+
+def _safe_status(preset: Preset, repo: Path) -> dict[str, Any]:
+    """One preset's status; a broken scenario.yaml or manifest marks only that preset (C9-C1)."""
+    try:
+        return _status(preset, repo)
+    except (OSError, ValueError, yaml.YAMLError) as exc:  # pydantic and JSON errors are ValueErrors
+        first = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+        return {
+            "option": preset.name,
+            "title": preset.title,
+            "description": preset.description,
+            "status": f"broken: {first[:200]}",
+            "arms": "none until its files are fixed",
+        }
 
 
 def choose(option: str, repo: str | Path = ".") -> dict[str, Any]:

@@ -321,7 +321,7 @@ def test_build_split_applies_the_prereg_grouped_setting(tmp_path):
     rows = [
         {"id": f"{x}{g}-{i}", "text": f"{x} {g} {i}", "label": x, "group": f"{x}g{g}"}
         for x in "ab"
-        for g in range(12)
+        for g in range(40)  # enough DEV groups for the arms' own grouped split (R8-D1)
         for i in range(3)
     ]
     cases_file = write_cases(tmp_path / "grouped.jsonl", rows)
@@ -450,6 +450,8 @@ def test_excluded_labels_are_left_out_before_the_split_and_recorded(tmp_path):
     assert check["problems"] == [] and check["n_excluded_cases"] == 3
     assert check["excluded_labels"] == ["tiny"] and check["n_labels"] == 3
     manifest = build_split(s, repo=repo)
+    # R8-D1: the dry run reports the real split's TEST size, not an estimate
+    assert check["expected_test_n_exact"] and check["expected_test_n"] == manifest["n_test"]
     assert manifest["excluded_labels"] == ["tiny"] and manifest["n_excluded_cases"] == 3
     assert "tiny" not in {c.label for c in load_dev(repo / s.data_dir)}
     from agent_committee.data import dev_stats
@@ -457,6 +459,34 @@ def test_excluded_labels_are_left_out_before_the_split_and_recorded(tmp_path):
     stats = dev_stats(s, repo)["manifest"]
     assert stats["excluded_labels"] == ["tiny"] and stats["n_excluded_cases"] == 3
     assert "exclude_labels" in (repo / "scenarios/demo/scenario.yaml").read_text()
+
+
+def test_exclusions_that_leave_one_label_are_a_problem_and_never_build(tmp_path):
+    """C9-D1: excluding all but one label is reported by the dry run and refused by the build,
+    before anything is written."""
+    from agent_committee.data import check_scenario
+
+    repo, s = excluding_repo(tmp_path, ["a", "b", "tiny"])
+    check = check_scenario(s, repo)
+    assert check["n_labels"] == 1 and "at least 2" in " ".join(check["problems"])
+    with pytest.raises(ValueError, match="at least 2"):
+        build_split(s, repo=repo)
+    assert not (repo / s.data_dir).exists() and not (repo / "sealed").exists()
+
+
+def test_a_grouped_dev_too_small_for_the_arms_split_is_not_ready(tmp_path):
+    """R8-D1: preflight runs the arms' own pool/tune/eval split of the real DEV, so a grouped
+    dataset with too few DEV groups is reported, not accepted and failed later."""
+    from types import SimpleNamespace
+
+    from agent_committee.data import planned_split
+
+    split = SimpleNamespace(test_fraction=0.25, seed=7, grouped=True, min_cases_per_label=2)
+    # 3 groups per label: DEV is too small for the arms' grouped pool/tune/eval cut
+    with pytest.raises(ValueError, match="groups|samples|tune or eval|pool"):
+        planned_split(grouped_cases(n_groups=3), split)
+    dev, test = planned_split(grouped_cases(n_groups=40), split)  # enough groups: fine
+    assert dev and test
 
 
 def test_an_excluded_label_missing_from_the_data_is_refused(tmp_path):
@@ -546,16 +576,39 @@ def test_check_dataset_prints_the_exact_dev_run_command_with_the_task_phrase(tmp
     repo, s = demo_repo(tmp_path)
     assert check_scenario(s, repo)["dev_run_command"] is None  # no split yet
     build_split(s, repo=repo)
-    assert dev_run_command(s).endswith(
+    assert dev_run_command(s) == (
+        "uv run python -m agent_committee.arms.evaluate --scenario demo "
         "--arms majority,linear,naive_bayes,linear_svm,random_forest,boosting"
     )
-    phrase = {"item": "a short message", "items": "messages", "label_kind": "emotion"}
+    # C9-Q1: with a phrase the command carries only the name; no task text reaches the shell
+    phrase = {"item": "a $HOME `x` message", "items": "messages", "label_kind": "emotion"}
     cmd = check_scenario(replace(s, task_phrase=phrase), repo)["dev_run_command"]
-    assert cmd == (
-        "uv run python -m agent_committee.arms.evaluate --data-dir data/demo "
-        '--out scenarios/demo/dev_report.json --task-item "a short message" '
-        '--task-items "messages" --task-label-kind "emotion"'
-    )
+    assert cmd == "uv run python -m agent_committee.arms.evaluate --scenario demo"
+
+
+def test_evaluate_by_scenario_name_reads_folder_report_and_phrase_from_files(tmp_path, monkeypatch):
+    from agent_committee.arms import evaluate
+
+    repo, s = demo_repo(tmp_path)
+    build_split(s, repo=repo)
+    monkeypatch.setitem(scenarios.SCENARIOS, "demo", s)
+    args = ["--scenario", "demo", "--repo", str(repo), "--arms", "majority,linear"]
+    assert evaluate.main([*args, "--out", "x.json"]) == 1  # mixing forms is refused
+    assert evaluate.main(args) == 0
+    report = json.loads((repo / s.dev_report).read_text())
+    assert set(report["results"]) == {"majority", "linear"} and report["task_phrase"] is None
+
+
+def test_a_whitespace_only_task_phrase_field_is_refused_when_declared():
+    from pydantic import ValidationError
+
+    from agent_committee.scenarios import TaskPhraseSpec
+
+    with pytest.raises(ValidationError):
+        TaskPhraseSpec(item="   ", items="messages", label_kind="emotion")
+    with pytest.raises(ValidationError):
+        TaskPhraseSpec(item="a message", items="messages", label_kind="emotion", hint=" ")
+    assert TaskPhraseSpec(item=" a message", items="messages", label_kind="emotion").item
 
 
 def test_pretag_for_a_dataset_with_a_phrase_reaches_the_report_checks(tmp_path):
@@ -576,3 +629,71 @@ def test_pretag_for_a_dataset_with_a_phrase_reaches_the_report_checks(tmp_path):
     problems = " | ".join(check_pretag(repo, s))
     assert "no task phrase" not in problems
     assert "was scored with task phrase None" in problems
+
+
+def test_runner_refuses_a_dev_report_without_a_scored_comparator_before_unsealing(
+    tmp_path, monkeypatch, capsys
+):
+    """R8-A1: an agent-only DEV report (or one whose best simpler arm was never scored) is refused
+    before the sealed branch, so no run marker is written."""
+    from dataclasses import replace
+
+    repo, s = demo_repo(tmp_path)
+    build_split(s, repo=repo)
+    monkeypatch.setitem(scenarios.SCENARIOS, "demo", replace(s, arms_ready=True))
+    for report in (
+        {"results": {"agent": {}}, "layer": {}},
+        {"results": {"agent": {}, "linear": {}}, "layer": {}, "best_simpler_arm": "prompt"},
+        {"results": {"agent": {}, "linear": {}}, "layer": {}, "best_simpler_arm": "agent"},
+    ):
+        (repo / s.dev_report).write_text(json.dumps(report))
+        for extra in ([], ["--rehearse"]):
+            assert runner.main(["--repo", str(repo), "--scenario", "demo", *extra]) == 1
+            assert "best simpler arm" in capsys.readouterr().err
+        assert not (repo / s.results_dir).exists()  # nothing written, nothing unsealed
+
+
+@pytest.mark.parametrize(
+    "bad", ["../secrets", "C:/data", "/etc/x", "a/b/c", "a/..", "a\\b", "sources/../x", "./x"]
+)
+def test_a_hugging_face_source_must_be_a_hub_id_not_a_path(bad):
+    """R8-M1: load_dataset also reads local folders, so a path-shaped id is refused."""
+    from pydantic import ValidationError
+
+    from agent_committee.scenarios import HuggingFaceSource
+
+    with pytest.raises(ValidationError):
+        HuggingFaceSource(kind="huggingface", dataset=bad, text="t", label="l", splits=["train"])
+    ok = HuggingFaceSource(
+        kind="huggingface", dataset="clinc/clinc_oos", text="t", label="l", splits=["train"]
+    )
+    assert ok.dataset == "clinc/clinc_oos"
+
+
+def test_a_hub_id_that_exists_on_disk_is_refused_at_load(tmp_path, monkeypatch):
+    """R8-M1: `sources/x` is shaped like `owner/name`; if it exists locally, it is not loaded."""
+    from agent_committee.data import load_huggingface
+
+    (tmp_path / "sources" / "x").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="exists on disk"):
+        load_huggingface("sources/x", text="t", label="l", splits=("train",), id_prefix="p")
+
+
+def test_a_test_label_missing_from_the_dev_eval_split_is_not_ready(monkeypatch):
+    """R8-D1 (third case): a label the DEV report never scored cannot be judged on TEST."""
+    from types import SimpleNamespace
+
+    from agent_committee.arms import splits
+    from agent_committee.data import planned_split
+
+    real = splits.make_arms_split
+
+    def eval_without_b(dev):
+        s = real(dev)
+        return splits.ArmsSplit(s.pool, s.tune, [c for c in s.eval if c.label != "b"])
+
+    monkeypatch.setattr(splits, "make_arms_split", eval_without_b)
+    split = SimpleNamespace(test_fraction=0.25, seed=7, grouped=True, min_cases_per_label=2)
+    with pytest.raises(ValueError, match="missing from the DEV eval split"):
+        planned_split(grouped_cases(n_groups=40), split)

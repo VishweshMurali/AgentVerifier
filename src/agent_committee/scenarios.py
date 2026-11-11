@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agent_committee.schemas import Case
 
@@ -112,7 +112,17 @@ class _Spec(BaseModel):
 
 class HuggingFaceSource(_Spec):
     kind: Literal["huggingface"]
-    dataset: str = Field(min_length=1)
+    # a Hub id, `name` or `owner/name`: never a path (load_dataset also reads local folders, which
+    # would bypass sources/); data.load_huggingface also refuses an id that exists on disk
+    dataset: str = Field(min_length=1, pattern=r"^[A-Za-z0-9][\w.-]*(/[A-Za-z0-9][\w.-]*)?$")
+
+    @field_validator("dataset")
+    @classmethod
+    def _no_dot_segments(cls, v: str) -> str:
+        if ".." in v or v.endswith("."):
+            raise ValueError(f"{v!r} is not a Hugging Face dataset id")
+        return v
+
     config: str | None = None
     text: str = Field(min_length=1)
     label: str = Field(min_length=1)
@@ -132,10 +142,11 @@ class TaskPhraseSpec(_Spec):
     """What the LLM arms are told: 'You classify {item} into exactly one {label_kind} label.'
     The search tool returns labelled {items}. `hint` is an optional extra sentence."""
 
-    item: str = Field(min_length=1)
-    items: str = Field(min_length=1)
-    label_kind: str = Field(min_length=1)
-    hint: str | None = Field(default=None, min_length=1)
+    # each must have a non-space character, as arms.config.task_from_dict requires at run time
+    item: str = Field(min_length=1, pattern=r"\S")
+    items: str = Field(min_length=1, pattern=r"\S")
+    label_kind: str = Field(min_length=1, pattern=r"\S")
+    hint: str | None = Field(default=None, min_length=1, pattern=r"\S")
 
 
 class ScenarioFile(_Spec):

@@ -21,7 +21,8 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
-from agent_committee.prereg import load_prereg
+import yaml
+
 from agent_committee.schemas import Prereg, VerdictJSON
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,14 +49,17 @@ def pick_verdict(sealed: Path = SEALED, rehearsal: Path = REHEARSAL) -> tuple[Ve
 
 
 def load_checked_prereg(verdict: VerdictJSON, path: Path = ROOT / "prereg.yaml") -> Prereg:
-    """prereg.yaml, only if it is byte-identical to the one the verdict was judged under."""
-    found = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    """prereg.yaml, only if it is byte-identical to the one the verdict was judged under. The file
+    is read once: the bytes hashed are the bytes parsed (a swap between two reads cannot slip a
+    different price in, R6-S1). Parsed exactly as prereg.load_prereg parses (safe_load)."""
+    raw = Path(path).read_bytes()
+    found = hashlib.sha256(raw).hexdigest()
     if found != verdict.audit.prereg_sha256:
         raise ExportRefused(
             f"{path} has sha256 {found}, but the verdict was judged under "
             f"{verdict.audit.prereg_sha256}: its prices and rules would not match the verdict"
         )
-    return load_prereg(path)
+    return Prereg.model_validate(yaml.safe_load(raw.decode("utf-8")))
 
 
 class CachedReplies:

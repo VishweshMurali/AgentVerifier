@@ -89,7 +89,7 @@ tests/
 - Check everything (what CI runs): `uv run python scripts/check.py` (`--no-install`, `--fast`)
 - Tests: `uv run pytest`   Lint: `uv run ruff check . && uv run ruff format --check .`
 - Build split (once): `uv run python -m agent_committee.data`
-- DEV run of another scenario: the exact command (with its `--task-item/--task-items/--task-label-kind` from scenario.yaml) is printed by `check_dataset` once the split is built; without a task phrase only `--arms majority,linear,naive_bayes` run
+- DEV run of another scenario: `uv run python -m agent_committee.arms.evaluate --scenario NAME` (folder, report path and task phrase read from its files; `check_dataset` prints it once the split is built); without a task phrase only the non-LLM arms run (`--arms majority,linear,naive_bayes,linear_svm,random_forest,boosting`)
 - Benchmark: `uv run python scripts/benchmark_throughput.py`
 - Rehearse Phase D on DEV (never opens TEST): `uv run python -m agent_committee.runner --rehearse`
 - The one sealed run (after the user's `arms-frozen` tag): `uv run python -m agent_committee.runner`

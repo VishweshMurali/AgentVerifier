@@ -56,6 +56,10 @@ def check_cases(cases: list[Case], *, grouped: bool, min_per_label: int) -> None
     dupes = sorted(i for i, n in Counter(c.id for c in cases).items() if n > 1)
     if dupes:
         raise ValueError(f"duplicate case ids: {dupes[:5]}")
+    n_labels = len({c.label for c in cases})
+    if n_labels < 2:
+        # nothing to classify (e.g. exclusions removed every other label); the layer cannot fit
+        raise ValueError(f"only {n_labels} label(s) left: a split needs at least 2")
     small = sorted(lbl for lbl, n in Counter(c.label for c in cases).items() if n < min_per_label)
     if small:
         raise ValueError(f"labels with fewer than {min_per_label} cases: {small[:5]}")
@@ -151,6 +155,9 @@ def load_huggingface(
     optional column whose value ties cases together (see SplitConfig.grouped)."""
     from datasets import load_dataset  # heavy import, only needed when building the split
 
+    if Path(dataset).exists() or Path(dataset).is_absolute():
+        # load_dataset would read this local folder or file: local data goes through sources/
+        raise ValueError(f"{dataset!r} exists on disk: use a local source inside sources/")
     kwargs = {"revision": revision} if revision else {}  # never trust_remote_code
     ds = load_dataset(dataset, config, **kwargs) if config else load_dataset(dataset, **kwargs)
     cases: list[Case] = []
@@ -212,6 +219,9 @@ def write_split(
 
     Refuses (FileExistsError, nothing written) if any target already exists: a split is created
     once, and silently regenerating it would invalidate every hash and prediction built on it.
+    Every file is created exclusively, the sealed TEST first: of two builds started at once, the
+    second fails on its first file and writes nothing. The manifest is written last, so a build
+    that dies part-way leaves no manifest (the leftovers are refused next time, never replaced).
     """
     data_dir, sealed_dir = Path(data_dir), Path(sealed_dir)
     targets = [
@@ -228,10 +238,10 @@ def write_split(
     sealed_dir.mkdir(parents=True, exist_ok=True)
 
     dev_bytes, test_bytes = to_jsonl_bytes(dev), to_jsonl_bytes(test)
-    (data_dir / DEV_FILE).write_bytes(dev_bytes)
-    (data_dir / DEV_HASH_FILE).write_text(sha256_hex(dev_bytes) + "\n", encoding="utf-8")
-    (sealed_dir / SEALED_TEST_FILE).write_bytes(test_bytes)
-    (data_dir / TEST_HASH_FILE).write_text(sha256_hex(test_bytes) + "\n", encoding="utf-8")
+    _create(sealed_dir / SEALED_TEST_FILE, test_bytes)  # the reservation: exclusive, first
+    _create(data_dir / TEST_HASH_FILE, sha256_hex(test_bytes) + "\n")
+    _create(data_dir / DEV_FILE, dev_bytes)
+    _create(data_dir / DEV_HASH_FILE, sha256_hex(dev_bytes) + "\n")
 
     dev_texts = {_norm(c.text) for c in dev}
     manifest = {
@@ -260,10 +270,19 @@ def write_split(
         # the prereg's own power bound (checks.min_test_n), on the actual TEST size
         manifest["min_test_n"] = min_test_n
         manifest["meets_min_test_n"] = len(test) >= min_test_n
-    (data_dir / MANIFEST_FILE).write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    _create(data_dir / MANIFEST_FILE, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest
+
+
+def _create(path: Path, content: bytes | str) -> None:
+    """Write a new file, failing (FileExistsError) if it exists, even if it appeared a moment ago.
+    Text is written exactly as Path.write_text(encoding="utf-8") would (v1 hashes unchanged)."""
+    if isinstance(content, bytes):
+        with open(path, "xb") as f:
+            f.write(content)
+    else:
+        with open(path, "x", encoding="utf-8") as f:
+            f.write(content)
 
 
 def load_dev(data_dir: str | Path = "data") -> list[Case]:
@@ -286,13 +305,7 @@ def build_split(scenario, repo: str | Path = ".") -> dict:
         raise FileExistsError(f"split already exists for {scenario.name!r}, refusing to rebuild")
     prereg = load_prereg(repo / scenario.prereg_path, task=scenario.name)
     cases, n_excluded = scenario_cases(scenario)
-    dev, test = split_cases(
-        cases,
-        prereg.split.test_fraction,
-        prereg.split.seed,
-        grouped=prereg.split.grouped,
-        min_per_label=prereg.split.min_cases_per_label,
-    )
+    dev, test = planned_split(cases, prereg.split)  # the same checks the dry run reports
     return write_split(
         dev,
         test,
@@ -304,6 +317,34 @@ def build_split(scenario, repo: str | Path = ".") -> dict:
         excluded_labels=list(getattr(scenario, "exclude_labels", ())),
         n_excluded_cases=n_excluded,
     )
+
+
+def planned_split(cases: list[Case], split) -> tuple[list[Case], list[Case]]:
+    """The exact DEV/TEST split a build would write, after every check the arms will need: the
+    input checks, the real deterministic split, and the arms' pool/tune/eval split of that DEV
+    (every TEST label learnable from the pool and scored in eval; tune and eval not empty).
+    Raises ValueError.
+    Writes nothing; the dry run and build_split both use it, so 'ready' means buildable."""
+    from agent_committee.arms.splits import make_arms_split  # no cycle: it imports schemas only
+
+    dev, test = split_cases(
+        cases,
+        split.test_fraction,
+        split.seed,
+        grouped=split.grouped,
+        min_per_label=split.min_cases_per_label,
+    )
+    arms = make_arms_split(dev)
+    if not arms.tune or not arms.eval:
+        raise ValueError("the arms split of DEV left tune or eval empty: too few cases")
+    unlearnable = sorted({c.label for c in test} - {c.label for c in arms.pool})
+    if unlearnable:
+        raise ValueError(f"TEST labels no arm can learn (not in the DEV pool): {unlearnable[:5]}")
+    unscored = sorted({c.label for c in test} - {c.label for c in arms.eval})
+    if unscored:
+        # the DEV report (and the choice of the best simpler arm) would never have seen them
+        raise ValueError(f"TEST labels missing from the DEV eval split: {unscored[:5]}")
+    return dev, test
 
 
 def scenario_cases(scenario) -> tuple[list[Case], int]:
@@ -323,20 +364,14 @@ NO_LLM_ARMS = ("majority", "linear", "naive_bayes", "linear_svm", "random_forest
 
 
 def dev_run_command(scenario) -> str:
-    """The exact DEV-run command for a built split: every arm with the scenario's own task phrase
-    (non-LLM arms only without one). Plain double-quoted strings work in bash and PowerShell."""
-    base = (
-        f"uv run python -m agent_committee.arms.evaluate --data-dir {scenario.data_dir} "
-        f"--out {scenario.dev_report}"
-    )
-    phrase = getattr(scenario, "task_phrase", None)
-    if not phrase:
+    """The exact DEV-run command for a built split, by scenario name only: evaluate reads the DEV
+    folder, report path and task phrase from the scenario's own files, so no task text passes
+    through a shell (C9-Q1). Without a task phrase only the non-LLM arms run. The name is
+    checked by scenarios.check_name (letters, digits, underscores), so it is shell-safe."""
+    base = f"uv run python -m agent_committee.arms.evaluate --scenario {scenario.name}"
+    if not getattr(scenario, "task_phrase", None):
         return base + " --arms " + ",".join(NO_LLM_ARMS)
-    flags = {"item": "--task-item", "items": "--task-items", "label_kind": "--task-label-kind",
-             "hint": "--task-hint"}  # fmt: skip
-    if any('"' in v for v in phrase.values()):
-        raise ValueError("task phrase strings must not contain double quotes")
-    return base + "".join(f' {flags[k]} "{v}"' for k, v in phrase.items())
+    return base
 
 
 def check_scenario(scenario, repo: str | Path = ".") -> dict:
@@ -364,12 +399,15 @@ def check_scenario(scenario, repo: str | Path = ".") -> dict:
         cases, n_excluded, load_problems = [], 0, [str(exc)]
     per_label = Counter(c.label for c in cases)
     groups = {c.group for c in cases if c.group is not None}
+    test_n: int | None = None
     try:
-        check_cases(cases, grouped=split.grouped, min_per_label=split.min_cases_per_label)
+        # the real split, not an estimate (a grouped split can land far from test_fraction)
+        _, planned_test = planned_split(cases, split)
+        test_n = len(planned_test)
         problems: list[str] = list(load_problems)
     except ValueError as exc:
         problems = [*load_problems, str(exc)]
-    expected_test = round(len(cases) * split.test_fraction)
+    expected_test = test_n if test_n is not None else round(len(cases) * split.test_fraction)
     min_test_n = prereg.checks.min_test_n if prereg and prereg.checks else None
     return {
         "scenario": scenario.name,
@@ -384,6 +422,7 @@ def check_scenario(scenario, repo: str | Path = ".") -> dict:
         "grouped": split.grouped,
         "required_min_per_label": split.min_cases_per_label,
         "expected_test_n": expected_test,
+        "expected_test_n_exact": test_n is not None,  # False: the split failed, an estimate
         "min_test_n": min_test_n,
         "meets_min_test_n": None if min_test_n is None else expected_test >= min_test_n,
         "problems": problems,

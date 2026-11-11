@@ -116,6 +116,27 @@ def test_partial_usage_rejected():
         client(Fake([partial])).chat(MSG, arm="prompt")
 
 
+@pytest.mark.parametrize("usage", [[1, 2], 7, "x"])
+def test_non_object_usage_is_missing_usage_not_a_crash(usage):
+    """R6-L1: a truthy list/number/string usage raised AttributeError; it is missing usage."""
+    bad = _resp()
+    bad["usage"] = usage
+    c = client(Fake([bad]))
+    with pytest.raises(LLMUsageMissing, match="not an object"):
+        c.chat(MSG, arm="prompt")
+    assert c._db.execute("SELECT COUNT(*) FROM cache").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("finish", [5, ["stop"], {"a": 1}])
+def test_non_string_finish_reason_is_malformed_with_usage_not_a_storage_error(finish):
+    """R6-L1: a non-string finish_reason could not be stored; it is a malformed reply."""
+    c = client(Fake([_resp("a", 9, 3, finish=finish)]))
+    with pytest.raises(MalformedResponse) as info:
+        c.chat(MSG, arm="prompt")
+    assert (info.value.prompt_tokens, info.value.completion_tokens) == (9, 3)
+    assert c._db.execute("SELECT COUNT(*) FROM cache").fetchone()[0] == 0
+
+
 def test_retries_then_succeeds():
     fake = Fake([_conn_error(), _conn_error(), _resp()])
     r = client(fake).chat(MSG, arm="prompt")

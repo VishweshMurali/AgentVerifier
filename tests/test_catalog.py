@@ -86,3 +86,13 @@ def test_cli_prints_the_menu_and_chooses(tmp_path, capsys):
     assert "clinc150" in capsys.readouterr().out
     assert catalog.main(["--repo", str(tmp_path), "--choose", "emotion"]) == 0
     assert (tmp_path / "scenarios" / "emotion" / "scenario.yaml").is_file()
+
+
+def test_one_broken_scenario_file_marks_only_its_preset(tmp_path):
+    """C9-C1: a malformed scenario.yaml must not take the whole menu down."""
+    catalog.choose("emotion", tmp_path)
+    (tmp_path / "scenarios/emotion/scenario.yaml").write_text("name: [unclosed\n")
+    by_option = {m["option"]: m for m in catalog.menu(tmp_path)}
+    assert by_option["emotion"]["status"].startswith("broken:")
+    assert by_option["clinc150"]["status"] == "available"
+    assert by_option["banking77"]["status"] == "built in" and "own" in by_option

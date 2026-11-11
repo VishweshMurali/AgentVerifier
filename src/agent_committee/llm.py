@@ -372,6 +372,8 @@ class LLMClient:
         try:
             response, latency = self._call_with_retries(request, state)
             usage = response.get("usage") or {}
+            if not isinstance(usage, dict):  # e.g. a list or number: no usage to account (R6-L1)
+                raise LLMUsageMissing(f"response usage is not an object: {usage!r}")
             prompt_tokens = _token_count(usage, "prompt_tokens")
             completion_tokens = _token_count(usage, "completion_tokens")
             choices = response.get("choices")
@@ -389,6 +391,13 @@ class LLMClient:
             )
             message_json = json.dumps(message)
             finish_reason = choice.get("finish_reason")
+            if finish_reason is not None and not isinstance(finish_reason, str):
+                # checked before anything is stored: SQLite cannot bind it (R6-L1)
+                raise MalformedResponse(
+                    f"malformed model response: finish_reason {finish_reason!r}",
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
         except Exception as exc:
             self._log_failure_safe(
                 key,

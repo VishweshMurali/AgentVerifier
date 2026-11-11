@@ -357,6 +357,12 @@ def main(argv: list[str] | None = None) -> int:
         # checked before anything is unsealed
         print(f"DEV report arms cannot be run: {sorted(dev_report['results'])}", file=sys.stderr)
         return 1
+    simpler = dev_report.get("best_simpler_arm")
+    if simpler == AGENT or simpler not in names:
+        # the verdict compares the agent with this arm: checked before anything is unsealed
+        print(f"the DEV report's best simpler arm {simpler!r} is not among its scored comparators "
+              f"{[n for n in names if n != AGENT]}", file=sys.stderr)  # fmt: skip
+        return 1
     split = make_arms_split(dev)
     # the pre-registered threshold and shortlist (Banking77: the v1 values, so the v1 fingerprint)
     layer = make_layer(split.pool, prereg.linear.null_threshold, prereg.linear.shortlist_k)

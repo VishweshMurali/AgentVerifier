@@ -1,5 +1,6 @@
 import json
 from collections import Counter
+from pathlib import Path
 
 import pytest
 
@@ -94,6 +95,23 @@ def test_write_split_refuses_to_overwrite_and_writes_nothing(tmp_path, existing)
     assert pre.read_text() == "precious"
     written = {p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file()}
     assert written == {existing}  # nothing else was created
+
+
+def test_a_second_build_that_passed_the_existence_check_cannot_replace_the_split(
+    tmp_path, monkeypatch
+):
+    """R8-D2: two builds both pass the up-front check; the later one must fail on its first file
+    (the sealed TEST, created exclusively) and leave the first split, and its hash, untouched."""
+    dev, test = split_cases(_cases(), 0.25, seed=1)
+    kw = dict(seed=1, test_fraction=0.25, data_dir=tmp_path / "d", sealed_dir=tmp_path / "s")
+    write_split(dev, test, **kw)
+    before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    monkeypatch.setattr(Path, "exists", lambda self: False)  # the race: the check saw nothing
+    other_dev, other_test = split_cases(_cases(), 0.25, seed=2)
+    with pytest.raises(FileExistsError):
+        write_split(other_dev, other_test, **kw)
+    monkeypatch.undo()
+    assert {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == before
 
 
 def test_load_dev_detects_tampering(tmp_path):

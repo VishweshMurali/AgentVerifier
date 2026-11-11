@@ -66,6 +66,31 @@ def test_prereg_must_be_the_one_the_verdict_was_judged_under(tmp_path):
         export.load_checked_prereg(verdict(PREREG_SHA), edited)
 
 
+def test_the_prereg_is_read_once_so_a_swap_between_hash_and_parse_cannot_change_it(
+    tmp_path, monkeypatch
+):
+    """R6-S1: the file is swapped right after its bytes are read; the result must still be the
+    prereg those bytes describe, never the swapped-in one."""
+    from pathlib import Path
+
+    path = tmp_path / "prereg.yaml"
+    original = (REPO / "prereg.yaml").read_bytes()
+    path.write_bytes(original)
+    real_read = Path.read_bytes
+
+    def read_then_swap(self):
+        data = real_read(self)
+        if self == path:
+            path.write_bytes(original.replace(b"\nalpha: 0.05", b"\nalpha: 0.04", 1))
+        return data
+
+    monkeypatch.setattr(Path, "read_bytes", read_then_swap)
+    got = export.load_checked_prereg(verdict(PREREG_SHA), path)
+    monkeypatch.undo()
+    assert got == load_prereg(REPO / "prereg.yaml")
+    assert path.read_bytes() != original  # the swap did happen
+
+
 def test_story_carries_the_verdict_prices_and_rules():
     prereg = load_prereg()
     story = export.build_story(verdict(), "sealed", {"id": "x"}, prereg)
