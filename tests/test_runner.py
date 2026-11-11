@@ -232,6 +232,14 @@ def test_runner_runs_exactly_the_arms_of_the_dev_report():
     assert runner.arms_to_run(v1["results"]) == ["linear", "prompt", "agent"]  # v1 unchanged
     v2 = {n: {} for n in ("majority", "linear", "naive_bayes", "prompt", "agent", "cascade")}
     assert runner.arms_to_run(v2) == ["majority", "linear", "naive_bayes", "prompt", "agent"]
+    tiers = {n: {} for n in ("boosting", "agent", "linear_svm", "random_forest", "linear")}
+    assert runner.arms_to_run(tiers) == [
+        "linear",
+        "linear_svm",
+        "random_forest",
+        "boosting",
+        "agent",
+    ]
     assert runner.arms_to_run({"linear": {}, "prompt": {}}) is None  # no agent
     assert runner.arms_to_run({"agent": {}, "cascade": {}}) is None  # cascade without linear
     assert runner.arms_to_run({"agent": {}, "gpt_judge": {}}) is None  # unknown arm

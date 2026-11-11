@@ -187,7 +187,16 @@ def build_checks(
     return out
 
 
-RUNNABLE = ("majority", "linear", "naive_bayes", "prompt", AGENT)
+RUNNABLE = (
+    "majority",
+    "linear",
+    "naive_bayes",
+    "linear_svm",
+    "random_forest",
+    "boosting",
+    "prompt",
+    AGENT,
+)
 
 
 def arms_to_run(dev_results: Mapping[str, object]) -> list[str] | None:
@@ -318,7 +327,13 @@ def main(argv: list[str] | None = None) -> int:
 
     from agent_committee.arms import agent as agent_arm
     from agent_committee.arms import prompt as prompt_arm
-    from agent_committee.arms.classic import MajorityArm, NaiveBayesArm
+    from agent_committee.arms.classic import (
+        BoostingArm,
+        LinearSVMArm,
+        MajorityArm,
+        NaiveBayesArm,
+        RandomForestArm,
+    )
     from agent_committee.arms.labels import build_label_book
     from agent_committee.arms.linear import LinearArm, make_layer
     from agent_committee.llm import LLMClient
@@ -388,6 +403,9 @@ def main(argv: list[str] | None = None) -> int:
             AGENT: lambda: agent_arm.make_arm(split.pool, book, layer, client, task),
             "majority": lambda: fitted(MajorityArm(), split.pool),
             "naive_bayes": lambda: fitted(NaiveBayesArm(), split.pool),
+            "linear_svm": lambda: fitted(LinearSVMArm(), split.pool),
+            "random_forest": lambda: fitted(RandomForestArm(), split.pool),
+            "boosting": lambda: fitted(BoostingArm(), split.pool),
         }
         arms = {n: factories[n]() for n in names}
         verdict = evaluate(

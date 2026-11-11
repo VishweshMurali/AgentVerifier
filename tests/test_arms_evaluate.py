@@ -124,7 +124,15 @@ def test_default_dev_run_covers_the_whole_ladder():
 
 
 def test_simpler_set_is_the_ladder_without_the_cascade():
-    assert SIMPLER == ("majority", "linear", "naive_bayes", "prompt")
+    assert SIMPLER == (
+        "majority",
+        "linear",
+        "naive_bayes",
+        "linear_svm",
+        "random_forest",
+        "boosting",
+        "prompt",
+    )
     results = {
         n: {"accuracy": acc}
         for n, acc in [("majority", 0.1), ("linear", 0.8), ("naive_bayes", 0.8), ("cascade", 0.99)]
@@ -162,3 +170,15 @@ def test_a_bad_task_phrase_is_refused(tmp_path, capsys):
     args = ["--data-dir", str(tmp_path), "--out", str(out), "--task-item", "x"]
     assert evaluate.main(args) == 1
     assert "--task-*" in capsys.readouterr().err and not out.exists()
+
+
+def test_the_no_llm_fallback_command_lists_every_classic_arm():
+    from agent_committee.data import NO_LLM_ARMS
+
+    assert NO_LLM_ARMS == evaluate.CLASSIC
+    assert set(evaluate.CLASSIC_FIT) | {"linear"} == set(evaluate.CLASSIC)
+
+
+def test_a_free_arm_wins_a_tie_with_the_prompt():
+    results = {"boosting": {"accuracy": 0.9}, "prompt": {"accuracy": 0.9}}
+    assert best_simpler(results) == "boosting"

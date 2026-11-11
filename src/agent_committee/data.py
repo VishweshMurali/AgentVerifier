@@ -318,6 +318,10 @@ def scenario_cases(scenario) -> tuple[list[Case], int]:
     return kept, len(cases) - len(kept)
 
 
+# the arms that need no task phrase (arms.evaluate.CLASSIC; a test keeps the two equal)
+NO_LLM_ARMS = ("majority", "linear", "naive_bayes", "linear_svm", "random_forest", "boosting")
+
+
 def dev_run_command(scenario) -> str:
     """The exact DEV-run command for a built split: every arm with the scenario's own task phrase
     (non-LLM arms only without one). Plain double-quoted strings work in bash and PowerShell."""
@@ -327,7 +331,7 @@ def dev_run_command(scenario) -> str:
     )
     phrase = getattr(scenario, "task_phrase", None)
     if not phrase:
-        return base + " --arms majority,linear,naive_bayes"
+        return base + " --arms " + ",".join(NO_LLM_ARMS)
     flags = {"item": "--task-item", "items": "--task-items", "label_kind": "--task-label-kind",
              "hint": "--task-hint"}  # fmt: skip
     if any('"' in v for v in phrase.values()):

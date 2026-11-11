@@ -3,7 +3,8 @@
     python -m agent_committee.arms.evaluate [--arms NAMES] [--out PATH] [--data-dir DIR]
         [--task-item S --task-items S --task-label-kind S [--task-hint S]]
 
-Default arms (DEFAULT_ARMS): majority, linear, naive_bayes (no LLM), prompt, agent. With both
+Default arms (DEFAULT_ARMS): majority, linear, naive_bayes, linear_svm, random_forest, boosting
+(no LLM, CLASSIC), then prompt and agent. With both
 linear and agent, the cascade (linear on confident cases, agent on Null-flagged ones) is added
 from their predictions.
 
@@ -20,7 +21,13 @@ from pathlib import Path
 from agent_committee.arms import config
 from agent_committee.arms.base import Arm
 from agent_committee.arms.cascade import cascade_predictions
-from agent_committee.arms.classic import MajorityArm, NaiveBayesArm
+from agent_committee.arms.classic import (
+    BoostingArm,
+    LinearSVMArm,
+    MajorityArm,
+    NaiveBayesArm,
+    RandomForestArm,
+)
 from agent_committee.arms.labels import build_label_book
 from agent_committee.arms.linear import Decision, LinearArm, LinearLayer, calibrated_layer
 from agent_committee.arms.splits import ARMS_SPLIT_SEED, make_arms_split
@@ -29,8 +36,19 @@ from agent_committee.schemas import ArmPrediction, Case
 from agent_committee.scorers import Scorer, get_scorer
 
 REPORT_PATH = Path(__file__).with_name("dev_report.json")
-# arms the agent has to beat, simplest first (ties go to the earlier one); the cascade is not one
-SIMPLER = ("majority", "linear", "naive_bayes", "prompt")
+# the no-LLM rungs: tier 1 (majority floor, linear, Naive Bayes, linear SVM), tier 2 (forest,
+# boosting); they run on any dataset, task phrase or not
+CLASSIC = ("majority", "linear", "naive_bayes", "linear_svm", "random_forest", "boosting")
+# arms the agent has to beat, simplest first (ties go to the earlier one, so a free arm beats a
+# paid one on a tie); the cascade is not one
+SIMPLER = (*CLASSIC, "prompt")
+CLASSIC_FIT = {
+    "majority": MajorityArm,
+    "naive_bayes": NaiveBayesArm,
+    "linear_svm": LinearSVMArm,
+    "random_forest": RandomForestArm,
+    "boosting": BoostingArm,
+}
 DEFAULT_ARMS = ",".join(
     [*SIMPLER, "agent"]
 )  # the whole ladder; the cascade is added from linear + agent
@@ -113,8 +131,8 @@ def _build(
 ) -> Arm:
     if name == "linear":
         return LinearArm(layer)
-    if name in ("majority", "naive_bayes"):
-        arm = MajorityArm() if name == "majority" else NaiveBayesArm()
+    if name in CLASSIC_FIT:
+        arm = CLASSIC_FIT[name]()
         arm.fit(pool)
         return arm
     if name in ("prompt", "agent"):
@@ -164,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"{llm} need the scenario's task phrase on another dataset: pass --task-item, "
             "--task-items and --task-label-kind (check_dataset prints the command), or run "
-            "only --arms majority,linear,naive_bayes",
+            f"only --arms {','.join(CLASSIC)}",
             file=sys.stderr,
         )
         return 1

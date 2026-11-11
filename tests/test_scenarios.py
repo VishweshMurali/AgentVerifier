@@ -524,7 +524,7 @@ def test_a_non_llm_preview_of_another_dataset_records_no_task_phrase(tmp_path):
         "--out",
         str(out),
         "--arms",
-        "majority,linear,naive_bayes",
+        "majority,linear,naive_bayes,linear_svm,random_forest,boosting",
     ]
     assert evaluate.main(args) == 0
     report = json.loads(out.read_text())
@@ -532,6 +532,9 @@ def test_a_non_llm_preview_of_another_dataset_records_no_task_phrase(tmp_path):
         "majority",
         "linear",
         "naive_bayes",
+        "linear_svm",
+        "random_forest",
+        "boosting",
     }
 
 
@@ -543,7 +546,9 @@ def test_check_dataset_prints_the_exact_dev_run_command_with_the_task_phrase(tmp
     repo, s = demo_repo(tmp_path)
     assert check_scenario(s, repo)["dev_run_command"] is None  # no split yet
     build_split(s, repo=repo)
-    assert dev_run_command(s).endswith("--arms majority,linear,naive_bayes")
+    assert dev_run_command(s).endswith(
+        "--arms majority,linear,naive_bayes,linear_svm,random_forest,boosting"
+    )
     phrase = {"item": "a short message", "items": "messages", "label_kind": "emotion"}
     cmd = check_scenario(replace(s, task_phrase=phrase), repo)["dev_run_command"]
     assert cmd == (

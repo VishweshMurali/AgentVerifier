@@ -15,6 +15,9 @@ Banking77 is the first task and proves the method.
   3. Hand-built LangGraph reference agent with the shortlist (tools: retrieve similar DEV examples, read label definitions; then decide). No label list is given.
   v2 additions (approved 2026-11-09, P3): a majority-label floor; Naive Bayes as the third classic rung; a cascade
   (linear on confident cases, the agent only on Null-flagged ones). Non-LLM rungs are priced at $0 (local).
+  Tier 1/2 rungs (approved 2026-11-10): linear SVM (tier 1), random forest (bagging) and gradient boosting (tier 2), all
+  no-LLM on word+char TF-IDF (trees on a fixed 300-dim SVD), fixed settings and seeds (boosting's L2 = 1.0 added for
+  training stability after it diverged, not tuned on a score); a free arm wins a tie with a paid one.
   Per-dataset task phrase (approved 2026-11-10): each scenario.yaml says what one case is and what a label is; both LLM
   arms get the identical phrase. Banking77's wording is unchanged (v1 prompt, agent prompt and tool schema pinned).
 - Null is a flag for low-confidence cases (the lowest 10% on tune), not a score. All arms answer them, and accuracy on those cases is reported per arm.
@@ -69,7 +72,7 @@ src/agent_committee/
   runner.py      Phase D runner, the ONLY sealed-test reader; `--rehearse` runs it on DEV instead
   report.py      results/report.html from verdict.json (templates/report.html.j2)
   arms/          base protocol, config, splits, labels, linear (shared layer + arm 1), prompt, agent, tools, evaluate,
-                 classic (majority + Naive Bayes rungs), cascade (derived from linear + agent; report-only)
+                 classic (majority, Naive Bayes, linear SVM, random forest, boosting rungs), cascade (derived from linear + agent; report-only)
 server/          FastAPI local API + page (own uv project; never imports seal or runner)
 mcp_server/      FastMCP data endpoints (own uv project; never imports seal or runner; Docker in mcp_server/)
 scripts/benchmark_throughput.py   thin CLI around throughput.py

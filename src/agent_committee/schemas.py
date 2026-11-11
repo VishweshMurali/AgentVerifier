@@ -22,6 +22,10 @@ class ArmName(StrEnum):
     MAJORITY = "majority"
     NAIVE_BAYES = "naive_bayes"
     CASCADE = "cascade"
+    # tier 1 / tier 2 classic rungs (owner approved 2026-11-10): no LLM, priced at $0
+    LINEAR_SVM = "linear_svm"
+    RANDOM_FOREST = "random_forest"
+    BOOSTING = "boosting"
 
 
 class EvidenceLevel(StrEnum):
