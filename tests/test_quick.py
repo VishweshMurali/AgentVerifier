@@ -175,7 +175,74 @@ def test_end_to_end_on_banking77_dev_with_fake_llm_arms(tmp_path, monkeypatch):
     assert verdict["reasons"][0].startswith("QUICK TEST")
     plan_sha = hashlib.sha256((run / "plan.json").read_bytes()).hexdigest()
     assert verdict["audit"]["dev_report_sha256"] == f"quick test plan {plan_sha}"
+    # a 60% agent against ~90% linear: the "gain ruled out" boundary is crossed early
+    assert verdict["verdict"] == "USE_SIMPLER"
+    looks = plan["early_stopping"]["looks"]
+    assert verdict["n_cases"] in looks and verdict["n_cases"] < plan["cases"]
+    assert any(
+        r.startswith("Early stopping: a gain of the gap is ruled out") for r in verdict["reasons"]
+    )
     cap = next(c for c in verdict["checks"] if c["name"] == "power_cap")
-    assert cap["passed"] and cap["low"] == plan["planned_cases"]  # gated on this gap's size
-    assert verdict["verdict"] == "USE_SIMPLER"  # a 60% agent against ~90% linear
+    assert cap["passed"] and cap["low"] == verdict["n_cases"]  # the sequential design governs
+    lo, hi = verdict["accuracy_diff_ci"]
+    assert hi < 0.15 and verdict["break_even"] == []
     assert (run / "report.html").is_file() and (run / "predictions.jsonl").is_file()
+
+
+def test_look_order_is_fixed_and_shuffled():
+    cases = make_cases(300)
+    order = quick.look_order(cases)
+    assert [c.id for c in order] == [c.id for c in quick.look_order(list(reversed(cases)))]
+    assert sorted(c.id for c in order) == [c.id for c in cases]
+    first_look = {c.label for c in order[:60]}
+    assert first_look == {"l0", "l1", "l2"} and order != sorted(order, key=lambda c: c.id)
+
+
+def _verdict(kind):
+    from agent_committee.schemas import AuditBundle, EvidenceLevel, Verdict, VerdictJSON
+
+    audit = AuditBundle(
+        git_commit="x", prereg_sha256="x", dev_report_sha256="x", test_sha256="x",
+        model_digest="x", layer_fingerprint="x", predictions_sha256="x",
+    )  # fmt: skip
+    return VerdictJSON(
+        verdict=Verdict(kind), evidence_level=EvidenceLevel.REAL, audit=audit, reasons=["r"],
+        scorer="exact_label", quality_floor_passed=True, accuracy={"agent": 0.8},
+        accuracy_diff_ci=(-0.1, -0.01),
+    )  # fmt: skip
+
+
+def _look(outcome, n=100):
+    from agent_committee.sequential import Look
+
+    return Look(n=n, diff=-0.08, se0=0.02, se1=0.03, z0=-4, z1=-7, bound=2.5, outcome=outcome)
+
+
+def test_engine_winner_without_the_boundary_is_not_a_winner():
+    out = quick.apply_early_stop(_verdict("USE_SIMPLER"), _look(None, 500), 500)
+    assert out.verdict.value == "NEED_MORE_DATA"
+    assert "did not agree" in out.reasons[1]
+
+
+def test_boundary_and_engine_agreeing_keep_the_winner_with_the_repeated_interval():
+    out = quick.apply_early_stop(_verdict("USE_SIMPLER"), _look("simpler"), 500)
+    assert out.verdict.value == "USE_SIMPLER"
+    assert out.accuracy_diff_ci == pytest.approx((-0.08 - 2.5 * 0.02, -0.08 + 2.5 * 0.03))
+    assert out.reasons[0].startswith("Early stopping: a gain of the gap is ruled out at 100")
+
+
+def test_boundary_without_the_engine_is_not_a_winner():
+    out = quick.apply_early_stop(_verdict("NEED_MORE_DATA"), _look("simpler"), 500)
+    assert out.verdict.value == "NEED_MORE_DATA"
+
+
+def test_invalid_stays_invalid():
+    from agent_committee.schemas import AuditBundle, EvidenceLevel, Verdict, VerdictJSON
+
+    v = VerdictJSON(
+        verdict=Verdict.INVALID, evidence_level=EvidenceLevel.REAL,
+        audit=AuditBundle(git_commit="x", prereg_sha256="x", dev_report_sha256="x",
+                          test_sha256="x", model_digest="x", layer_fingerprint="x"),
+        reasons=["floor"], accuracy={},
+    )  # fmt: skip
+    assert quick.apply_early_stop(v, _look("agent"), 500) is v

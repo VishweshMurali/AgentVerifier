@@ -9,6 +9,12 @@ the agent must beat is the best free ($0) model on the tune split, chosen before
 is scored. The plan (gap, size, seed, comparator, arms, base prereg) is written to plan.json and
 hashed into the audit before the first model call.
 
+Early stopping (owner approved 2026-11-11): the sample is scored in a fixed shuffled order in 5
+equal looks; after each, the agent and the simpler model are compared against the boundaries in
+`sequential.py`, and the run stops at the first one crossed. Other arms then run only on the
+cases used. A winner needs both the engine and the boundary to agree; the repeated confidence
+interval replaces the bootstrap one, and break-even is dropped after an early stop.
+
 It never opens TEST (no seal import) and every verdict it writes is marked exploratory
 (`rehearsal: true`). The sealed run (`runner`) is unchanged and stays fixed-sample. Owner
 decisions 2026-11-11: gap chosen by the user with the time shown; comparator = best free model on
@@ -24,17 +30,19 @@ from pathlib import Path
 
 import numpy as np
 
-from agent_committee import checks, power
+from agent_committee import checks, power, sequential
 from agent_committee.arms.config import BANKING77_TASK, MODEL_DIGEST, task_from_dict
 from agent_committee.arms.evaluate import CLASSIC
 from agent_committee.arms.splits import make_arms_split
 from agent_committee.data import load_dev
 from agent_committee.prereg import load_prereg
 from agent_committee.scenarios import get_scenario
-from agent_committee.schemas import Case
+from agent_committee.schemas import Case, Verdict
+from agent_committee.scorers import resolve_scorer
 
 PLANNING_DISAGREEMENT = 0.20  # owner decision 2026-11-11 (Banking77 measured 14%)
 SAMPLE_SEED = 0  # fixed: a user may not re-draw the sample
+ORDER_SEED = 1  # fixed scoring order for the looks (early stopping, owner approved 2026-11-11)
 AGENT = "agent"
 CASCADE = "cascade"
 LLM_ARMS = ("prompt", AGENT)
@@ -68,6 +76,79 @@ def pick_comparator(free_arms: Mapping[str, object], tune: Sequence[Case]) -> tu
     }
     best = max(scores, key=lambda n: (scores[n], -CLASSIC.index(n)))
     return best, scores
+
+
+def look_order(cases: Sequence[Case], seed: int = ORDER_SEED) -> list[Case]:
+    """The fixed order the sample is scored in. Ids run in label order, so without a shuffle the
+    early looks would cover only a few labels."""
+    ordered = sorted(cases, key=lambda c: c.id)
+    return [ordered[i] for i in np.random.default_rng(seed).permutation(len(ordered))]
+
+
+def run_looks(
+    order: Sequence[Case], agent, simpler, scorer, gap: float, bounds: np.ndarray
+) -> "sequential.Look":
+    """Score the agent and the simpler model block by block in `order` and stop at the first
+    look that crosses a boundary (or at the last look). Other arms run later, only on the cases
+    used."""
+    d: list[int] = []
+    sizes = sequential.look_sizes(len(order), len(bounds))
+    done = 0
+    for n, c in zip(sizes, bounds, strict=True):
+        for case in order[done:n]:
+            a = scorer(agent.predict(case.id, case.text).pred, case.label)
+            b = scorer(simpler.predict(case.id, case.text).pred, case.label)
+            d.append(int(a) - int(b))
+        done = n
+        look = sequential.check(np.array(d), gap, c)
+        print(f"  look at {n} cases: gain {look.diff:+.3f}, z(agent ahead) {look.z0:.2f}, "
+              f"z(gain ruled out) {look.z1:.2f}, boundary {c:.2f}")  # fmt: skip
+        if look.outcome is not None:
+            return look
+    return look
+
+
+def apply_early_stop(verdict, look: "sequential.Look", planned: int):
+    """The sequential rule decides; the engine's verdict counts only when it agrees.
+
+    A winner needs both the engine (accuracy, cost, checks) and the boundary crossed in the same
+    direction; anything else that is not INVALID becomes NEED_MORE_DATA. The repeated confidence
+    interval replaces the bootstrap one (valid at any look); break-even is kept only at a full-size
+    run whose repeated interval is entirely above 0.
+    """
+    if verdict.verdict == Verdict.INVALID:
+        return verdict
+    lo, hi = look.interval
+    agrees = (look.outcome == "agent" and verdict.verdict == Verdict.DEPLOY_AGENT) or (
+        look.outcome == "simpler" and verdict.verdict == Verdict.USE_SIMPLER
+    )
+    reasons = list(verdict.reasons)
+    if look.outcome is None:
+        reasons.insert(0, "Early stopping: no boundary was crossed by the last look.")
+    else:
+        side = "the agent is ahead" if look.outcome == "agent" else "a gain of the gap is ruled out"
+        reasons.insert(0, f"Early stopping: {side} at {look.n} of {planned} cases.")
+    reasons.insert(
+        1,
+        f"Repeated confidence interval for the gain: {lo:+.3f} to {hi:+.3f}, valid at any look; "
+        "an interval quoted below by the engine assumes a fixed-size run.",
+    )
+    final = verdict.verdict if agrees else Verdict.NEED_MORE_DATA
+    if not agrees and verdict.verdict != Verdict.NEED_MORE_DATA:
+        reasons.insert(1, f"The engine said {verdict.verdict.value} but the stopping rule did not "
+                          "agree, so no winner is picked.")  # fmt: skip
+    full = look.n == planned
+    keep_break_even = full and lo > 0 and final == Verdict.DEPLOY_AGENT
+    if verdict.break_even and not keep_break_even:
+        reasons.append("Break-even is not shown: it is not valid after an early stop.")
+    return verdict.model_copy(
+        update={
+            "verdict": final,
+            "reasons": reasons,
+            "accuracy_diff_ci": (lo, hi),
+            "break_even": verdict.break_even if keep_break_even else [],
+        }
+    )
 
 
 def estimate_minutes(n: int, arms: Sequence[str]) -> float:
@@ -174,7 +255,18 @@ def main(argv: list[str] | None = None) -> int:
     print(f"simpler model to beat (best free model on tune): {comparator} {tune_scores}")
 
     out_dir = repo / s.results_dir / "quick" / f"gap{args.gap:.3f}-n{len(cases)}"
+    order = look_order(cases)
+    bounds = sequential.boundaries(prereg.alpha)
     plan = {
+        "early_stopping": {
+            "looks": sequential.look_sizes(len(order), len(bounds)),
+            "boundaries": [round(float(b), 6) for b in bounds],
+            "spending": "Lan-DeMets O'Brien-Fleming, two-sided alpha",
+            "order_seed": ORDER_SEED,
+            "order_sha256": hashlib.sha256(
+                "\n".join(c.id for c in order).encode("utf-8")
+            ).hexdigest(),
+        },
         "scenario": s.name,
         "gap": args.gap,
         "planning_disagreement": PLANNING_DISAGREEMENT,
@@ -212,14 +304,26 @@ def main(argv: list[str] | None = None) -> int:
             arms["prompt"] = prompt_arm.make_arm(split.pool, book, layer, client, task)
         arms[AGENT] = agent_arm.make_arm(split.pool, book, layer, client, task)
         arms = {n: arms[n] for n in names}
+        if prereg.scorer is None:  # no plain-code scorer: the engine returns INVALID unrun
+            print("the prereg declares no scorer: INVALID", file=sys.stderr)
+            return 1
+        scorer = resolve_scorer(prereg.scorer.target)
+        look = run_looks(order, arms[AGENT], arms[comparator], scorer, args.gap, bounds)
+        used = order[: look.n]
+        print(f"stopped at {look.n} of {len(order)} cases: {look.outcome or 'no boundary crossed'}")
+        # the sequential design, not the fixed-size power gate, governs the size of this run
+        judged = prereg.model_copy(
+            update={"checks": prereg.checks.model_copy(update={"min_test_n": look.n})}
+        )
         verdict = evaluate(
-            prereg, cases, split.pool + split.tune, split.pool, split.tune, layer, arms, report,
+            judged, used, split.pool + split.tune, split.pool, split.tune, layer, arms, report,
             audit, out_dir,
         )  # fmt: skip
     note = (
-        f"QUICK TEST on {len(cases)} sampled DEV eval cases (gap {args.gap:.3f}, seed "
-        f"{SAMPLE_SEED}): exploratory, not a sealed verdict."
+        f"QUICK TEST on {look.n} of {len(cases)} sampled DEV eval cases (gap {args.gap:.3f}, "
+        f"seed {SAMPLE_SEED}): exploratory, not a sealed verdict."
     )
+    verdict = apply_early_stop(verdict, look, len(order))
     verdict = verdict.model_copy(
         update={"reasons": [note, DEV_CHECK_NOTE, *verdict.reasons], "rehearsal": True}
     )

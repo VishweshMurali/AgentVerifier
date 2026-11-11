@@ -86,7 +86,8 @@ def boundaries(alpha: float = 0.05, looks: int = LOOKS) -> np.ndarray:
 class Look:
     n: int
     diff: float
-    se: float
+    se0: float  # standard error behind the "agent ahead" test (lower side)
+    se1: float  # floored standard error behind the "gain ruled out" test (upper side)
     z0: float
     z1: float
     bound: float
@@ -94,8 +95,9 @@ class Look:
 
     @property
     def interval(self) -> tuple[float, float]:
-        """Repeated confidence interval, valid at every look."""
-        return self.diff - self.bound * self.se, self.diff + self.bound * self.se
+        """Repeated confidence interval, valid at every look. Each side matches its own test:
+        lower > 0 exactly when "agent ahead" is crossed, upper < gap when "simpler ahead" is."""
+        return self.diff - self.bound * self.se0, self.diff + self.bound * self.se1
 
 
 def look_sizes(total: int, looks: int = LOOKS) -> list[int]:
@@ -116,8 +118,8 @@ def check(d: np.ndarray, gap: float, bound: float) -> Look:
     se1 = np.sqrt(max(var, gap * (1 - gap)) / n)
     z1 = (diff - gap) / se1
     outcome = "agent" if z0 >= bound else "simpler" if z1 <= -bound else None
-    se = float(np.sqrt(max(var, gap * (1 - gap)) / n))
-    return Look(n, diff, se, float(z0), float(z1), float(bound), outcome)
+    se0 = float(np.sqrt(var / n)) if var > 0 else float(se1)
+    return Look(n, diff, se0, float(se1), float(z0), float(z1), float(bound), outcome)
 
 
 def run(d: np.ndarray, gap: float, bounds: np.ndarray) -> Look:
