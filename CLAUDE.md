@@ -21,6 +21,10 @@ Banking77 is the first task and proves the method.
   exploratory, approved 2026-11-10); a free arm wins a tie with a paid one.
   Per-dataset task phrase (approved 2026-11-10): each scenario.yaml says what one case is and what a label is; both LLM
   arms get the identical phrase. Banking77's wording is unchanged (v1 prompt, agent prompt and tool schema pinned).
+- Quick tests (approved 2026-11-11): exploratory verdicts on a fixed-seed random sample of a scenario's DEV eval split,
+  sized by exact McNemar power at a gap the user chooses (planning disagreement 20%); the simpler model to beat is the
+  best free model on tune; the DEV-score check is skipped; early stopping and use-case scoping apply to quick tests
+  only. The sealed run stays fixed-sample.
 - Null is a flag for low-confidence cases (the lowest 10% on tune), not a score. All arms answer them, and accuracy on those cases is reported per arm.
 - Agent rules: a no-tool answer is sent back once, the last call must answer, a malformed tool call scores wrong. Maximum 4 model calls per case.
 - No RAG for now. `search` stays a single swappable tool.
@@ -72,6 +76,7 @@ src/agent_committee/
   analysis.py    exact McNemar, paired case bootstrap, A/A on the full winner rule
   decision.py    decision engine: verdict rules, break-even, VerdictJSON
   runner.py      Phase D runner, the ONLY sealed-test reader; `--rehearse` runs it on DEV instead
+  quick.py       quick exploratory test on a DEV sample sized from the user's gap (never opens TEST)
   report.py      results/report.html from verdict.json (templates/report.html.j2)
   arms/          base protocol, config, splits, labels, linear (shared layer + arm 1), prompt, agent, tools, evaluate,
                  classic (majority, Naive Bayes, linear SVM, random forest, boosting rungs), cascade (derived from linear + agent; report-only)
@@ -93,6 +98,7 @@ tests/
 - Build split (once): `uv run python -m agent_committee.data`
 - DEV run of another scenario: `uv run python -m agent_committee.dev_run --scenario NAME` (folder, report path and task phrase read from its files, passed to `arms.evaluate` in-process; `check_dataset` prints it once the split is built); without a task phrase only the non-LLM arms run (`--arms majority,linear,naive_bayes,linear_svm,random_forest,boosting`)
 - Benchmark: `uv run python scripts/benchmark_throughput.py`
+- Quick test (exploratory, DEV sample): `uv run python -m agent_committee.quick --scenario NAME --gap 0.05 [--arms ...]`
 - Rehearse Phase D on DEV (never opens TEST): `uv run python -m agent_committee.runner --rehearse`
 - The one sealed run (after the user's `arms-frozen` tag): `uv run python -m agent_committee.runner`
 - Dataset menu: `uv run python -m agent_committee.catalog` (`--choose NAME`)
