@@ -14,6 +14,10 @@ sealed/
 # Local multi-agent coordination notes: never uploaded
 COORDINATION.md
 
+# Generated output: LLM cache (raw prompts and replies) and verdicts/reports, local only
+/cache/
+/results/
+
 # Phase D dress rehearsals on DEV: local only, never a verdict
 results/rehearsal/
 
