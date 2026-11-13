@@ -5,3 +5,7 @@ sealed/** binary
 # Per-scenario DEV files and hashes (data/<name>/) keep exact bytes too.
 data/**/*.jsonl -text
 data/**/*.sha256 -text
+# Preregs and scenario files are hashed at the freeze tag: keep their exact bytes too.
+prereg.yaml -text
+scenarios/**/*.yaml -text
+data/**/split_manifest.json -text
