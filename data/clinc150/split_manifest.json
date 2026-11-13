@@ -1,0 +1,12 @@
+{
+  "dev_sha256": "9e1de085f25cf4277c1ef04c4f9792c816ca3d0e1e4354cb8814e683a21dea2f",
+  "meets_min_test_n": true,
+  "min_test_n": 3028,
+  "n_dev": 17887,
+  "n_labels": 151,
+  "n_test": 5963,
+  "n_test_texts_duplicated_in_dev": 4,
+  "seed": 20260101,
+  "test_fraction": 0.25,
+  "test_sha256": "40411baa508cc5f4ced70db267de1f1566d461f1c18cf16170f2ef0bc786c41f"
+}

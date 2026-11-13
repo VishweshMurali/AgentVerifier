@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { prefersReducedMotion, startFlight } from '../motion/flight.ts';
 import type { Flyer } from '../motion/ribbon.ts';
 import type { Mood, Side } from '../story/scenes.ts';
@@ -12,16 +12,34 @@ interface RobotProps {
   line: ReactNode;
   /** Buttons under the line, kept outside the announced part so they are not read out each time. */
   controls?: ReactNode;
+  /** Livelier guide (flow mockup): eyes follow the pointer, it waves when clicked. Off in the story. */
+  alive?: boolean;
+  /** The reader is typing: the guide leans in and listens. */
+  listening?: boolean;
 }
 
 /** The original white flying guide. Moods and idle life are CSS; flight is a spring (motion/flight.ts). */
-export function Robot({ mood, side, onFly, line, controls = null }: RobotProps) {
+export function Robot({ mood, side, onFly, line, controls = null, alive = false, listening = false }: RobotProps) {
   const robot = useRef<HTMLDivElement>(null);
   const fly = useRef<HTMLDivElement>(null);
   const ground = useRef<HTMLDivElement>(null);
   const bank = useRef<SVGGElement>(null);
   const gaze = useRef<SVGGElement>(null);
   const say = useRef<HTMLDivElement>(null);
+  const pupils = useRef<SVGGElement>(null);
+  const [poked, setPoked] = useState(false);
+  // phones (owner request 2026-11-12): the robot docks as a small icon; its bubble opens on a tap,
+  // and a dot says when it has something new to say. Wider screens always show the bubble.
+  const [open, setOpen] = useState(false);
+  const [fresh, setFresh] = useState(false);
+  const said = useRef('');
+  useEffect(() => {
+    const text = say.current?.querySelector('.say-line')?.textContent ?? '';
+    if (text && text !== said.current) {
+      if (said.current) setFresh(true);
+      said.current = text;
+    }
+  });
   const publish = useRef(onFly);
   publish.current = onFly;
 
@@ -34,20 +52,66 @@ export function Robot({ mood, side, onFly, line, controls = null }: RobotProps) 
     );
   }, []);
 
+  // eyes follow the pointer (alive only), eased so they glide
+  useEffect(() => {
+    if (!alive) return;
+    let tx = 0, ty = 0, x = 0, y = 0, raf = 0;
+    const move = (e: PointerEvent) => {
+      const r = robot.current?.querySelector('.r-body')?.getBoundingClientRect();
+      if (!r) return;
+      const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height * 0.3);
+      const d = Math.hypot(dx, dy) || 1;
+      tx = (dx / d) * Math.min(7, d / 40);
+      ty = (dy / d) * Math.min(5, d / 60);
+    };
+    const tick = () => {
+      x += (tx - x) * 0.12;
+      y += (ty - y) * 0.12;
+      pupils.current?.setAttribute('transform', `translate(${x.toFixed(2)} ${y.toFixed(2)})`);
+      raf = requestAnimationFrame(tick);
+    };
+    window.addEventListener('pointermove', move, { passive: true });
+    raf = requestAnimationFrame(tick);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      cancelAnimationFrame(raf);
+    };
+  }, [alive]);
+
+  const poke = () => {
+    if (!alive || poked) return;
+    setPoked(true);
+    setTimeout(() => setPoked(false), 1600);
+  };
+
   return (
-    <div ref={robot} className={`robot mood-${mood} side-${side}`}>
+    <div
+      ref={robot}
+      className={`robot mood-${poked ? 'hello' : mood} side-${side}${alive ? ' alive' : ''}${listening ? ' listening' : ''}${poked ? ' poked' : ''}${open ? ' open' : ''}${fresh ? ' fresh' : ''}`}
+    >
       <div ref={ground} className="r-ground" aria-hidden="true" />
       <div ref={fly} className="r-fly-y">
         <div ref={say} className="say">
           <div className="say-line" role="status" aria-live="polite">
             {line}
           </div>
-          <div id="robot-controls" className="say-controls">
+          <div id="robot-controls" className="say-controls" onClick={() => setTimeout(() => setOpen(false), 200)}>
             {controls}
           </div>
         </div>
-        <div className="r-body" aria-hidden="true">
-          <svg viewBox="0 0 200 260" focusable="false" style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
+        <div
+          className="r-body"
+          role="button"
+          tabIndex={-1}
+          aria-label={open ? 'Hide the guide’s message' : 'Show the guide’s message'}
+          aria-expanded={open}
+          onClick={() => {
+            poke();
+            setOpen((o) => !o);
+            setFresh(false);
+          }}
+        >
+          <svg viewBox="0 0 200 260" focusable="false" aria-hidden="true" style={{ width: '100%', height: 'auto', overflow: 'visible' }}>
             <defs>
               <radialGradient id="pearl" cx="36%" cy="28%" r="85%">
                 <stop offset="0" stopColor="#FFFFFF" />
@@ -94,6 +158,7 @@ export function Robot({ mood, side, onFly, line, controls = null }: RobotProps) 
                     <ellipse cx="72" cy="40" rx="24" ry="9" fill="#FFFFFF" opacity=".9" />
                     <ellipse cx="100" cy="78" rx="56" ry="32" fill="url(#visor)" />
                     <g ref={gaze} className="r-look">
+                      <g ref={pupils}>
                       <g className="r-wake" filter="url(#soft-glow)">
                         <g className="eyes eyes-open">
                           <ellipse className="r-eye" cx="80" cy="78" rx="10" ry="12" fill="#5CE1E6" />
@@ -113,6 +178,7 @@ export function Robot({ mood, side, onFly, line, controls = null }: RobotProps) 
                           <ellipse cx="80" cy="84" rx="10" ry="5" fill="#5CE1E6" transform="rotate(-16 80 84)" />
                           <ellipse cx="120" cy="84" rx="10" ry="5" fill="#5CE1E6" transform="rotate(16 120 84)" />
                         </g>
+                      </g>
                       </g>
                     </g>
                   </g>

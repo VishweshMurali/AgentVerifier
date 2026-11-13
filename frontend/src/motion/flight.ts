@@ -135,7 +135,7 @@ export function startSmoothWheel(): () => void {
   const onWheel = (e: WheelEvent) => {
     if (e.ctrlKey || max() < 40 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
     const tgt = e.target as Element | null;
-    if (tgt?.closest?.('input,textarea,select,.checks')) return;
+    if (tgt?.closest?.('input,textarea,select,.checks,.scroll-y,.all-kinds,.drawer,.chat')) return;
     let dy = e.deltaY;
     if (e.deltaMode === 1) dy *= 32;
     else if (e.deltaMode === 2) dy *= window.innerHeight;

@@ -281,3 +281,571 @@ a { color: #1F6E73; } a:hover { color: #17555A; }
 @keyframes loading{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
 .error-text{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.6;color:#253031;background:rgba(37,48,49,.06);border-radius:12px;padding:14px;width:100%;box-sizing:border-box}
 code{font-family:'JetBrains Mono',monospace;font-size:13px}
+/* ---------- test-your-agent flow (same look as the story, more motion, fewer words) ---------- */
+/* scenes melt in and out: blur, lift and fade as they enter or leave the middle of the screen */
+.flow .scene>*:not(.scan){transition:opacity .9s cubic-bezier(.2,.7,.2,1),filter .9s cubic-bezier(.2,.7,.2,1),transform .9s cubic-bezier(.2,.7,.2,1)}
+.flow .scene:not(.in)>*:not(.scan){opacity:0;filter:blur(10px);transform:translateY(34px) scale(.985)}
+.flow .scene.in>*:nth-child(2){transition-delay:.06s}.flow .scene.in>*:nth-child(3){transition-delay:.14s}.flow .scene.in>*:nth-child(4){transition-delay:.22s}
+.field{display:flex;flex-direction:column;gap:8px;font-size:14px;color:#3D4B4C;max-width:580px;width:100%}
+.field input,.field select,.field-input{font:inherit;font-size:18px;padding:13px 16px;border-radius:16px;border:1px solid rgba(37,48,49,.15);background:rgba(255,255,255,.8);color:#253031;box-sizing:border-box;width:100%;transition:box-shadow .3s,border-color .3s}
+.field input:focus,.field select:focus,.field-input:focus{outline:none;border-color:#2FB5BB;box-shadow:0 0 0 4px rgba(47,181,187,.18),0 0 30px rgba(47,181,187,.18)}
+.hero-field input{font-size:24px;padding:20px 24px;border-radius:22px;background:rgba(255,255,255,.7);backdrop-filter:blur(14px)}
+.field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.card.wide{max-width:640px}
+.pick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;max-width:780px}
+.pick-grid.small{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.pick{position:relative;font:inherit;text-align:left;display:flex;flex-direction:column;gap:8px;padding:18px;border-radius:20px;cursor:pointer;color:#253031;transition:transform .45s cubic-bezier(.2,.8,.2,1.2),box-shadow .45s,opacity .6s,filter .6s}
+.in .pick{animation:popin .7s cubic-bezier(.2,.8,.2,1.15) both;animation-delay:calc(.25s + var(--i,0)*.07s)}
+@keyframes popin{from{opacity:0;transform:translateY(26px) scale(.92);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
+.pick:hover{transform:translateY(-4px)}
+.pick .icon{color:#1F6E73;transition:transform .5s cubic-bezier(.2,.8,.2,1.4)}
+.pick:hover .icon,.pick.on .icon{transform:scale(1.15) rotate(-4deg)}
+.pick.agent .icon{color:#253031}
+.pick b{font-size:17px;line-height:1.2}.pick small{font-size:11px;color:#6B7B7C}
+.pick.on{box-shadow:0 0 0 2px #1F6E73 inset,0 0 40px rgba(47,181,187,.35),0 18px 50px rgba(37,48,49,.12);transform:translateY(-3px)}
+.pick.on::after{content:"\2713";position:absolute;right:14px;top:14px;width:22px;height:22px;border-radius:50%;background:#1F6E73;color:#fff;font-size:13px;display:grid;place-items:center;animation:tick .4s cubic-bezier(.2,.8,.2,1.5)}
+@keyframes tick{from{transform:scale(0)}to{transform:scale(1)}}
+.pick.off{opacity:.55;filter:grayscale(.5)}
+.scope-head{display:flex;gap:14px;align-items:center}
+.ring{--p:0;flex:none;width:64px;height:64px;border-radius:50%;display:grid;place-items:center;align-content:center;background:conic-gradient(#1F6E73 calc(var(--p)*360deg),rgba(37,48,49,.10) 0);position:relative}
+.ring::before{content:"";position:absolute;inset:6px;border-radius:50%;background:rgba(255,255,255,.92)}
+.ring b,.ring small{position:relative;line-height:1}.ring b{font-size:20px}.ring small{font-size:10px;color:#6B7B7C}
+.label-list{max-height:200px;overflow:auto;align-content:flex-start;padding:2px}
+.chip{transition:background .25s,color .25s,border-color .25s,transform .3s cubic-bezier(.2,.8,.2,1.4)}
+.chip.on{transform:scale(1.04)}
+.chip.mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+.link{font:inherit;background:none;border:0;padding:0;color:#1F6E73;text-decoration:underline;cursor:pointer}
+.sizer{display:flex;flex-direction:column;gap:18px;max-width:580px}
+.dotgrid{display:flex;flex-wrap:wrap;gap:4px;max-width:520px}
+.dotgrid i{width:7px;height:7px;border-radius:50%;background:#1F6E73;opacity:0;animation:dotin .5s ease-out both;animation-delay:calc(var(--i)*4ms)}
+@keyframes dotin{from{opacity:0;transform:scale(0)}to{opacity:.75;transform:scale(1)}}
+.mistake{display:flex;align-items:baseline;justify-content:space-between}
+.mistake .cost-num{font-size:44px;animation:landnum .6s cubic-bezier(.2,.8,.2,1.2)}
+@keyframes landnum{from{opacity:0;transform:translateY(12px) scale(.9);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
+details.more{max-width:580px;font-size:14px;color:#3D4B4C}
+details.more summary{cursor:pointer;color:#1F6E73;font-weight:500;list-style:none;display:inline-flex;gap:8px;align-items:center}
+details.more summary::-webkit-details-marker{display:none}
+details.more summary::before{content:"+";display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;border:1px solid rgba(31,110,115,.4);transition:transform .3s}
+details.more[open] summary::before{transform:rotate(45deg)}
+details.more p,details.more ul{margin:10px 0 0;line-height:1.55;animation:landnum .5s ease-out}
+.reasons{padding-left:18px;font-size:13px}
+/* the race: gain dot and confidence band over "no gain" and "your gain" */
+.race-wrap{display:flex;flex-direction:column;gap:14px;max-width:620px;width:100%}
+.race{display:flex;flex-direction:column;gap:14px}
+.gates{display:flex;justify-content:space-between}
+.gates span{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1}
+.gates i{width:14px;height:14px;border-radius:50%;border:2px solid rgba(37,48,49,.25);transition:all .5s cubic-bezier(.2,.8,.2,1.5)}
+.gates span.hit i{background:#1F6E73;border-color:#1F6E73;box-shadow:0 0 16px rgba(47,181,187,.8);transform:scale(1.2)}
+.gates small{font:11px 'JetBrains Mono',monospace;color:#6B7B7C}
+.track{position:relative;height:74px;border-radius:20px;background:rgba(255,255,255,.55);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.8);overflow:hidden}
+.zone{position:absolute;top:0;bottom:0}
+.zone.lose{background:linear-gradient(90deg,rgba(31,110,115,.16),rgba(31,110,115,.04))}
+.zone.win{background:linear-gradient(90deg,rgba(37,48,49,.04),rgba(37,48,49,.16))}
+.tick{position:absolute;top:0;bottom:0;width:0;border-left:1.5px dashed rgba(37,48,49,.35)}
+.tick.goal{border-left-color:#253031}
+.tick small{position:absolute;top:6px;left:6px;font:10px 'JetBrains Mono',monospace;color:#3D4B4C;white-space:nowrap}
+.band{position:absolute;top:30px;height:22px;border-radius:11px;background:rgba(47,181,187,.28);border:1px solid rgba(31,110,115,.5);transition:left 1s cubic-bezier(.2,.8,.2,1),width 1s cubic-bezier(.2,.8,.2,1)}
+.dot{position:absolute;top:33px;width:16px;height:16px;margin-left:-8px;border-radius:50%;background:#253031;box-shadow:0 0 0 4px rgba(255,255,255,.8),0 0 24px rgba(47,181,187,.9);transition:left 1s cubic-bezier(.2,.8,.2,1.2);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 6px rgba(255,255,255,.6),0 0 34px rgba(47,181,187,1)}}
+.ends{display:flex;justify-content:space-between;font-size:12px;color:#6B7B7C}
+.bar{position:relative}
+.grab{position:absolute;right:0;top:0;bottom:0;background:rgba(190,70,70,.55);border-radius:0 99px 99px 0}
+/* the verdict: one big word and the money as bars */
+.flow .big.land{font-size:110px}
+.cost-bars{display:flex;flex-direction:column;gap:12px;max-width:620px;width:100%}
+.cb{display:grid;grid-template-columns:130px 1fr 90px;gap:14px;align-items:center;font-size:16px}
+.cb b{font-size:22px;text-align:right}
+.cb-track{height:16px;border-radius:99px;background:rgba(37,48,49,.08);overflow:hidden}
+.cb-track i{display:block;height:100%;border-radius:99px;background:#1F6E73;transform-origin:left;animation:grow 1.3s cubic-bezier(.2,.8,.2,1) both}
+.cb.agent .cb-track i{background:#253031}
+@keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.night .field input,.night .field select,.night .field-input,.night .pick,.night .track{color:#EAF3F3;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22)}
+.night .field,.night .pick small,.night details.more,.night .ends,.night .gates small,.night .tick small{color:#B8CACB}
+.night .pick .icon{color:#2FB5BB}.night .ring::before{background:#1b2526}
+.night .dotgrid i,.night .cb-track i{background:#2FB5BB}
+@media (max-width: 900px){.field-grid{grid-template-columns:1fr}.pick-grid,.pick-grid.small{grid-template-columns:1fr 1fr}.flow .big.land{font-size:56px}.cb{grid-template-columns:90px 1fr 70px}.hero-field input{font-size:18px}}
+@media (prefers-reduced-motion: reduce){.flow .scene>*:not(.scan),.pick,.dotgrid i,.cb-track i{transition-duration:1.8s;animation-duration:1.8s}}
+
+/* ---------- mockup: suggestions, duel, answer card, plot, audit drawer ---------- */
+.suggest{max-width:620px;width:100%;box-sizing:border-box;border-radius:22px;padding:18px;display:flex;flex-direction:column;gap:14px;animation:landnum .6s cubic-bezier(.2,.8,.2,1)}
+.suggest-head{display:flex;gap:12px;align-items:center}
+.suggest-head>div{flex:1;display:flex;flex-direction:column;gap:2px}
+.suggest-head .icon{color:#2FB5BB}
+.chip.pop{animation:popin .5s cubic-bezier(.2,.8,.2,1.2) both;animation-delay:calc(var(--i,0)*.06s)}
+.duel{display:flex;align-items:center;gap:28px}
+.duel>div:not(.vs){display:flex;flex-direction:column;gap:4px}
+.duel span{font-size:12px;letter-spacing:.12em;text-transform:uppercase;opacity:.75}
+.duel b{font-size:72px;line-height:1;font-weight:600}
+.duel b small{font-size:22px;opacity:.6}
+.duel .vs{font-size:22px;opacity:.5}
+.mock .scene#m3{justify-content:center}
+.answer{max-width:680px;width:100%;box-sizing:border-box;border-radius:28px;padding:22px 26px;display:flex;flex-direction:column;gap:12px;max-height:calc(100vh - 150px);overflow:auto}
+.answer-word{margin:0;font-size:56px;line-height:1;font-weight:600;letter-spacing:-.03em}
+.answer-line{margin:0;font-size:19px;line-height:1.5;opacity:.85}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.tiles>div{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:16px;background:rgba(127,160,165,.12)}
+.tiles small{font-size:12px;opacity:.7}.tiles b{font-size:30px;line-height:1.1}.tiles span{font-size:12px;opacity:.6}
+.plot-wrap{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.plot{width:100%;height:auto;max-height:190px;overflow:visible}
+.plot .ax{font:10px 'JetBrains Mono',monospace;fill:currentColor;opacity:.55}
+.plot .axl{stroke:currentColor;opacity:.2}
+.plot .pt{animation:ptin .8s ease-out both}
+@keyframes ptin{from{opacity:0}}
+.plot .pt circle{transition:r .4s}
+.plot .pt circle{fill:#8FA3A4}
+.plot .pt.agent circle{fill:#EAF3F3;stroke:#253031;stroke-width:2}
+.plot .pt.best circle{fill:#2FB5BB;filter:drop-shadow(0 0 8px rgba(47,181,187,.9))}
+.plot .pt text{font-size:11px;fill:currentColor}
+.plot .pt.best text{font-weight:700}
+.answer-foot{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.drawer{position:fixed;z-index:30;top:16px;right:16px;bottom:16px;width:min(380px,calc(100vw - 32px));box-sizing:border-box;border-radius:24px;padding:22px;display:flex;flex-direction:column;gap:16px;transform:translateX(110%);transition:transform .6s cubic-bezier(.2,.8,.2,1);overflow:auto}
+.drawer.open{transform:none}
+.drawer-head{display:flex;justify-content:space-between;align-items:center;font-size:18px}
+.drawer dl{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;margin:0;font-size:14px}
+.drawer dt{opacity:.6}.drawer dd{margin:0}
+.audit-checks{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px;font-size:13px}
+.audit-checks i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:#2FB5BB}
+.audit-checks i.no{background:#D6605E}
+.night .answer,.night .suggest,.night .drawer{color:#EAF3F3}
+.night .drawer{background:rgba(20,32,34,.92)}
+@media (max-width:900px){.tiles{grid-template-columns:1fr 1fr 1fr}.tiles b{font-size:22px}.answer{padding:20px}.answer-word{font-size:48px}.duel b{font-size:48px}}
+
+/* ---------- mockup v2: level-3 close-up, hover card, livelier robot ---------- */
+.closeup{max-width:640px;width:100%;box-sizing:border-box;border-radius:28px;padding:28px;display:flex;flex-direction:column;gap:18px;transform-origin:30% 50%}
+.in .closeup{animation:dive 1.1s cubic-bezier(.2,.8,.2,1) both}
+@keyframes dive{from{opacity:0;transform:scale(.35);filter:blur(12px)}to{opacity:1;transform:none;filter:none}}
+.closeup-text{margin:0;font-size:30px;line-height:1.3;font-weight:500;letter-spacing:-.01em}
+.closeup-rows{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.closeup-rows>div{display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:18px;border:1px solid rgba(127,160,165,.25)}
+.closeup-rows>div.ok{background:rgba(47,181,187,.14);border-color:rgba(47,181,187,.5)}
+.closeup-rows>div.no{background:rgba(214,96,94,.14);border-color:rgba(214,96,94,.5)}
+.closeup-rows span{font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.7}
+.closeup-rows b{font-size:17px}
+.closeup-rows small{font-size:12px;opacity:.75}
+.hovercard{position:fixed;z-index:25;max-width:280px;padding:12px 14px;border-radius:14px;pointer-events:none;animation:landnum .25s ease-out}
+.hovercard p{margin:0 0 6px;font-size:14px;line-height:1.4}
+.hovercard i{display:inline-block;width:8px;height:8px;border-radius:50%;background:#2FB5BB}
+.hovercard i.no{background:#D6605E}
+.night .closeup,.night .hovercard{color:#EAF3F3}
+.night .hovercard{background:rgba(14,22,24,.9)}
+.robot.alive .r-body{pointer-events:auto;cursor:pointer}
+.robot.alive .r-body:hover .r-head{transform:rotate(-6deg);transition:transform .4s cubic-bezier(.2,.8,.2,1.5)}
+.robot.listening .r-head{transform:translateY(3px) rotate(4deg);transition:transform .4s}
+.robot.listening .r-lamp-on{animation-duration:.45s}
+.robot.listening .eyes-open{transform:scaleY(1.15);transform-origin:100px 78px;transition:transform .3s}
+.robot.poked .r-hover{animation:boing .8s cubic-bezier(.2,.8,.2,1.6)}
+@keyframes boing{30%{transform:translateY(-22px) scale(1.04)}60%{transform:translateY(4px) scale(.98)}}
+@media (max-width:900px){.closeup-rows{grid-template-columns:1fr}.closeup-text{font-size:22px}}
+
+/* ---------- mockup v3: guide conversation, legend, instant first scene ---------- */
+.mock #m1>*{transition:none!important;opacity:1!important;filter:none!important;transform:none!important}
+.mock .say{max-width:340px}
+.mock .say-line{max-height:20vh;overflow:auto}
+.guide{display:flex;flex-direction:column;gap:10px}
+.guide-list{margin:0;padding-left:16px;display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.45;max-height:18vh;overflow:auto;animation:landnum .4s ease-out}
+.guide .chips{gap:6px}
+.guide .chip.small{font-size:12px;padding:6px 10px;min-height:32px}
+.guide-ask input{font:inherit;font-size:14px;width:100%;box-sizing:border-box;padding:9px 12px;border-radius:12px;border:1px solid rgba(127,160,165,.35);background:rgba(255,255,255,.08);color:inherit}
+.guide-ask input:focus{outline:none;border-color:#2FB5BB;box-shadow:0 0 0 3px rgba(47,181,187,.2)}
+.legend{position:fixed;z-index:6;left:24px;bottom:24px;display:flex;gap:14px;padding:8px 14px;border-radius:999px;font-size:11px;align-items:center}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+.legend .ln{display:inline-block;width:18px;height:0;border-top:2px solid #2FB5BB}
+.legend .ln.dash{border-top-style:dashed}
+.legend .dt{display:inline-block;width:8px;height:8px;border-radius:50%;background:#D6605E;box-shadow:0 0 8px #D6605E}
+.night .legend{color:#EAF3F3}
+@media (max-width:900px){.legend{left:12px;right:12px;bottom:84px;justify-content:center}}
+.mock .say{max-height:min(380px,calc(100vh - 450px));overflow-y:auto;overscroll-behavior:contain}
+.guide .chips{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+.guide .chip.small{flex:none}
+.mock .say-line{max-height:none}
+.guide-list{max-height:none}
+
+/* ---------- mockup v4: deep-space palette, chat panel, quiet bubble ---------- */
+.mock{--ink:#E6ECF8;--muted:#9AA6C4;--aqua:#40D6CC;--violet:#9B8CFF;--coral:#FF7676;--panel:rgba(16,22,44,.72)}
+.mock .bg-night{background:radial-gradient(120% 90% at 20% 10%,#18183A 0%,#0B1024 45%,#05070F 100%)}
+.mock.night .scene,.mock.night .lead,.mock.night h1,.mock.night h2{color:var(--ink)}
+.mock.night .eyebrow{color:var(--aqua)}
+.mock.night .glass,.mock.night .say,.mock.night .card{background:var(--panel);border-color:rgba(155,140,255,.22);box-shadow:0 20px 60px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.06),0 0 40px rgba(155,140,255,.10)}
+.mock.night .chip.primary,.mock.night .chip.on{background:linear-gradient(135deg,var(--violet),var(--aqua));border-color:transparent;color:#0B1024}
+.mock.night .chip{border-color:rgba(155,140,255,.35)}
+.mock.night .field input{background:rgba(16,22,44,.6);border-color:rgba(155,140,255,.35);color:var(--ink)}
+.mock.night .field input:focus{border-color:var(--violet);box-shadow:0 0 0 4px rgba(155,140,255,.18),0 0 36px rgba(64,214,204,.15)}
+.mock .say{max-height:none;overflow:visible}
+.mock .say-line{max-height:none}
+/* the chat panel beside the robot */
+.chat{position:fixed;z-index:12;right:24px;bottom:24px;width:min(380px,calc(100vw - 32px));border-radius:22px;display:flex;flex-direction:column;overflow:hidden;transition:transform .5s cubic-bezier(.2,.8,.2,1)}
+.chat-head{all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;padding:14px 18px;font-weight:600;font-size:15px}
+.chat-caret{margin-left:auto;font-size:18px;opacity:.7}
+.chat-dot{width:9px;height:9px;border-radius:50%;background:var(--aqua,#40D6CC);box-shadow:0 0 12px var(--aqua,#40D6CC);animation:pulse 1.8s ease-in-out infinite}
+.chat-log{max-height:min(46vh,420px);overflow-y:auto;padding:4px 16px 10px;display:flex;flex-direction:column;gap:10px;scrollbar-width:none}
+.chat-log::-webkit-scrollbar{display:none}
+.chat-hint{margin:0;font-size:14px;line-height:1.5;opacity:.8}
+.turn{max-width:88%;padding:10px 13px;border-radius:16px;font-size:14px;line-height:1.5;animation:landnum .35s ease-out}
+.turn p{margin:0}
+.turn ul{margin:6px 0 0;padding-left:16px;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.turn small{display:block;margin-top:6px;font-size:10px;opacity:.6}
+.turn.you{align-self:flex-end;background:linear-gradient(135deg,rgba(155,140,255,.35),rgba(64,214,204,.25));border-bottom-right-radius:4px}
+.turn.guide{align-self:flex-start;background:rgba(255,255,255,.06);border:1px solid rgba(155,140,255,.18);border-bottom-left-radius:4px}
+.turn.typing{display:flex;gap:5px}
+.turn.typing i{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.5;animation:blinkdot 1s infinite}
+.turn.typing i:nth-child(2){animation-delay:.15s}.turn.typing i:nth-child(3){animation-delay:.3s}
+@keyframes blinkdot{50%{opacity:1;transform:translateY(-2px)}}
+.chat-chips{display:flex;gap:6px;overflow-x:auto;padding:0 16px 10px;scrollbar-width:none}
+.chat-chips::-webkit-scrollbar{display:none}
+.chat-chips .chip{flex:none;font-size:12px;padding:6px 11px;min-height:30px}
+.chat-ask{display:flex;gap:8px;padding:0 14px 14px}
+.chat-ask input{flex:1;font:inherit;font-size:14px;padding:10px 13px;border-radius:14px;border:1px solid rgba(155,140,255,.3);background:rgba(255,255,255,.05);color:inherit}
+.chat-ask input:focus{outline:none;border-color:var(--violet,#9B8CFF)}
+.night .chat{color:#E6ECF8}
+.mock .legend{left:24px;right:auto}
+@media (max-width:900px){.chat{right:12px;left:12px;width:auto;bottom:80px}}
+
+/* ---------- mockup v5: six screens, one idea each ---------- */
+.mock5 .bg canvas{transition:opacity 1.2s ease}
+.mock5[data-scene=m4] .bg canvas,.mock5[data-scene=m5] .bg canvas,.mock5[data-scene=m6] .bg canvas{opacity:.22}
+.step-no{font-weight:600;color:var(--aqua)}
+/* race: live counter and a progress line */
+.race-duel>div{transition:transform .5s,filter .5s}
+.race-duel .lead{transform:scale(1.06)}
+.race-duel .lead b{color:var(--aqua);text-shadow:0 0 30px rgba(64,214,204,.45)}
+.race-duel b{font-variant-numeric:tabular-nums}
+.race-bar{width:min(420px,100%);height:4px;border-radius:4px;background:rgba(255,255,255,.1);overflow:hidden;margin:14px 0 6px}
+.race-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--violet),var(--aqua));transition:width .2s linear}
+/* one mistake */
+.closeup-nav{display:flex;align-items:center;justify-content:space-between;gap:10px}
+/* the answer: the payoff, alone on the screen */
+.verdict-hero{max-width:760px;display:flex;flex-direction:column;gap:18px}
+.in .verdict-hero{animation:landnum .9s cubic-bezier(.2,.8,.2,1) both}
+.verdict-word{margin:0;font-size:clamp(64px,10vw,136px);line-height:.95;font-weight:700;letter-spacing:-.045em;background:linear-gradient(120deg,#fff 10%,var(--aqua) 60%,var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 40px rgba(64,214,204,.25))}
+.verdict-line{margin:0;font-size:21px;line-height:1.5;color:var(--ink);opacity:.9;max-width:560px}
+.big-numbers{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:6px}
+.big-numbers>div{display:flex;flex-direction:column;gap:6px;border-left:2px solid rgba(155,140,255,.4);padding-left:14px}
+.big-numbers b{font-size:52px;line-height:1;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.big-numbers small{font-size:13px;color:var(--muted)}
+/* try your numbers */
+.tryit{max-width:560px;width:100%;box-sizing:border-box;border-radius:24px;padding:22px 24px;display:flex;flex-direction:column;gap:16px;color:var(--ink)}
+.slider{display:flex;flex-direction:column;gap:8px;font-size:15px}
+.slider b{font-size:20px;color:var(--aqua);font-variant-numeric:tabular-nums}
+.slider input{width:100%;accent-color:var(--violet);height:22px;cursor:pointer}
+.costbars{display:flex;flex-direction:column;gap:8px}
+.costbar{display:grid;grid-template-columns:96px 1fr 84px;align-items:center;gap:10px;font-size:14px}
+.costbar i{display:block;height:14px;border-radius:7px;transition:width .35s cubic-bezier(.2,.8,.2,1);min-width:3px}
+.costbar.simpler i{background:var(--aqua)}.costbar.agent i{background:var(--violet)}
+.costbar b{text-align:right;font-variant-numeric:tabular-nums}
+.tryit-out{margin:0;font-size:15px;line-height:1.55;opacity:.92}
+.tryit-out b{color:var(--aqua)}
+/* next steps */
+.next-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;max-width:620px;width:100%}
+.next-card{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:6px;padding:20px 22px;border-radius:22px;color:var(--ink);transition:transform .3s,box-shadow .3s}
+.next-card:hover,.next-card:focus-visible{transform:translateY(-3px);box-shadow:0 0 0 1px var(--violet),0 20px 50px rgba(0,0,0,.4)}
+.next-card b{font-size:18px}.next-card small{font-size:13px;color:var(--muted)}
+/* the drawer holds the plot now */
+.mock5 .drawer .plot-wrap{margin:0}
+/* chat: a small button that opens above the progress bar, never over it */
+.mock5 .chat.closed{width:auto;bottom:22px;right:24px;border-radius:999px}
+.mock5 .chat.closed .chat-head{padding:12px 20px}
+.mock5 .chat.open{bottom:84px}
+@media (max-width:900px){
+  .verdict-word{font-size:64px}
+  .big-numbers{gap:14px}.big-numbers b{font-size:30px}.big-numbers>div{padding-left:10px}
+  .next-cards{grid-template-columns:1fr}
+  .costbar{grid-template-columns:80px 1fr 70px}
+  .mock5 .chat.closed{left:auto;right:12px;bottom:80px}
+  .mock5 .chat.open{left:12px;right:12px;bottom:80px}
+  .mock5 .legend{top:76px;bottom:auto}
+}
+/* constellation legend: star colours */
+.mock5 .legend .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.mock5 .legend .dot.both{background:var(--aqua);box-shadow:0 0 8px var(--aqua)}
+.mock5 .legend .dot.agent{background:var(--coral);box-shadow:0 0 8px var(--coral)}
+.mock5 .legend .dot.simpler{background:var(--violet);box-shadow:0 0 8px var(--violet)}
+/* more air: wider gaps between the parts of a screen */
+.mock5 .scene{gap:22px}
+.mock5 .legend span{display:inline-flex;align-items:center}
+.mock5 .legend i.dot{position:static;flex:none}
+.mock5 .legend i.dot{width:8px !important;height:8px !important;border:0 !important;padding:0;margin:0 6px 0 0}
+@media (max-width:600px){
+  .mock5 .legend{display:none}
+  .mock5 .chat.closed{right:auto;left:12px}
+}
+
+/* ---------- mockup v6 palette: one family around the robot's cyan ---------- */
+.mock5{--ink:#ECF2F7;--muted:#8FA0B3;--aqua:#5CE1E6;--coral:#FF7A6B;--gold:#F2C46D;--violet:#5CE1E6;--panel:rgba(12,20,32,.68)}
+.mock5 .bg-night{background:radial-gradient(110% 80% at 70% 0%,#13243A 0%,#0A1220 45%,#05080F 100%)}
+.mock5.night .glass,.mock5.night .say,.mock5.night .card,.mock5.night .timeline>div,.mock5.night .drawer{background:var(--panel);border-color:rgba(255,255,255,.09);box-shadow:0 24px 60px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.06)}
+.mock5.night .drawer{background:rgba(10,17,28,.94)}
+.mock5.night .chip{border-color:rgba(255,255,255,.14);color:var(--ink);background:rgba(255,255,255,.03);transition:background .25s,border-color .25s,transform .2s}
+.mock5.night .chip:hover{border-color:rgba(92,225,230,.6);background:rgba(92,225,230,.08)}
+.mock5.night .chip.primary,.mock5.night .chip.on{background:var(--aqua);border-color:transparent;color:#05121A;font-weight:600;box-shadow:0 0 24px rgba(92,225,230,.28)}
+.mock5.night .chip.primary:hover{transform:translateY(-1px);box-shadow:0 0 34px rgba(92,225,230,.45)}
+.mock5.night .field input{background:rgba(12,20,32,.6);border-color:rgba(255,255,255,.14)}
+.mock5.night .field input:focus{border-color:var(--aqua);box-shadow:0 0 0 4px rgba(92,225,230,.14),0 0 40px rgba(92,225,230,.12)}
+.mock5.night .eyebrow{color:var(--aqua)}
+.mock5 .race-bar i{background:var(--aqua)}
+.mock5 .verdict-word{background:linear-gradient(180deg,#FFFFFF 30%,#A9EEF0 100%);-webkit-background-clip:text;background-clip:text;filter:drop-shadow(0 0 50px rgba(92,225,230,.22))}
+.mock5 .big-numbers>div{border-left-color:rgba(92,225,230,.35)}
+.mock5 .slider input{accent-color:var(--aqua)}
+.mock5 .costbar.agent i{background:rgba(236,242,247,.45)}
+.mock5 .legend .dot.simpler{background:var(--gold);box-shadow:0 0 8px var(--gold)}
+.mock5 .closeup-rows>div.ok{background:rgba(92,225,230,.08);border-color:rgba(92,225,230,.4)}
+.mock5 .closeup-rows>div.no{background:rgba(255,122,107,.08);border-color:rgba(255,122,107,.45)}
+.mock5 .turn.you{background:rgba(92,225,230,.16)}
+.mock5 .turn.guide{border-color:rgba(255,255,255,.08)}
+.mock5 .next-card:hover,.mock5 .next-card:focus-visible{box-shadow:0 0 0 1px var(--aqua),0 20px 50px rgba(0,0,0,.4)}
+.mock5 .step-no{color:var(--aqua)}
+/* little life: cards tilt toward the pointer, the big answer breathes */
+.mock5 .next-card,.mock5 .big-numbers>div{transition:transform .35s cubic-bezier(.2,.8,.2,1)}
+.mock5 .big-numbers>div:hover{transform:translateY(-4px)}
+@keyframes breathe{50%{filter:drop-shadow(0 0 70px rgba(92,225,230,.32))}}
+.mock5 .in .verdict-word{animation:breathe 5s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.mock5 .in .verdict-word{animation:none}}
+.mock5.night .chip.on:not(.primary){background:rgba(92,225,230,.14);border-color:rgba(92,225,230,.7);color:var(--ink);box-shadow:0 0 18px rgba(92,225,230,.18);font-weight:500}
+.mock5 .costbar.agent i{background:linear-gradient(90deg,rgba(255,122,107,.55),rgba(255,122,107,.85))}
+.mock5 .big-numbers>div:nth-child(2) b{color:var(--aqua);text-shadow:0 0 30px rgba(92,225,230,.3)}
+
+/* ---------- mockup v7 palette: bold and bright ---------- */
+.mock5{--ink:#F4F7FF;--muted:#9AA8C7;--aqua:#22E3F0;--blue:#3B82F6;--coral:#FF4D8D;--gold:#FFC23D;--panel:rgba(8,12,26,.72)}
+.mock5 .bg-night{background:radial-gradient(70% 60% at 62% 50%,#0E2147 0%,#070D1F 45%,#02040A 100%)}
+.mock5.night .glass,.mock5.night .say,.mock5.night .card,.mock5.night .timeline>div{border-color:rgba(34,227,240,.18);box-shadow:0 24px 60px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.07),0 0 30px rgba(59,130,246,.12)}
+.mock5.night .chip.primary{background:linear-gradient(135deg,#22E3F0,#3B82F6);color:#03101C;box-shadow:0 0 26px rgba(34,227,240,.4)}
+.mock5.night .chip.on:not(.primary){background:rgba(34,227,240,.16);border-color:#22E3F0}
+.mock5 .verdict-word{background:linear-gradient(100deg,#FFFFFF 0%,#22E3F0 55%,#3B82F6 100%);-webkit-background-clip:text;background-clip:text}
+.mock5 .race-bar i{background:linear-gradient(90deg,#3B82F6,#22E3F0)}
+.mock5 .race-duel .lead b{color:#22E3F0;text-shadow:0 0 34px rgba(34,227,240,.6)}
+.mock5 .costbar.simpler i{background:linear-gradient(90deg,#3B82F6,#22E3F0)}
+.mock5 .costbar.agent i{background:linear-gradient(90deg,#B4237A,#FF4D8D)}
+.mock5 .closeup-rows>div.no{background:rgba(255,77,141,.12);border-color:rgba(255,77,141,.6)}
+.mock5 .closeup-rows>div.ok{background:rgba(34,227,240,.1);border-color:rgba(34,227,240,.55)}
+.mock5 .big-numbers>div{border-left-color:#3B82F6}
+
+/* ---------- mockup v7 motion: words and parts arrive as you scroll ---------- */
+/* parts inside a screen cascade in after its headline */
+.mock5 .scene:not(#m1) :is(.big-numbers>div,.next-cards>*,.closeup-rows>div,.costbar,.slider,.tryit .chips>*,.race-duel>div,.closeup-nav,.verdict-line,.verdict-hero>.chips,.tryit-out){opacity:0;transform:translateY(22px) scale(.97);filter:blur(6px);transition:opacity .7s cubic-bezier(.2,.8,.2,1),transform .8s cubic-bezier(.2,.9,.2,1.1),filter .7s ease}
+.mock5 .scene.in:not(#m1) :is(.big-numbers>div,.next-cards>*,.closeup-rows>div,.costbar,.slider,.tryit .chips>*,.race-duel>div,.closeup-nav,.verdict-line,.verdict-hero>.chips,.tryit-out){opacity:1;transform:none;filter:none}
+.mock5 .scene.in :is(.big-numbers,.next-cards,.closeup-rows,.costbars,.tryit .chips,.race-duel,.tryit)>*:nth-child(1){transition-delay:.35s}
+.mock5 .scene.in :is(.big-numbers,.next-cards,.closeup-rows,.costbars,.tryit .chips,.race-duel,.tryit)>*:nth-child(2){transition-delay:.47s}
+.mock5 .scene.in :is(.big-numbers,.next-cards,.closeup-rows,.costbars,.tryit .chips,.race-duel,.tryit)>*:nth-child(3){transition-delay:.59s}
+.mock5 .scene.in :is(.big-numbers,.next-cards,.closeup-rows,.costbars,.tryit .chips,.race-duel,.tryit)>*:nth-child(4){transition-delay:.71s}
+.mock5 .scene.in :is(.tryit)>*:nth-child(5){transition-delay:.83s}.mock5 .scene.in :is(.tryit)>*:nth-child(6){transition-delay:.95s}
+.mock5 .scene.in .verdict-line{transition-delay:.55s}.mock5 .scene.in .closeup-nav{transition-delay:.6s}.mock5 .scene.in .verdict-hero>.chips{transition-delay:1.1s}
+/* the answer is revealed by a sweep of light, left to right */
+.mock5 .verdict-word{position:relative;clip-path:inset(0 100% 0 0);transition:clip-path 1.2s cubic-bezier(.7,0,.2,1) .15s}
+.mock5 .in .verdict-word{clip-path:inset(-20% -5% -20% 0)}
+.mock5 .verdict-word::after{content:'';position:absolute;top:0;bottom:0;width:18%;left:-20%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.85),transparent);filter:blur(8px);mix-blend-mode:overlay;opacity:0}
+.mock5 .in .verdict-word::after{animation:sweep 1.4s cubic-bezier(.7,0,.2,1) .15s both}
+@keyframes sweep{0%{left:-20%;opacity:1}100%{left:105%;opacity:0}}
+/* headline words already rise (.w); make them a touch springier here */
+.mock5 .w{transition-duration:.6s,1.1s,.8s}
+@media (prefers-reduced-motion:reduce){
+  .mock5 .scene:not(#m1) :is(.big-numbers>div,.next-cards>*,.closeup-rows>div,.costbar,.slider,.tryit .chips>*,.race-duel>div,.closeup-nav,.verdict-line,.verdict-hero>.chips,.tryit-out){transform:none;filter:none}
+  .mock5 .verdict-word{clip-path:none;transition:none}.mock5 .verdict-word::after{display:none}
+}
+.mock5 .verdict-word::after{content:none;display:none}
+.mock5 .verdict-word{clip-path:inset(-80% 100% -80% -20%)}
+.mock5 .in .verdict-word{clip-path:inset(-80% -40% -80% -20%)}
+
+/* ---------- main page (live): run controls, progress, boot ---------- */
+.run-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:6px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08)}
+.run-row .chips{gap:6px}
+.run-btn{margin-left:auto;font-size:15px;padding:10px 20px}
+.run-error{flex-basis:100%;color:var(--coral,#FF4D8D);font-size:13px}
+.live-progress{display:flex;gap:12px;align-items:center;padding:12px 16px;border-radius:18px;max-width:520px}
+.live-progress b{display:block;font-size:15px}
+.live-progress small{font-size:12px}
+.boot{min-height:100vh;display:flex;align-items:center;justify-content:center;gap:12px;background:#02040A;color:#9AA8C7;font:500 15px 'Space Grotesk',system-ui,sans-serif}
+.boot-dot{width:10px;height:10px;border-radius:50%;background:#22E3F0;box-shadow:0 0 16px #22E3F0;animation:pulse 1.2s ease-in-out infinite}
+/* day: a soft paper sky so the deeper graph colours read */
+.mock5:not(.night) .bg-night{display:block;background:radial-gradient(70% 60% at 62% 50%,#FFFFFF 0%,#F2F6FB 55%,#E6ECF5 100%)}
+.mock5:not(.night) .bg canvas{opacity:.95}
+.mock5:not(.night)[data-scene=m4] .bg canvas,.mock5:not(.night)[data-scene=m5] .bg canvas,.mock5:not(.night)[data-scene=m6] .bg canvas{opacity:.3}
+.mock5:not(.night){--ink:#0E1A2E;--muted:#4D5B73}
+.mock5:not(.night) .verdict-word{background:linear-gradient(100deg,#0E1A2E 0%,#0E7490 60%,#1D4ED8 100%);-webkit-background-clip:text;background-clip:text}
+.mock5:not(.night) .eyebrow,.mock5:not(.night) .step-no{color:#0E7490}
+.mock5:not(.night) .chip.primary{background:linear-gradient(135deg,#0891B2,#1D4ED8);color:#fff}
+.mock5:not(.night) .big-numbers>div:nth-child(2) b,.mock5:not(.night) .race-duel .lead b,.mock5:not(.night) .slider b,.mock5:not(.night) .tryit-out b{color:#0E7490;text-shadow:none}
+.mock5:not(.night) .glass,.mock5:not(.night) .say{background:rgba(255,255,255,.82)}
+.mock5:not(.night) .run-row{border-top-color:rgba(14,26,46,.1)}
+
+/* ---------- main page: use-case cards, own data, own agent ---------- */
+.cases{display:flex;flex-direction:column;gap:12px;max-width:760px;width:100%}
+.cases-q{margin:6px 0 0;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--aqua)}
+.case-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.case{all:unset;box-sizing:border-box;cursor:pointer;position:relative;display:flex;flex-direction:column;gap:5px;padding:14px 15px;border-radius:18px;color:var(--ink);transition:transform .3s cubic-bezier(.2,.8,.2,1),box-shadow .3s,border-color .3s;animation:landnum .6s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i,0) * .06s)}
+.case:hover{transform:translateY(-2px)}
+.case b{font-size:15px}.case small{font-size:12.5px;color:var(--muted);line-height:1.4}
+.case .icon{width:26px;height:26px;color:var(--aqua)}
+.case-meta{font-size:11px;color:var(--muted);margin-top:auto}
+.case.on{border-color:var(--aqua)!important;box-shadow:0 0 0 1px var(--aqua),0 0 30px rgba(34,227,240,.25)!important}
+.case.best{border-color:rgba(34,227,240,.55)!important}
+.case-badge{position:absolute;top:10px;right:10px;font-size:10px;padding:2px 7px;border-radius:999px;background:var(--aqua);color:#03101C}
+.case.extra{border-style:dashed!important}
+.case-plus{font-size:22px;line-height:1;color:var(--aqua)}
+.own{display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:18px;color:var(--ink)}
+.own p{margin:0;font-size:14px;line-height:1.5}
+.own code{font-size:12px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.05)}
+.own-file{display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px;border:1px dashed rgba(34,227,240,.45);border-radius:14px}
+.own-file input{max-width:110px;font-size:12px;color:var(--muted)}
+.own-row{display:flex;align-items:center;gap:10px;font-size:14px}
+.own-row input,.own-phrase input{font:inherit;font-size:14px;padding:7px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);color:inherit;min-width:0}
+.own-row input{flex:1}
+.own-phrase{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px}
+.own-phrase input{width:150px}
+.own-go{display:flex;align-items:center;gap:12px}
+.own-note{color:var(--aqua);font-size:13px}
+.mock5:not(.night) .own-row input,.mock5:not(.night) .own-phrase input{border-color:rgba(14,26,46,.18);background:#fff}
+@media (max-width:900px){.case-grid{grid-template-columns:1fr 1fr}}
+/* screen 5: plain cost questions and the three tiers */
+.ask-q{display:flex;flex-direction:column;gap:8px;font-size:15px}
+.ask-two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.mistake-is{margin:0;font-size:13px;color:var(--muted)}.mistake-is b{color:var(--aqua);font-size:16px}
+.tiers .costbar{grid-template-columns:minmax(150px,1.1fr) 1fr 84px}
+.tiers .costbar span{display:flex;flex-direction:column;font-size:13px}
+.tiers .costbar em{font-style:normal;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.mock5 .costbar.adv i{background:linear-gradient(90deg,#6D5BD0,#A78BFA)}
+.proof{display:inline-block;width:max-content;font-size:12px;padding:5px 11px;border-radius:999px;border:1px solid rgba(255,194,61,.5);color:#FFC23D;background:rgba(255,194,61,.08)}
+.mock5:not(.night) .proof{color:#92600A;border-color:rgba(146,96,10,.4)}
+@media (max-width:900px){.ask-two{grid-template-columns:1fr}.tiers .costbar{grid-template-columns:110px 1fr 70px}}
+
+/* ---------- main page: words built by scrolling (ScrollText.tsx) ---------- */
+.st-tiles{display:flex;flex-wrap:wrap;column-gap:.24em;row-gap:.04em}
+.st-word{display:inline-flex;gap:.03em;white-space:nowrap}
+.st-ch{position:relative;display:inline-block}
+.st-ch i{position:absolute;inset:.08em -.01em .04em;background:linear-gradient(160deg,#1B2B52,#0E1A36);border:1px solid rgba(34,227,240,.25);transform-origin:50% 100%;will-change:transform,opacity}
+.st-ch>span{display:inline-block;will-change:transform,opacity}
+.mock5:not(.night) .st-ch i{background:linear-gradient(160deg,#E3EAF6,#CCD7EA);border-color:rgba(14,116,144,.25)}
+/* the answer: no reveal mask any more; one gradient across the word, each letter its own slice */
+.mock5 .verdict-word.st-tiles,.mock5 .in .verdict-word.st-tiles{clip-path:none;background:none;-webkit-background-clip:border-box;background-clip:border-box;color:var(--ink)}
+.mock5 .verdict-word.grad .st-ch>span{background:linear-gradient(100deg,#fff,#22E3F0 55%,#3B82F6);background-size:calc(var(--n) * .62em) 100%;background-position:calc(var(--i) * -.62em) 0;-webkit-background-clip:text;background-clip:text;color:transparent}
+.mock5:not(.night) .verdict-word.grad .st-ch>span{background-image:linear-gradient(100deg,#0E1A2E,#0E7490 55%,#1D4ED8)}
+.sw .sw-w{display:inline-block;white-space:nowrap}
+.sw .sw-ch{display:inline-block;white-space:pre;will-change:transform,opacity}
+.sr .sr-m{display:inline-block;overflow:hidden;vertical-align:bottom;padding-bottom:.08em}
+.sr .sr-w{display:inline-block;will-change:transform,opacity,filter}
+/* the old reveal rules would fight the scroll: these screens' text is driven by ScrollText now */
+.mock5 .scene:not(#m1) .verdict-line{opacity:1;transform:none;filter:none}
+/* screen 1 grows with its cards, kinds and upload form, so the next screen never covers it */
+.mock5 .scene#m1{height:auto;min-height:100vh;padding-bottom:140px}
+@media (max-width:600px){.proof{width:auto;max-width:100%;white-space:normal}}
+
+/* ---------- main page v9: scroll-built cards and panels, robot boot-up ---------- */
+/* Reveal drives these inline; the older cascade and card pop-in would fight it */
+.mock5 .case{animation:none}
+.mock5 .case-grid>.case,.mock5 .closeup>*,.mock5 .closeup-rows>div,.mock5 .big-numbers>div,.mock5 .next-cards>*,.mock5 .tryit>*,.mock5 .tryit .chips>*,.mock5 .costbar,.mock5 .suggest>*,.mock5 .suggest .chips>*{transition:box-shadow .3s,border-color .3s,background .3s!important;transform:none!important}
+.mock5 .in .closeup{animation:none}
+.mock5 .case-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+.price-q{margin:0;font-size:15px}.price-q small{display:block;font-size:12px;margin-top:2px}
+/* the robot boots once when the page opens: fades up, eyes light, then it lives */
+@keyframes robotboot{0%{opacity:0;scale:.55;filter:brightness(.2) blur(6px)}55%{opacity:1;filter:brightness(1.4) blur(0)}100%{opacity:1;scale:1;filter:none}}
+@keyframes eyesboot{0%,45%{opacity:0}55%{opacity:1}62%{opacity:.2}70%,100%{opacity:1}}
+.mock5 .robot .r-body{animation:robotboot 1.8s cubic-bezier(.2,.8,.2,1) .9s both}
+.mock5 .robot .eyes-open,.mock5 .robot .eyes-happy{animation:eyesboot 2.4s ease .9s both}
+@media (prefers-reduced-motion:reduce){.mock5 .robot .r-body,.mock5 .robot .eyes-open,.mock5 .robot .eyes-happy{animation:none}}
+.mock5 .cases{max-width:820px}
+.mock5 .case-grid{grid-template-columns:repeat(auto-fill,minmax(178px,1fr))}
+.mock5 .case{padding:12px 13px;gap:4px}
+.mock5 .case-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.mock5 .case small{font-size:12px}.mock5 .case b{font-size:14px}
+/* example vs yours, said plainly on every result screen */
+.example-note{display:flex;align-items:center;gap:12px;flex-wrap:wrap;width:max-content;max-width:100%;font-size:12px;padding:6px 8px 6px 14px;border-radius:999px;border:1px dashed rgba(255,194,61,.55);color:#FFC23D;background:rgba(255,194,61,.06)}
+.example-note .chip{min-height:26px;padding:3px 10px;font-size:12px}
+.mock5:not(.night) .example-note{color:#92600A;border-color:rgba(146,96,10,.45)}
+.said{margin:0;font-size:18px}.said b{color:var(--aqua)}
+/* bars grow from zero as their row builds in */
+.mock5 .costbar i{transform-origin:0 50%;transform:scaleX(var(--e,1))}
+
+/* ---------- title screen ---------- */
+.mock5 .title-scene{justify-content:center;gap:18px}
+.mock5 .title-eyebrow{color:var(--aqua)}
+.mock5 .title-word{margin:0;font-size:clamp(72px,12vw,172px);line-height:.95;font-weight:700;letter-spacing:-.05em}
+.mock5 .title-word.grad .st-ch>span{background:linear-gradient(100deg,#fff,#22E3F0 55%,#3B82F6);background-size:calc(var(--n) * .6em) 100%;background-position:calc(var(--i) * -.6em) 0;-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 40px rgba(34,227,240,.25))}
+.mock5:not(.night) .title-word.grad .st-ch>span{background-image:linear-gradient(100deg,#0E1A2E,#0E7490 55%,#1D4ED8)}
+.title-sub{display:flex;flex-direction:column;gap:18px;max-width:640px}
+.title-lead{margin:0;font-size:21px;line-height:1.5;color:var(--ink);opacity:.9}
+.title-steps{display:flex;flex-wrap:wrap;gap:10px;font-size:13px}
+.title-steps span{display:inline-flex;align-items:center;gap:8px;padding:7px 14px 7px 7px;border-radius:999px;border:1px solid rgba(34,227,240,.25);background:rgba(8,12,26,.5)}
+.title-steps b{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--aqua);color:#03101C;font-size:12px}
+.mock5:not(.night) .title-steps span{background:rgba(255,255,255,.8);border-color:rgba(14,116,144,.3)}
+.title-go{width:max-content;font-size:16px;padding:12px 26px}
+/* gradient letters: the scene's text glow would paint over the gradient fill, so it is off here */
+.st-tiles.grad,.st-tiles.grad *{text-shadow:none!important}
+/* room for descenders (g, y, p) inside each gradient letter's own box */
+.st-tiles.grad .st-ch>span{padding-bottom:.12em;margin-bottom:-.12em}
+@media (max-width:600px){.mock5 .title-scene .say{max-width:220px}.mock5 .title-steps span{font-size:12px}}
+
+/* the robot streams the running test's steps */
+.run-steps { margin: 2px 0 10px; }
+.run-steps ol { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 4px; font-size: 0.86rem; line-height: 1.35; }
+.run-steps li { display: flex; gap: 8px; align-items: baseline; color: var(--muted, #9aa6c0); animation: runstep 0.5s ease both; }
+.run-steps li > span { width: 12px; flex: none; color: var(--aqua, #22e3f0); }
+.run-steps li.now { color: var(--ink, #f4f7ff); }
+.run-steps li.now > span::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--aqua, #22e3f0); box-shadow: 0 0 10px var(--aqua, #22e3f0); animation: runpulse 1.1s ease-in-out infinite; }
+.run-steps small { display: block; font-size: 0.72rem; line-height: 1.4; }
+@keyframes runstep { from { opacity: 0; transform: translateY(6px); } }
+@keyframes runpulse { 50% { opacity: 0.35; transform: scale(0.7); } }
+@media (prefers-reduced-motion: reduce) { .run-steps li, .run-steps li.now > span::before { animation: none; } }
+
+/* failed checks say what failed */
+.audit-checks .check-fail { display: block; margin: 2px 0 0 18px; color: #ff4d8d; font-size: 0.72rem; }
+.suggest .link { background: none; border: 0; padding: 0; color: var(--aqua, #22e3f0); cursor: pointer; font: inherit; text-decoration: underline; }
+
+/* nothing sits under the robot or the step bar */
+/* short laptop windows: tighter screens so the last line clears the step bar */
+@media (min-width:901px) and (max-height:780px){
+  .mock5 .scene{padding-top:64px;padding-bottom:104px;gap:14px}
+  .mock5 .scene .mid{font-size:clamp(28px,4.4vh,40px)}
+  .mock5 .verdict-word{font-size:clamp(56px,11vh,96px)}
+  .mock5 .big-numbers b{font-size:clamp(28px,5vh,40px)}
+  .mock5 .tryit{padding:16px 20px}
+  .mock5 .tryit .slider{margin:2px 0}
+}
+/* tablet widths: the robot keeps its own lane beside the content */
+@media (min-width:601px) and (max-width:900px){
+  .mock5 .scene.robot-right,.mock5 .scene.robot-left{padding-left:24px;padding-right:262px}
+  .mock5 .say{max-width:230px}
+}
+/* the full list of kinds scrolls inside its card; the kinds screen grows with its card */
+.mock5 .suggest .chips.all-kinds{max-height:min(34vh,300px);overflow-y:auto;padding:4px 6px 4px 0;overscroll-behavior:contain}
+.mock5 .scene#m1b{height:auto;min-height:100vh}
+.audit-checks .check-fail.noted{color:#ffc23d}
+
+/* bring your agent: what three practice messages got back */
+.agent-tries{display:grid;gap:4px;font-size:.78rem;line-height:1.4;margin-top:4px}
+.agent-tries>div{display:flex;gap:6px;align-items:baseline}
+.agent-tries .ok>span{color:var(--aqua,#22e3f0)}
+.agent-tries .no>span{color:#ff4d8d}
+.agent-form code{white-space:normal;word-break:break-word}
+
+/* the robot never blocks the page: its body is decoration, only its bubble's buttons take clicks */
+.robot.alive .r-body,.robot svg{pointer-events:none !important}
+.say{pointer-events:none}
+.say :is(a,button,.chips){pointer-events:auto}
+/* phones: a smaller bubble covers less of the screen (a docked robot is the owner's call) */
+@media (max-width:600px){
+  .mock5 .say{width:200px;font-size:14px;line-height:1.4;padding:10px 12px;border-radius:16px}
+  .mock5 .say-line{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .mock5 .say .chip{padding:6px 10px;font-size:12px}
+  .mock5 .say .run-steps ol{font-size:.74rem}
+}
+
+/* phones: the robot docks as a small icon above the step bar; tap it to open its bubble */
+@media (max-width:600px){
+  .mock5 .robot{width:58px;transform:translateX(calc(100vw - 74px))}
+  .mock5 .r-fly-y{transform:translateY(calc(100vh - 168px))}
+  .mock5 .robot.alive .r-body,.mock5 .robot .r-body svg{pointer-events:auto !important;cursor:pointer}
+  .mock5 .robot .say{display:none}
+  .mock5 .robot.open .say{display:block;pointer-events:auto;width:min(300px,calc(100vw - 32px));right:0 !important;left:auto !important;max-height:none !important;overflow:visible}
+  .mock5 .robot.open .say-line{-webkit-line-clamp:unset;display:block}
+  .mock5 .robot .say::after{right:18px !important}
+  .mock5 .robot .r-body{position:relative}
+  .mock5 .robot.fresh .r-body::after{content:'';position:absolute;top:2px;right:2px;width:12px;height:12px;border-radius:50%;background:var(--aqua,#22e3f0);box-shadow:0 0 0 3px rgba(4,8,20,.9),0 0 12px var(--aqua,#22e3f0);animation:runpulse 1.2s ease-in-out infinite}
+}
+@media (max-width:600px) and (prefers-reduced-motion:reduce){.mock5 .robot.fresh .r-body::after{animation:none}}
+
+/* screen 2: the "same place" tickbox and the time estimate */
+.route-pick{display:flex;gap:8px;align-items:flex-start;font-size:.86rem;line-height:1.4;cursor:pointer;flex-basis:100%}
+.route-pick input{margin-top:3px;accent-color:var(--aqua,#22e3f0)}
+.estimate{flex-basis:100%}
+
+/* who the agent is, said where it races */
+.race-duel .who{display:block;font-size:.68rem;letter-spacing:0;text-transform:none;margin-top:2px}
+.agent-note{font-size:1rem;max-width:640px}

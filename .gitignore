@@ -26,3 +26,16 @@ sources/
 
 # Per-scenario rehearsals
 results/*/rehearsal/
+
+# Browser automation logs (Playwright MCP)
+.playwright-mcp/
+
+# Kept on this computer, not published (owner decision 2026-11-13)
+# Emotion (dair-ai/emotion) DEV rows: its card says research and educational use; build locally
+data/emotion/
+# personal planning notes and research
+docs/STARTUP_IDEA.md
+docs/LAUNCH_PLAN.md
+docs/CANDIDATE_TASKS.md
+reports/
+research_notes/

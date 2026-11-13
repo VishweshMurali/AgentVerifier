@@ -49,6 +49,36 @@ Both are in files frozen under `arms-frozen`, so the Banking77 sealed run used t
 6. Per-segment results: by intent or difficulty, not one overall number.
 7. Monitoring: rerun the checks on live traffic (e.g. LangSmith) and alert when the decision flips.
 
+## Datasets as plug-ins (user's request, 2026-11-06)
+Goal: plug and play. Any labelled dataset becomes a scenario without touching core code; a set of
+default datasets ships ready to run. Today Banking77 is hard-wired (`data.load_banking77()`,
+`schemas.py` `task: Literal["banking77"]`), so this comes first in the harness work.
+
+A scenario plug-in declares:
+- a loader (Hugging Face name, or a local `cases.jsonl` / CSV with `text` and `label` columns);
+- the label set (and optional label definitions for the agent's tool);
+- a plain-code scorer by name (`exact_label` now; `execution_match`, `schema_valid` later);
+- its own prereg file (metric, minimum gap, cost ranges, price tables) and split seed;
+- its own sealed split, hash and seal guard, built the same way as Banking77's.
+
+Bring your own data: `verify --data my_cases.jsonl` uses the same interface. Input checks run
+first: required columns, label counts, duplicates and near-copies, and whether the number of
+cases is enough for the minimum gap (from the power analysis).
+
+Default datasets (details and fit checks in `docs/CANDIDATE_TASKS.md`):
+
+| Dataset | Task | Scorer | Status |
+|---|---|---|---|
+| Banking77 | intent routing, 77 labels | exact label | v1 done; becomes default scenario 1 |
+| CLINC150 | intents + out-of-scope | exact label | next; tests "I don't know" handling |
+| Spider | text-to-SQL | execution match | needs the execution scorer |
+| BIRD-SQL | text-to-SQL, messy schemas | execution match | after Spider |
+| Bitext support | support tickets | exact label | demo only: machine-generated, SYNTHETIC evidence |
+| CoNLL-2003 / Few-NERD, MAVEN | extraction | span F1 | later: needs a per-case right/wrong rule (locked decision) |
+
+Rules that stay: deterministic scoring and deciding; a scenario without a plain-code scorer is
+INVALID; each scenario's test set is sealed and its prereg committed before unsealing.
+
 ## Cost monitoring with LangSmith and Langfuse (user's idea, 2026-11-05)
 Goal: every model call's tokens and cost are captured automatically and shown on a dashboard and
 on the page, without the user setting anything up.

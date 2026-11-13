@@ -25,6 +25,12 @@ Banking77 is the first task and proves the method.
   sized by exact McNemar power at a gap the user chooses (planning disagreement 20%); the simpler model to beat is the
   best free model on tune; the DEV-score check is skipped; early stopping and use-case scoping apply to quick tests
   only. The sealed run stays fixed-sample.
+  Bring your agent, same-place scoring and saved models (approved 2026-11-12, quick tests only): the agent slot defaults
+  to the reference agent (llama3.1:8b, Ollama), or the user's own over HTTP (`external.py`; only the dataset's labels or
+  not_mine count; a dead agent stops the run; its cost is the user's stated price). Optionally the picked kinds are
+  scored as one route (two or more, not all; every arm alike; recorded in plan.json). Free models are saved and reused
+  (`model_cache.py`) only when the training data, arms code and sklearn version are identical. The sealed run uses none
+  of these.
 - Null is a flag for low-confidence cases (the lowest 10% on tune), not a score. All arms answer them, and accuracy on those cases is reported per arm.
 - Agent rules: a no-tool answer is sent back once, the last call must answer, a malformed tool call scores wrong. Maximum 4 model calls per case.
 - No RAG for now. `search` stays a single swappable tool.
@@ -77,6 +83,8 @@ src/agent_committee/
   decision.py    decision engine: verdict rules, break-even, VerdictJSON
   runner.py      Phase D runner, the ONLY sealed-test reader; `--rehearse` runs it on DEV instead
   quick.py       quick exploratory test on a DEV sample sized from the user's gap (never opens TEST)
+  external.py    the user's own agent over HTTP for quick tests (stdlib only; outside the frozen arms)
+  model_cache.py saved free models for quick tests (cache/quick-models, keyed by data + code + sklearn)
   report.py      results/report.html from verdict.json (templates/report.html.j2)
   arms/          base protocol, config, splits, labels, linear (shared layer + arm 1), prompt, agent, tools, evaluate,
                  classic (majority, Naive Bayes, linear SVM, random forest, boosting rungs), cascade (derived from linear + agent; report-only)

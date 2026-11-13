@@ -7,3 +7,4 @@ sealed
 cache
 results
 sources
+.playwright-mcp

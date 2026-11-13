@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Word loading samples</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#F4F7FF;--muted:#9AA8C7;--aqua:#22E3F0;--blue:#3B82F6;--pink:#FF4D8D;--bg:#02040A}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif}
+  body{background:radial-gradient(70% 60% at 62% 30%,#0E2147 0%,#070D1F 45%,#02040A 100%) fixed}
+  /* every sample is 3 screens tall; its words stay pinned mid-screen and are built by your scrolling */
+  section{position:relative;height:300vh;padding:0 8vw}
+  .pin{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;justify-content:center}
+  .tag{font:500 12px 'JetBrains Mono',monospace;letter-spacing:.18em;text-transform:uppercase;color:var(--aqua);margin-bottom:22px}
+  .tag b{display:inline-block;background:var(--aqua);color:#02040A;border-radius:6px;padding:2px 8px;margin-right:10px;letter-spacing:0}
+  .note{font:500 13px 'JetBrains Mono',monospace;color:var(--muted);margin-top:28px;max-width:640px;line-height:1.6}
+  .hint{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);font:500 12px 'JetBrains Mono',monospace;color:var(--muted);background:rgba(8,12,26,.7);border:1px solid rgba(34,227,240,.2);padding:8px 14px;border-radius:999px;z-index:5}
+  .bar{position:fixed;left:0;top:0;height:3px;background:linear-gradient(90deg,var(--blue),var(--aqua));width:0;z-index:6}
+
+  /* A: rounded blocks that fold into letters */
+  .tiles{font-weight:700;font-size:clamp(56px,11vw,150px);line-height:1.05;letter-spacing:-.04em;display:flex;flex-wrap:wrap;column-gap:.26em;row-gap:.06em}
+  .tiles .tw{display:inline-flex;gap:.04em;white-space:nowrap}
+  .tiles .ch{position:relative;display:inline-block;will-change:transform,opacity}
+  .tiles .ch i{position:absolute;inset:.06em -.01em .02em;background:linear-gradient(160deg,#1B2B52,#0E1A36);border:1px solid rgba(34,227,240,.25);transform-origin:50% 100%;will-change:transform,opacity}
+  .tiles .ch span{display:inline-block;will-change:transform,opacity}
+  .tiles.grad .ch span{background:linear-gradient(100deg,#fff,#22E3F0 55%,#3B82F6);background-size:calc(var(--n) * .62em) 100%;background-position:calc(var(--i) * -.62em) 0;-webkit-background-clip:text;background-clip:text;color:transparent}
+
+  /* B: written as you scroll, with a soft tail */
+  .write{font-size:clamp(26px,3.6vw,46px);line-height:1.25;max-width:980px;font-weight:400}
+  .write .ch{display:inline-block;will-change:transform,opacity;white-space:pre}
+  .write .w{display:inline-block;white-space:nowrap}
+
+  /* C: words rising out of a mask, now also built by scrolling */
+  .rise{font-weight:600;font-size:clamp(40px,6vw,80px);line-height:1.08;letter-spacing:-.02em}
+  .rise .m{display:inline-block;overflow:hidden;vertical-align:bottom;padding-bottom:.08em}
+  .rise .w{display:inline-block;will-change:transform,opacity,filter}
+
+  .duo .write{font-size:clamp(20px,2.4vw,28px);margin-top:26px;max-width:760px;color:#D6DEF0}
+</style>
+</head>
+<body>
+<div class="bar"></div>
+<div class="hint">Sample · scroll slowly · the words are built by your scrolling, and un-built when you scroll back</div>
+
+<section id="a"><div class="pin">
+  <div class="tag"><b>A</b>Blocks fold into letters</div>
+  <div class="tiles" data-text="What does your agent do?"></div>
+  <p class="note">Each letter starts as a rounded block. As you scroll, the blocks fold away one by one and the letters rise out of them.</p>
+</div></section>
+
+<section id="b"><div class="pin">
+  <div class="tag"><b>B</b>Written as you scroll</div>
+  <p class="write" data-text="We race your agent against simpler models on your own messages, then tell you, in plain numbers, whether it is worth what it costs."></p>
+  <p class="note">Letters are written left to right by your scrolling; the newest ones are faint, low and tilted, like a pen with a long tail.</p>
+</div></section>
+
+<section id="c"><div class="pin">
+  <div class="tag"><b>C</b>Words rise out of a mask</div>
+  <div class="rise" data-text="Every message, checked."></div>
+  <p class="note">Today's style, but built by scrolling instead of a timer.</p>
+</div></section>
+
+<section id="d" class="duo"><div class="pin">
+  <div class="tag"><b>D</b>Together · the answer screen</div>
+  <div class="tiles grad" data-text="Use Linear"></div>
+  <p class="write" data-text="Your agent is as good on your messages, but it wrongly takes 14% of messages that aren't yours. Linear takes none, and costs $28,127 less a month."></p>
+  <p class="note">The answer folds in first (A), then the reason is written under it (B).</p>
+</div></section>
+<div style="height:40vh"></div>
+
+<script>
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+  const ease = (t) => t * t * (3 - 2 * t);
+  const SHAPES = ['42% 42% 8% 8% / 50% 50% 8% 8%', '8% 8% 42% 42% / 8% 8% 50% 50%', '10%', '50%', '8% 42% 42% 8% / 8% 50% 50% 8%'];
+
+  // build the letters (screen readers get the whole sentence, not single letters)
+  const tiles = [...document.querySelectorAll('.tiles')].map((el) => {
+    el.setAttribute('aria-label', el.dataset.text);
+    const chars = [];
+    const n = el.dataset.text.length;
+    let i = 0;
+    el.dataset.text.split(' ').forEach((word) => {
+      const w = document.createElement('span'); w.className = 'tw'; w.setAttribute('aria-hidden', 'true');
+      [...word].forEach((c) => {
+        const ch = document.createElement('span'); ch.className = 'ch';
+        const tile = document.createElement('i'); tile.style.borderRadius = SHAPES[(i * 7 + 3) % SHAPES.length];
+        const t = document.createElement('span'); t.textContent = c;
+        t.style.setProperty('--i', i); t.style.setProperty('--n', n);
+        ch.append(tile, t); w.appendChild(ch); chars.push({ tile, t }); i++;
+      });
+      el.appendChild(w); i++;
+    });
+    return { el, chars };
+  });
+  const writers = [...document.querySelectorAll('.write')].map((el) => {
+    el.setAttribute('aria-label', el.dataset.text);
+    const chars = [];
+    el.dataset.text.split(' ').forEach((word, wi, all) => {
+      const w = document.createElement('span'); w.className = 'w'; w.setAttribute('aria-hidden', 'true');
+      [...word + (wi < all.length - 1 ? ' ' : '')].forEach((c) => {
+        const s = document.createElement('span'); s.className = 'ch'; s.textContent = c; w.appendChild(s); chars.push(s);
+      });
+      el.appendChild(w);
+    });
+    return { el, chars };
+  });
+  const risers = [...document.querySelectorAll('.rise')].map((el) => {
+    el.setAttribute('aria-label', el.dataset.text);
+    const words = el.dataset.text.split(' ').map((w) => {
+      const m = document.createElement('span'); m.className = 'm'; m.setAttribute('aria-hidden', 'true');
+      const s = document.createElement('span'); s.className = 'w'; s.textContent = w;
+      m.appendChild(s); el.appendChild(m); el.appendChild(document.createTextNode(' '));
+      return s;
+    });
+    return { el, words };
+  });
+
+  // a section's progress: 0 when it pins, 1 when it is about to unpin; eased with a slow glide
+  const progress = new Map();
+  const sectionP = (el) => {
+    const sec = el.closest('section');
+    const r = sec.getBoundingClientRect();
+    const span = Math.max(1, r.height - innerHeight);
+    // the first sample starts a little built, so the page is never blank on arrival
+    const start = sec.id === 'a' ? 0.08 : 0;
+    return still ? 1 : clamp(start + (-r.top / span) * 1.08, 0, 1);
+  };
+  const glide = (key, target) => {
+    const v = (progress.get(key) ?? 0) + (target - (progress.get(key) ?? 0)) * 0.045;
+    progress.set(key, v);
+    return v;
+  };
+  // the part of a section's scroll each effect uses (on D the answer comes first, then the reason)
+  const window_ = (el, p) => {
+    if (!el.closest('.duo')) return p;
+    return el.classList.contains('tiles') ? clamp(p / 0.4, 0, 1) : clamp((p - 0.35) / 0.65, 0, 1);
+  };
+
+  function frame() {
+    tiles.forEach((tl, k) => {
+      const p = window_(tl.el, glide('t' + k, sectionP(tl.el)));
+      const n = tl.chars.length, TAIL = 5, head = p * (n + TAIL);
+      tl.chars.forEach(({ tile, t }, i) => {
+        const e = ease(clamp((head - i) / TAIL, 0, 1));
+        tile.style.transform = `scaleY(${(1 - e).toFixed(3)})`;
+        tile.style.opacity = (1 - e).toFixed(3);
+        t.style.opacity = e.toFixed(3);
+        t.style.transform = `translateY(${((1 - e) * 0.35).toFixed(3)}em)`;
+      });
+    });
+    writers.forEach((wr, k) => {
+      const p = window_(wr.el, glide('w' + k, sectionP(wr.el)));
+      const n = wr.chars.length, TAIL = 40, head = p * (n + TAIL);
+      wr.chars.forEach((s, i) => {
+        const e = ease(clamp((head - i) / TAIL, 0, 1));
+        s.style.opacity = (0.05 + 0.95 * e).toFixed(3);
+        s.style.transform = `translateY(${((1 - e) * 0.5).toFixed(3)}em) rotate(${((1 - e) * 10).toFixed(2)}deg)`;
+        s.style.color = e < 0.98 ? `rgba(34,227,240,${(0.3 + 0.7 * e).toFixed(2)})` : '';
+      });
+    });
+    risers.forEach((rs, k) => {
+      const p = glide('r' + k, sectionP(rs.el));
+      const n = rs.words.length, TAIL = 1.4, head = p * (n + TAIL);
+      rs.words.forEach((w, i) => {
+        const e = ease(clamp((head - i) / TAIL, 0, 1));
+        w.style.opacity = e.toFixed(3);
+        w.style.transform = `translateY(${((1 - e) * 110).toFixed(1)}%) rotate(${((1 - e) * 6).toFixed(2)}deg)`;
+        w.style.filter = `blur(${((1 - e) * 8).toFixed(1)}px)`;
+      });
+    });
+    const doc = document.documentElement;
+    document.querySelector('.bar').style.width = (100 * scrollY / Math.max(1, doc.scrollHeight - innerHeight)) + '%';
+    requestAnimationFrame(frame);
+  }
+  frame();
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 // background with its readout. All driven by JavaScript so they work on every browser.
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { prefersReducedMotion } from '../motion/flight.ts';
-import { startRibbon, type Flyer, type Lane } from '../motion/ribbon.ts';
+import { startRibbon, type Beats, type Flyer, type Lane } from '../motion/ribbon.ts';
 
 /** A headline split into words that rise out of a mask one after another (see .wm and .w in styles.css). */
 export function Words({ text, now = false }: { text: string; now?: boolean }) {
@@ -26,11 +26,12 @@ export function Words({ text, now = false }: { text: string; now?: boolean }) {
 const GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 /** A small label that decodes left to right from random characters each time `run` turns true. */
-export function Decode({ text, run, className = '' }: { text: string; run: boolean; className?: string }) {
+export function Decode({ text, run, className = '', instantWhenStill = false }: { text: string; run: boolean; className?: string; instantWhenStill?: boolean }) {
   const still = prefersReducedMotion();
   const [shown, setShown] = useState(text);
   useEffect(() => {
-    if (!run) {
+    // opt-in (mockup): under reduced motion the label is simply shown, never half-decoded
+    if (!run || (still && instantWhenStill)) {
       setShown(text);
       return;
     }
@@ -51,7 +52,7 @@ export function Decode({ text, run, className = '' }: { text: string; run: boole
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [run, text, still]);
+  }, [run, text, still, instantWhenStill]);
   return (
     <span className={className} aria-label={text}>
       <span aria-hidden="true">{shown}</span>
@@ -99,10 +100,12 @@ interface BackgroundProps {
   sceneCount: number;
   night: boolean;
   flyer: () => Flyer | null;
+  /** Scene positions of the ribbon's beats; the 9-scene story's when left out. */
+  beats?: Beats;
 }
 
 /** The dotted-ribbon canvas, the reveal's corner brackets and the bottom-left readout. */
-export function Background({ lanes, revealDirection, nCases, sourceLabel, sceneCount, night, flyer }: BackgroundProps) {
+export function Background({ lanes, revealDirection, nCases, sourceLabel, sceneCount, night, flyer, beats }: BackgroundProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const hudCase = useRef<HTMLElement>(null);
   const hudScene = useRef<HTMLElement>(null);
@@ -117,13 +120,14 @@ export function Background({ lanes, revealDirection, nCases, sourceLabel, sceneC
       lanes,
       revealDirection,
       nCases,
+      beats,
       still: prefersReducedMotion(),
       isNight: () => nightRef.current,
       flyer: () => flyerRef.current(),
       hudCase: hudCase.current,
       hudScene: hudScene.current,
     });
-  }, [lanes, revealDirection, nCases]);
+  }, [lanes, revealDirection, nCases, beats]);
 
   return (
     <>

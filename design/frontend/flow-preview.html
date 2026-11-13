@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flow preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#253031;--teal:#1F6E73;--bright:#2FB5BB;--grey:#8FA3A4;--eye:#5CE1E6;--line:rgba(31,110,115,.18);--bg:#EEF5F5}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:'Space Grotesk',sans-serif;color:var(--ink);background:var(--bg);overflow-x:hidden}
+#dots{position:fixed;inset:0;z-index:0;pointer-events:none}
+.mono{font-family:'JetBrains Mono',monospace}
+header{position:fixed;top:0;left:0;right:0;z-index:5;display:flex;justify-content:space-between;align-items:center;padding:14px 22px}
+.pillbox{background:rgba(255,255,255,.7);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.8);border-radius:99px;padding:8px 14px;font-size:13px}
+.brand{font-weight:700}.brand i{color:var(--bright);font-style:normal}
+.scene{position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;padding:90px 6vw 110px}
+.scene.r{padding-right:34vw}.scene.l{padding-left:34vw}
+.glass{width:100%;background:rgba(255,255,255,.58);backdrop-filter:blur(18px) saturate(1.5);border:1px solid rgba(255,255,255,.75);box-shadow:0 18px 50px rgba(37,48,49,.10),inset 0 1px 0 rgba(255,255,255,.85),0 0 0 1px rgba(31,110,115,.10),0 0 30px rgba(47,181,187,.12);border-radius:22px;padding:30px}
+.plain{width:100%}
+.eyebrow{font-family:'JetBrains Mono';font-size:12px;letter-spacing:.14em;color:var(--teal);text-transform:uppercase}
+h1{font-size:clamp(38px,6vw,84px);line-height:1;margin:10px 0 14px;letter-spacing:-.03em}
+h2{font-size:clamp(30px,4vw,56px);line-height:1.05;margin:8px 0 12px;letter-spacing:-.02em}
+p.lead{font-size:clamp(17px,1.6vw,22px);color:#4a5a5b;margin:0 0 18px;max-width:46ch}
+.rise{opacity:0;transform:translateY(24px);transition:opacity .8s,transform .8s}
+.in .rise{opacity:1;transform:none}
+.in .rise:nth-child(2){transition-delay:.08s}.in .rise:nth-child(3){transition-delay:.16s}.in .rise:nth-child(4){transition-delay:.24s}
+input[type=text],input[type=number],select{font:inherit;font-size:18px;padding:13px 15px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.85);width:100%;color:var(--ink)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.card{border:1px solid var(--line);border-radius:16px;padding:16px;background:rgba(255,255,255,.6);cursor:pointer}
+.card:hover{border-color:var(--bright)}
+.card.sel{box-shadow:0 0 0 2px var(--teal) inset;border-color:var(--teal)}
+.card h3{margin:0 0 6px;font-size:17px}.card p{margin:0;font-size:14px;color:#56696a}
+.tag{display:inline-block;margin-top:10px;font-family:'JetBrains Mono';font-size:11px;padding:3px 8px;border-radius:99px;background:#e2f0f0;color:var(--teal)}
+.tag.warn{background:#eceff0;color:#5d6d6e}
+.chips{display:flex;flex-wrap:wrap;gap:6px;max-height:230px;overflow:auto;padding:4px;margin-top:10px}
+.chip{font-family:'JetBrains Mono';font-size:12px;padding:6px 10px;border-radius:99px;border:1px solid var(--line);background:#fff;cursor:pointer}
+.chip.sel{background:var(--teal);color:#fff;border-color:var(--teal)}
+.models{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.model{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:14px;padding:12px;background:rgba(255,255,255,.6);cursor:pointer}
+.model input{margin-top:4px;accent-color:var(--teal)}
+.model small{display:block;color:var(--grey);font-size:12px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+label.f{font-size:14px;color:#4a5a5b}label.f span{display:block;margin-bottom:6px}
+.calc{margin-top:14px;padding:14px 16px;border-radius:14px;background:rgba(226,240,240,.9);font-size:17px}
+.calc b{font-size:24px}
+.why{font-size:13px;color:#7a8b8c}
+a{color:var(--teal)}
+button{font:inherit;font-weight:600;font-size:16px;border-radius:99px;padding:12px 22px;border:0;cursor:pointer}
+.primary{background:var(--teal);color:#fff}.primary:disabled{background:#c5d3d4;cursor:not-allowed}
+.ghost{background:rgba(255,255,255,.7);color:var(--teal);border:1px solid var(--line)}
+.gapopts{display:flex;gap:8px;flex-wrap:wrap}
+.gapopts button{background:#fff;border:1px solid var(--line);color:var(--ink);font-weight:500}
+.gapopts button.sel{background:var(--teal);color:#fff}
+.big{font-size:clamp(60px,10vw,150px);font-weight:700;letter-spacing:-.04em;line-height:1}
+.looks{display:flex;gap:8px;margin:18px 0 8px;max-width:520px}
+.looks div{flex:1;height:12px;border-radius:99px;background:#dbe7e7;transition:background .4s}
+.looks div.d{background:var(--teal)}.looks div.s{background:#cfe0e0;opacity:.5}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:15px}
+td,th{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line)}
+th{font-family:'JetBrains Mono';font-size:11px;letter-spacing:.08em;color:var(--grey);font-weight:500}
+tr.win td{font-weight:600;color:var(--teal)}
+.bars{display:grid;gap:12px;margin-top:8px;max-width:560px}
+.bars .b{display:grid;grid-template-columns:130px 1fr 60px;align-items:center;gap:10px;font-size:15px}
+.bars .t{height:14px;border-radius:99px;background:#dbe7e7;overflow:hidden}
+.bars .t i{display:block;height:100%;width:0;border-radius:99px;background:var(--teal);transition:width 1.2s}
+.bars .agent i{background:var(--ink)}
+.stamp{display:inline-block;font-family:'JetBrains Mono';font-size:11px;padding:4px 10px;border-radius:99px;background:var(--ink);color:#fff;letter-spacing:.08em}
+.locked{opacity:.4;pointer-events:none;filter:grayscale(.4)}
+.locknote{font-family:'JetBrains Mono';font-size:12px;color:var(--teal);margin-bottom:10px}
+details{margin-top:14px;font-size:14px;color:#4a5a5b}
+/* robot */
+#bot{position:fixed;z-index:4;width:120px;height:150px;top:50%;transition:left 1.1s cubic-bezier(.5,-0.3,.3,1.4),top 1.1s cubic-bezier(.5,-0.3,.3,1.4);pointer-events:none}
+#bot .body{position:absolute;inset:30px 18px 10px;border-radius:44% 44% 40% 40%;background:radial-gradient(circle at 35% 25%,#fff,#e9eef0 60%,#cfd8da);box-shadow:0 10px 30px rgba(37,48,49,.18)}
+#bot .visor{position:absolute;left:28px;right:28px;top:48px;height:40px;border-radius:20px;background:#1b2526;display:flex;justify-content:center;gap:16px;align-items:center}
+#bot .eye{width:12px;height:12px;border-radius:50%;background:var(--eye);box-shadow:0 0 10px var(--eye);animation:blink 4s infinite}
+#bot .ant{position:absolute;left:58px;top:6px;width:4px;height:26px;background:#cfd8da;border-radius:2px}
+#bot .ant:after{content:'';position:absolute;left:-5px;top:-8px;width:14px;height:14px;border-radius:50%;background:var(--bright);box-shadow:0 0 14px var(--bright);animation:pulse 2s infinite}
+#bot .float{position:absolute;inset:0;animation:hover 3s ease-in-out infinite}
+#bot .shadow{position:absolute;left:30px;right:30px;bottom:-14px;height:10px;border-radius:50%;background:rgba(37,48,49,.15);filter:blur(3px)}
+#say{position:fixed;z-index:4;max-width:260px;background:rgba(255,255,255,.92);border:1px solid rgba(255,255,255,.9);box-shadow:0 10px 30px rgba(37,48,49,.12);border-radius:16px;padding:12px 14px;font-size:15px;transition:opacity .3s,left 1.1s cubic-bezier(.5,-0.3,.3,1.4),top 1.1s}
+#say.fly{opacity:0}
+@keyframes hover{50%{transform:translateY(-10px) rotate(-2deg)}}
+@keyframes blink{0%,94%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}
+@keyframes pulse{50%{opacity:.5}}
+/* timeline */
+.timeline{position:fixed;z-index:5;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.75);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.85);border-radius:99px;padding:10px 16px;box-shadow:0 8px 24px rgba(37,48,49,.1)}
+.timeline a{display:block;width:22px;height:3px;border-radius:2px;background:#c9d8d8}
+.timeline a.on{background:var(--teal);width:36px}
+.timeline span{font-size:12px;margin-left:6px;min-width:110px}
+.banner{position:fixed;z-index:6;top:60px;left:50%;transform:translateX(-50%);font-size:12px;padding:6px 12px;border-radius:99px;background:#fff7e0;color:#5c4a12;border:1px solid #f0dfa6;white-space:nowrap}
+.modal{position:fixed;inset:0;z-index:10;background:rgba(37,48,49,.35);display:flex;align-items:center;justify-content:center;padding:16px}
+.modal[hidden]{display:none}
+.modal .glass{max-width:460px;background:rgba(255,255,255,.96)}
+.btnrow{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;align-items:center}
+@media(max-width:760px){.scene.r,.scene.l{padding:80px 16px 110px}#bot{left:auto!important;right:8px;top:auto!important;bottom:70px;transform:scale(.55);transform-origin:bottom right}#say{display:none}.banner{white-space:normal;width:90%;text-align:center}.timeline span{display:none}}
+</style>
+</head>
+<body>
+<canvas id="dots"></canvas>
+<header><span class="pillbox brand">Agent Verifier<i>.</i></span><span class="pillbox mono">● Ollama on · llama3.1:8b</span></header>
+<div class="banner">Preview: simplified robot and background. The real build reuses today's robot and dotted ribbon.</div>
+
+<!-- 1 -->
+<section class="scene r" data-name="Your agent" data-say="Hi! Tell me what your agent does. I'll race it against simpler models.">
+  <div class="plain">
+    <span class="eyebrow rise">Scene 1 · Your agent</span>
+    <h1 class="rise">Do you really need an AI agent?</h1>
+    <p class="lead rise">Find out in minutes, on your own use case. Start by saying what your agent does.</p>
+    <div class="rise" style="max-width:640px"><input type="text" id="desc" placeholder="for example: tells customers where their new card is"></div>
+  </div>
+</section>
+<!-- 2 -->
+<section class="scene l" data-name="Use case" data-say="Which of these looks most like your agent's job?">
+  <div class="glass">
+    <span class="eyebrow rise">Scene 2 · Use case</span>
+    <h2 class="rise">Pick the closest use case</h2>
+    <div class="cards rise" id="cases"></div>
+  </div>
+</section>
+<!-- 3 -->
+<section class="scene r" data-name="Scope" data-say="Which messages are your agent's? Everything else counts as 'not mine'.">
+  <div class="glass">
+    <span class="eyebrow rise">Scene 3 · Scope</span>
+    <h2 class="rise">Which messages should it handle?</h2>
+    <div class="rise">
+      <div class="locknote" id="lock3">Pick a use case above first.</div>
+      <div id="scope3">
+        <input type="text" id="find" placeholder="Search labels… try 'card'">
+        <div class="why" style="margin-top:8px"><span id="nsel">0</span> picked · <a href="#" id="all">all of them (no scoping)</a> · <a href="#" id="none">clear</a></div>
+        <div class="chips" id="labels"></div>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- 4 -->
+<section class="scene l" data-name="Contenders" data-say="Who races? Your agent, plus at least one free model to beat.">
+  <div class="glass">
+    <span class="eyebrow rise">Scene 4 · Contenders</span>
+    <h2 class="rise">Who races your agent?</h2>
+    <p class="lead rise">Free models run locally and cost $0. The AI ones cost per message.</p>
+    <div class="models rise" id="models"></div>
+  </div>
+</section>
+<!-- 5 -->
+<section class="scene r" data-name="Fair test" data-say="How big a win would make the agent worth it? Smaller wins need longer tests.">
+  <div class="glass">
+    <span class="eyebrow rise">Scene 5 · Fair test</span>
+    <h2 class="rise">How big a gain matters?</h2>
+    <p class="lead rise">The rules are fixed before the test starts, so nobody can move the goalposts.</p>
+    <div class="gapopts rise" id="gaps"></div>
+    <div class="calc rise" id="size">Pick a gain to see the test size.</div>
+  </div>
+</section>
+<!-- 6 -->
+<section class="scene l" data-name="Your costs" data-say="Now the money. What does one wrong answer cost you?">
+  <div class="glass">
+    <span class="eyebrow rise">Scene 6 · Your costs</span>
+    <h2 class="rise">What does a mistake cost you?</h2>
+    <div class="row rise">
+      <label class="f"><span>Messages a month</span><input type="number" id="vol" min="1" placeholder="e.g. 10000"></label>
+      <label class="f"><span>Who fixes a wrong answer?</span><select id="who"><option value="">Choose…</option><option>Support agent</option><option>Specialist</option><option>Nobody, the customer waits</option></select></label>
+      <label class="f"><span>Their cost per hour ($)</span><input type="number" id="rate" min="0" placeholder="e.g. 30"></label>
+      <label class="f"><span>Minutes per fix</span><input type="number" id="mins" min="0" placeholder="e.g. 5"></label>
+    </div>
+    <div class="calc rise" id="mcost">Fill in all four to see what one mistake costs.</div>
+  </div>
+</section>
+<!-- 7 -->
+<section class="scene r" data-name="The race" data-say="Ready when you are. I'll check in 5 times and stop as soon as it's clear.">
+  <div class="plain">
+    <span class="eyebrow rise">Scene 7 · The race</span>
+    <h2 class="rise" id="racehead">Start the race</h2>
+    <div class="rise">
+      <div class="why" id="whyrun" style="margin-bottom:10px"></div>
+      <button class="primary" id="run" disabled>Run the test</button>
+      <div class="looks" id="looks"><div></div><div></div><div></div><div></div><div></div></div>
+      <div class="why" id="progtxt">Five check-ins. It stops at the first one where the answer is clear.</div>
+    </div>
+  </div>
+</section>
+<!-- 8 -->
+<section class="scene l" data-name="Scores" data-say="Here's how each one did on your messages.">
+  <div class="glass" id="s8">
+    <span class="eyebrow rise">Scene 8 · Scores</span>
+    <h2 class="rise">Right on your messages</h2>
+    <div class="locknote">Run the test to see scores.</div>
+    <div class="bars rise" id="bars"></div>
+    <p class="why rise" id="grabs"></p>
+  </div>
+</section>
+<!-- 9 -->
+<section class="scene r" data-name="The verdict" data-say="Here's the answer, in your money.">
+  <div class="glass" id="s9">
+    <span class="eyebrow rise">Scene 9 · The verdict</span>
+    <div class="locknote">Run the test to see the verdict.</div>
+    <div class="rise"><span class="stamp">EXPLORATORY · not the sealed test</span></div>
+    <div class="big rise" id="vword">—</div>
+    <p class="lead rise" id="vtext"></p>
+    <table class="rise"><thead><tr><th>MODEL</th><th>COST / MONTH</th></tr></thead><tbody id="tbl"></tbody></table>
+    <p class="why rise" id="costnote"></p>
+    <details class="rise"><summary>Why this answer (the numbers behind it)</summary>
+      <p>Agent minus Linear: −22.2 points. Repeated confidence interval −25.9 to +2.0 points, so a gain of 10 points or more is ruled out at check-in 2 of 5.</p>
+      <p>Checks: all passed. Test plan fixed before the run (hash a3f9…). Sample seed 0. Model llama3.1:8b, temperature 0.</p>
+    </details>
+    <div class="btnrow rise"><a class="ghost" href="#top" style="text-decoration:none;padding:12px 22px;border-radius:99px">Change choices</a><button class="ghost">Download audit bundle</button><button class="primary">See one case replayed</button></div>
+  </div>
+</section>
+
+<div id="bot"><div class="float"><div class="ant"></div><div class="body"></div><div class="visor"><div class="eye"></div><div class="eye"></div></div></div><div class="shadow"></div></div>
+<div id="say" aria-live="polite"></div>
+<nav class="timeline" id="tl"></nav>
+
+<div class="modal" id="modal" hidden><div class="glass">
+  <span class="eyebrow">First run on this dataset</span>
+  <h3 style="font-size:22px;margin:8px 0">This locks away its hidden test part for good</h3>
+  <p class="why" style="font-size:15px">We split the dataset once into practice data and a sealed test. It can't be undone. Takes about a minute.</p>
+  <div class="btnrow"><button class="ghost" id="mno">Cancel</button><button class="primary" id="myes">Split it</button></div>
+</div></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const CASES=[
+ {id:'banking77',t:'Bank support routing',l:'"Where is my new card?" "Why was I charged twice?"',ready:1},
+ {id:'clinc150',t:'General assistant',l:'"Set an alarm, book a table, check my balance…"',ready:0},
+ {id:'emotion',t:'Customer mood',l:'"Is this customer angry, happy or worried?"',ready:0},
+ {id:'massive',t:'Voice commands',l:'"Play music, turn off the lights…"',ready:0},
+ {id:'own',t:'Use your own data',l:'Upload a CSV or JSONL with text and label columns.',ready:-1}];
+const LABELS="Refund_not_showing_up activate_my_card age_limit apple_pay_or_google_pay atm_support automatic_top_up balance_not_updated_after_bank_transfer balance_not_updated_after_cheque_or_cash_deposit beneficiary_not_allowed cancel_transfer card_about_to_expire card_acceptance card_arrival card_delivery_estimate card_linking card_not_working card_payment_fee_charged card_payment_not_recognised card_payment_wrong_exchange_rate card_swallowed cash_withdrawal_charge cash_withdrawal_not_recognised change_pin compromised_card contactless_not_working country_support declined_card_payment declined_cash_withdrawal declined_transfer direct_debit_payment_not_recognised disposable_card_limits edit_personal_details exchange_charge exchange_rate exchange_via_app extra_charge_on_statement failed_transfer fiat_currency_support get_disposable_virtual_card get_physical_card getting_spare_card getting_virtual_card lost_or_stolen_card lost_or_stolen_phone order_physical_card passcode_forgotten pending_card_payment pending_cash_withdrawal pending_top_up pending_transfer pin_blocked receiving_money request_refund reverted_card_payment? supported_cards_and_currencies terminate_account top_up_by_bank_transfer_charge top_up_by_card_charge top_up_by_cash_or_cheque top_up_failed top_up_limits top_up_reverted topping_up_by_card transaction_charged_twice transfer_fee_charged transfer_into_account transfer_not_received_by_recipient transfer_timing unable_to_verify_identity verify_my_identity verify_source_of_funds verify_top_up virtual_card_not_working visa_or_mastercard why_verify_identity wrong_amount_of_cash_received wrong_exchange_rate_for_cash_withdrawal".split(' ');
+const MODELS=[
+ {id:'agent',t:'Your agent',d:'Agent with tools · AI',ai:1},
+ {id:'prompt',t:'Single prompt',d:'One AI call with a shortlist',ai:1},
+ {id:'majority',t:'Most common label',d:'Floor: always the top label'},
+ {id:'naive_bayes',t:'Naive Bayes',d:'Basic · free'},
+ {id:'linear',t:'Linear',d:'Basic · free'},
+ {id:'linear_svm',t:'Linear SVM',d:'Tier 1 · free'},
+ {id:'random_forest',t:'Random forest',d:'Tier 2 · free'},
+ {id:'boosting',t:'Gradient boosting',d:'Tier 2 · free'}];
+// linear and agent: real Banking77 card-delivery quick test; others placeholders
+const RES={agent:[.741,.05,.0020],prompt:[.80,.10,.0008],linear:[.963,.02,0],linear_svm:[.95,.02,0],naive_bayes:[.90,.04,0],majority:[.25,0,0],random_forest:[.88,.03,0],boosting:[.89,.03,0]};
+const st={desc:'',ds:null,labels:new Set(),models:new Set(),gap:null,done:false};
+const scenes=[...document.querySelectorAll('.scene')];
+scenes[0].id='top';
+// timeline
+$('tl').innerHTML=scenes.map((s,i)=>`<a href="#" data-i="${i}" aria-label="${s.dataset.name}"></a>`).join('')+'<span id="tlname"></span>';
+document.querySelectorAll('#tl a').forEach(a=>a.onclick=e=>{e.preventDefault();scenes[+a.dataset.i].scrollIntoView()});
+// robot follows the scene in view
+let cur=-1;
+function place(i){const s=scenes[i],right=s.classList.contains('r'),W=innerWidth,H=innerHeight;
+  const x=right?W*.78:W*.12;const y=H*(.42+(i%3)*.06);
+  $('bot').style.left=x+'px';$('bot').style.top=y+'px';
+  $('say').classList.add('fly');
+  setTimeout(()=>{$('say').textContent=line(i);$('say').style.left=Math.max(8,Math.min(W-270,right?x-150:x))+'px';$('say').style.top=Math.max(70,y-130)+'px';$('say').classList.remove('fly')},900)}
+function line(i){const s=scenes[i].dataset.say;
+  if(i==7&&st.done)return 'Linear got 96% of your messages right. Your agent got 74%.';
+  if(i==8&&st.done)return "You don't need the agent here. The simpler model wins and costs less.";
+  if(i==6&&!$('run').disabled)return "All set. Hit Run, I'll keep you posted.";
+  return s}
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');const i=scenes.indexOf(e.target);if(i!=cur){cur=i;place(i);
+  document.querySelectorAll('#tl a').forEach((a,k)=>a.classList.toggle('on',k==i));$('tlname').textContent=scenes[i].dataset.name}}}),{threshold:.55});
+scenes.forEach(s=>io.observe(s));
+addEventListener('resize',()=>cur>=0&&place(cur));
+// scene 1
+$('desc').oninput=e=>{st.desc=e.target.value.trim();check()};
+// scene 2
+$('cases').innerHTML=CASES.map(c=>`<div class="card" data-c="${c.id}"><h3>${c.t}</h3><p>${c.l}</p><span class="tag ${c.ready==1?'':'warn'}">${c.ready==1?'Ready · 77 labels':c.ready==0?'Needs a one-time split':'Upload'}</span></div>`).join('');
+let pending=null;
+document.querySelectorAll('[data-c]').forEach(e=>e.onclick=()=>{const c=CASES.find(x=>x.id==e.dataset.c);
+  if(c.ready==0){pending=e;$('modal').hidden=false;return}
+  if(c.ready==-1){alert('Preview: the upload step opens here (built last in v1).');return}
+  pick(e)});
+function pick(e){document.querySelectorAll('[data-c]').forEach(x=>x.classList.remove('sel'));e.classList.add('sel');st.ds=e.dataset.c;check()}
+$('mno').onclick=()=>$('modal').hidden=true;
+$('myes').onclick=()=>{$('modal').hidden=true;const t=pending.querySelector('.tag');t.textContent='Split done (preview)';t.classList.remove('warn');CASES.find(x=>x.id==pending.dataset.c).ready=1;pick(pending)};
+// scene 3
+function chips(){const q=$('find').value.toLowerCase();$('labels').innerHTML=LABELS.filter(l=>l.toLowerCase().includes(q)).map(l=>`<span class="chip ${st.labels.has(l)?'sel':''}" data-l="${l}">${l}</span>`).join('');
+  document.querySelectorAll('[data-l]').forEach(e=>e.onclick=()=>{const l=e.dataset.l;st.labels.has(l)?st.labels.delete(l):st.labels.add(l);chips();check()});$('nsel').textContent=st.labels.size}
+$('find').oninput=chips;
+$('all').onclick=e=>{e.preventDefault();LABELS.forEach(l=>st.labels.add(l));chips();check()};
+$('none').onclick=e=>{e.preventDefault();st.labels.clear();chips();check()};
+// scene 4
+$('models').innerHTML=MODELS.map(m=>`<label class="model"><input type="checkbox" data-m="${m.id}"><span><b>${m.t}</b><small>${m.d}</small></span></label>`).join('');
+document.querySelectorAll('[data-m]').forEach(e=>e.onchange=()=>{e.checked?st.models.add(e.dataset.m):st.models.delete(e.dataset.m);check()});
+// scene 5
+$('gaps').innerHTML=[2,5,10,15].map(g=>`<button data-g="${g}">${g} points</button>`).join('');
+document.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{st.gap=+b.dataset.g;document.querySelectorAll('[data-g]').forEach(x=>x.classList.toggle('sel',x==b));size();check()});
+function size(){const g=st.gap/100,n=Math.ceil(7.85*0.2/(g*g)*1.07);const m=n*(st.models.has('prompt')?1.34:1.05)/60;
+  $('size').innerHTML=`Up to <b>${n.toLocaleString()}</b> cases, about <b>${m<1?'<1':Math.round(m)} min</b> at most. Often less, since it can stop early.${n>1500?'<br><span class="why">Long on a local model. A bigger gain is faster.</span>':''}`}
+// scene 6
+['vol','who','rate','mins'].forEach(i=>$(i).oninput=check);
+const mistake=()=>(+$('rate').value)*(+$('mins').value)/60;
+// validation drives the race button and locks
+function check(){$('lock3').style.display=st.ds?'none':'';$('scope3').classList.toggle('locked',!st.ds);
+  const filled=$('vol').value&&$('who').value&&$('rate').value!==''&&$('mins').value!=='';
+  $('mcost').innerHTML=filled?`One mistake costs about <b>$${mistake().toFixed(2)}</b> ($${$('rate').value}/h × ${$('mins').value} min ÷ 60).`:'Fill in all four to see what one mistake costs.';
+  const free=[...st.models].some(m=>!MODELS.find(x=>x.id==m).ai);
+  const why=!st.desc?'Scene 1: describe your agent.':!st.ds?'Scene 2: pick a use case.':!st.labels.size?'Scene 3: pick at least one label.':!st.models.has('agent')?'Scene 4: include your agent.':!free?'Scene 4: add a free model to beat.':!st.gap?'Scene 5: pick a gain.':!filled?'Scene 6: fill in your costs.':'';
+  $('whyrun').textContent=why?'Still needed: '+why:'Everything is set.';$('run').disabled=!!why;if(st.done)result()}
+$('run').onclick=()=>{const L=[...$('looks').children];L.forEach(x=>x.className='');$('racehead').textContent='Racing… '+st.desc;let k=0;
+  const t=setInterval(()=>{if(k<2){L[k].className='d';$('progtxt').textContent=`Check-in ${k+1} of 5: ${[34,67][k]} cases scored`;k++}
+  else{clearInterval(t);L[2].className=L[3].className=L[4].className='s';$('progtxt').textContent='Clear answer at check-in 2: stopped early at 67 of 168 cases (2 min 10 s).';$('racehead').textContent='Done';st.done=true;result();setTimeout(()=>scenes[7].scrollIntoView(),700)}},900)};
+function result(){document.querySelectorAll('.locknote').forEach(n=>{if(n.id!='lock3')n.style.display='none'});
+  const ms=[...st.models];
+  $('bars').innerHTML=ms.map(m=>`<div class="b ${m}"><span>${MODELS.find(y=>y.id==m).t}</span><div class="t"><i style="width:0"></i></div><b>${(RES[m][0]*100).toFixed(1)}%</b></div>`).join('');
+  requestAnimationFrame(()=>requestAnimationFrame(()=>document.querySelectorAll('#bars i').forEach((i,k)=>i.style.width=RES[ms[k]][0]*100+'%')));
+  $('grabs').textContent='Wrongly grabbed other messages: '+ms.map(m=>`${MODELS.find(y=>y.id==m).t} ${(RES[m][1]*100).toFixed(0)}%`).join(' · ');
+  $('vword').textContent='Use Linear';
+  $('vtext').textContent=`For "${st.desc}": the agent is 22 points less accurate on your messages, so you don't need it here.`;
+  const vol=+$('vol').value,mc=mistake();
+  const rows=ms.map(m=>{const[r,,p]=RES[m];return{m,c:vol*(p+(1-r)*mc)}}).sort((a,b)=>a.c-b.c);
+  $('tbl').innerHTML=rows.map(x=>`<tr class="${x.m=='linear'?'win':''}"><td>${MODELS.find(y=>y.id==x.m).t}</td><td>$${Math.round(x.c).toLocaleString()}</td></tr>`).join('');
+  $('costnote').textContent=`Cost per month = messages × (AI price per message + share wrong × $${mc.toFixed(2)} per mistake). AI prices are assumed. Change your costs in scene 6 and this updates without re-running.`}
+chips();check();
+// dotted ribbon (simplified)
+const cv=$('dots'),cx=cv.getContext('2d');let P=[];
+function sz(){cv.width=innerWidth*devicePixelRatio;cv.height=innerHeight*devicePixelRatio;P=[];for(let i=0;i<900;i++)P.push({u:Math.random(),v:Math.random()})}
+sz();addEventListener('resize',sz);
+(function draw(t){const W=cv.width,H=cv.height,sc=scrollY/innerHeight;cx.clearRect(0,0,W,H);
+  for(const p of P){const lane=Math.floor(p.v*3),tw=Math.sin(p.u*6+t/2500+sc)*0.5;
+    const x=p.u*W,y=H*(.75-p.u*.5)+(p.v-.5)*H*.18*Math.cos(p.u*5+sc)+lane*H*.02*sc%H;
+    const z=.5+.5*tw;cx.fillStyle=['rgba(31,110,115,','rgba(143,163,164,','rgba(37,48,49,'][lane]+(0.15+z*.45)+')';
+    cx.fillRect(x,y,1.5+z*1.8,1.5+z*1.8)}
+  requestAnimationFrame(draw)})(0);
+</script>
+</body>
+</html>

@@ -1,10 +1,12 @@
-import { SCENES, sceneById } from '../story/scenes.ts';
+import { SCENES, type SceneDef } from '../story/scenes.ts';
 
-export function Timeline({ active }: { active: string }) {
+export function Timeline({ active, scenes = SCENES, counted = false }: { active: string; scenes?: readonly SceneDef[]; counted?: boolean }) {
+  const current = scenes.find((s) => s.id === active) ?? scenes[0];
+  const step = scenes.indexOf(current) + 1;
   return (
     <nav className="timeline" aria-label="Scenes">
       <div>
-        {SCENES.map((sc) => (
+        {scenes.map((sc) => (
           <a
             key={sc.id}
             href={`#${sc.id}`}
@@ -16,7 +18,11 @@ export function Timeline({ active }: { active: string }) {
             <span />
           </a>
         ))}
-        <span className="scene-name">{sceneById(active).name}</span>
+        <span className="scene-name">
+          {/* opt-in (mockup): "2 of 6 · The race", so the reader knows where they are */}
+          {counted && <b className="step-no">{step} of {scenes.length} · </b>}
+          {current.name}
+        </span>
       </div>
     </nav>
   );

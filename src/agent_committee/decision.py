@@ -74,7 +74,9 @@ def break_even_cost(
     return max(0.0, (agent_cost - simpler_cost) / (simpler_error - agent_error))
 
 
-def _arm_result(arm: ArmRun, flagged: np.ndarray, prereg: Prereg) -> ArmResult:
+def _arm_result(
+    arm: ArmRun, flagged: np.ndarray, prereg: Prereg, fixed_usd: float = 0.0
+) -> ArmResult:
     n = len(arm.correct)
     prompt, completion = float(np.mean(arm.prompt_tokens)), float(np.mean(arm.completion_tokens))
     return ArmResult(
@@ -86,12 +88,18 @@ def _arm_result(arm: ArmRun, flagged: np.ndarray, prereg: Prereg) -> ArmResult:
         completion_tokens_mean=completion,
         latency_s_mean=float(np.mean(arm.latency_s)),
         flagged_accuracy=float(np.mean(arm.correct[flagged])) if flagged.any() else None,
-        inference_cost={t.name: inference_cost(prompt, completion, t) for t in prereg.price_tables},
+        inference_cost={
+            t.name: inference_cost(prompt, completion, t) + fixed_usd for t in prereg.price_tables
+        },
     )
 
 
 def _break_evens(
-    agent: ArmRun, simpler: ArmRun, prereg: Prereg
+    agent: ArmRun,
+    simpler: ArmRun,
+    prereg: Prereg,
+    agent_fixed_usd: float = 0.0,
+    simpler_fixed_usd: float = 0.0,
 ) -> tuple[list[BreakEven], list[str]]:
     """Break-even per price table with a bootstrap CI from the same case resamples as the diff."""
     cols = np.column_stack(
@@ -111,9 +119,9 @@ def _break_evens(
 
         def be(row: np.ndarray, table: PriceTable = table) -> float:
             return break_even_cost(
-                inference_cost(row[2], row[3], table),
+                inference_cost(row[2], row[3], table) + agent_fixed_usd,
                 1 - row[0],
-                inference_cost(row[4], row[5], table),
+                inference_cost(row[4], row[5], table) + simpler_fixed_usd,
                 1 - row[1],
             )
 
@@ -149,10 +157,11 @@ def _aa_rate(
     audit: AuditBundle,
     scorer: str | None,
     run_aa: bool,
+    agent_fixed_usd: float = 0.0,
 ) -> float | None:
     """A/A false-winner rate of the whole winner rule: each simulation calls `decide` itself on
     outcomes swapped between the arms (token counts stay with their arm) and counts a DEPLOY_AGENT
-    in either direction."""
+    in either direction. A stated per-answer price stays with the agent's run when swapped."""
     st = prereg.stats
     if not run_aa or scorer is None:
         return None
@@ -177,6 +186,8 @@ def _aa_rate(
             audit,
             0,
             run_aa=False,
+            agent_fixed_usd=0.0 if swapped else agent_fixed_usd,
+            simpler_fixed_usd=agent_fixed_usd if swapped else 0.0,
         )
         return out.verdict == Verdict.DEPLOY_AGENT
 
@@ -214,6 +225,8 @@ def decide(
     n_dropped: int,
     shortlist_coverage: float | None = None,
     run_aa: bool = True,
+    agent_fixed_usd: float = 0.0,
+    simpler_fixed_usd: float = 0.0,
 ) -> VerdictJSON:
     """Apply the pre-registered rules to the paired outcomes and return the verdict.
 
@@ -228,14 +241,22 @@ def decide(
                 raise ValueError(f"arm {each.name!r} does not have the paired length {n_cases}")
     if len(flagged) != n_cases:
         raise ValueError(f"flagged has length {len(flagged)}, expected {n_cases}")
-    results = [_arm_result(a, flagged, prereg) for a in arms]
+    results = [
+        _arm_result(
+            a,
+            flagged,
+            prereg,
+            agent_fixed_usd if a is agent else simpler_fixed_usd if a is simpler else 0.0,
+        )
+        for a in arms
+    ]
     st = prereg.stats
     only_a, only_s, p = mcnemar_exact(agent.correct, simpler.correct)
     diff_cols = np.column_stack([agent.correct.astype(float) - simpler.correct.astype(float)])
     boots = bootstrap_means(diff_cols, st.bootstrap_replicates, st.seed)[:, 0]
     diff = float(np.mean(diff_cols))
     lo, hi = percentile_ci(boots, st.ci_level)
-    aa = _aa_rate(agent, simpler, prereg, audit, scorer, run_aa)
+    aa = _aa_rate(agent, simpler, prereg, audit, scorer, run_aa, agent_fixed_usd)
 
     failed = [c for c in checks if not c.passed]
     reasons: list[str] = []
@@ -271,7 +292,7 @@ def decide(
             f"The agent is more accurate by {diff:+.3f} (CI {lo:+.3f} to {hi:+.3f}, "
             f"McNemar p={p:.3g}), at least the {prereg.min_gap} minimum gap."
         )
-        break_even, notes = _break_evens(agent, simpler, prereg)
+        break_even, notes = _break_evens(agent, simpler, prereg, agent_fixed_usd, simpler_fixed_usd)
         reasons += notes
     elif hi < prereg.min_gap and (simpler_not_dearer or simpler_lowest_everywhere):
         verdict = Verdict.USE_SIMPLER

@@ -1,0 +1,17 @@
+name: clinc150
+description: CLINC150 (clinc/clinc_oos, plus), all splits pooled
+source:
+  kind: huggingface
+  dataset: clinc/clinc_oos
+  config: plus
+  text: text
+  label: intent
+  splits:
+  - train
+  - validation
+  - test
+  revision: 155b9c710419136e17307b80d0a13e68cd46b4ec
+task_phrase:
+  item: a request to a virtual assistant
+  items: assistant requests
+  label_kind: intent

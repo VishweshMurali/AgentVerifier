@@ -1,0 +1,542 @@
+{
+ "_about": "Preview data for the test-your-agent flow, from the project's own code and the saved Banking77 card-delivery quick test (results/quick/gap0.100-n168-scope8bf3c1e3). Replaced by the local API in stage 2.",
+ "datasets": [
+  {
+   "option": "banking77",
+   "title": "Banking77: bank support routing",
+   "description": "Customer messages to a bank, routed to one of 77 intents. The v1 scenario.",
+   "status": "built in",
+   "labels": 77
+  },
+  {
+   "option": "clinc150",
+   "title": "CLINC150: assistant intents with out-of-scope",
+   "description": "Requests to a virtual assistant across 150 intents, plus 'oos' for anything out of scope (scored as an ordinary label).",
+   "status": "available",
+   "labels": null
+  },
+  {
+   "option": "emotion",
+   "title": "Emotion: tone of short messages",
+   "description": "Short messages labelled with one of 6 emotions, as in support triage by tone.",
+   "status": "available",
+   "labels": null
+  },
+  {
+   "option": "massive_en",
+   "title": "MASSIVE (English): voice-assistant commands",
+   "description": "Spoken-style commands to a voice assistant (alarms, music, weather...). 56 of 60 intents; 4 with fewer than 30 cases removed.",
+   "status": "available",
+   "labels": null
+  }
+ ],
+ "labels": {
+  "banking77": [
+   "Refund_not_showing_up",
+   "activate_my_card",
+   "age_limit",
+   "apple_pay_or_google_pay",
+   "atm_support",
+   "automatic_top_up",
+   "balance_not_updated_after_bank_transfer",
+   "balance_not_updated_after_cheque_or_cash_deposit",
+   "beneficiary_not_allowed",
+   "cancel_transfer",
+   "card_about_to_expire",
+   "card_acceptance",
+   "card_arrival",
+   "card_delivery_estimate",
+   "card_linking",
+   "card_not_working",
+   "card_payment_fee_charged",
+   "card_payment_not_recognised",
+   "card_payment_wrong_exchange_rate",
+   "card_swallowed",
+   "cash_withdrawal_charge",
+   "cash_withdrawal_not_recognised",
+   "change_pin",
+   "compromised_card",
+   "contactless_not_working",
+   "country_support",
+   "declined_card_payment",
+   "declined_cash_withdrawal",
+   "declined_transfer",
+   "direct_debit_payment_not_recognised",
+   "disposable_card_limits",
+   "edit_personal_details",
+   "exchange_charge",
+   "exchange_rate",
+   "exchange_via_app",
+   "extra_charge_on_statement",
+   "failed_transfer",
+   "fiat_currency_support",
+   "get_disposable_virtual_card",
+   "get_physical_card",
+   "getting_spare_card",
+   "getting_virtual_card",
+   "lost_or_stolen_card",
+   "lost_or_stolen_phone",
+   "order_physical_card",
+   "passcode_forgotten",
+   "pending_card_payment",
+   "pending_cash_withdrawal",
+   "pending_top_up",
+   "pending_transfer",
+   "pin_blocked",
+   "receiving_money",
+   "request_refund",
+   "reverted_card_payment?",
+   "supported_cards_and_currencies",
+   "terminate_account",
+   "top_up_by_bank_transfer_charge",
+   "top_up_by_card_charge",
+   "top_up_by_cash_or_cheque",
+   "top_up_failed",
+   "top_up_limits",
+   "top_up_reverted",
+   "topping_up_by_card",
+   "transaction_charged_twice",
+   "transfer_fee_charged",
+   "transfer_into_account",
+   "transfer_not_received_by_recipient",
+   "transfer_timing",
+   "unable_to_verify_identity",
+   "verify_my_identity",
+   "verify_source_of_funds",
+   "verify_top_up",
+   "virtual_card_not_working",
+   "visa_or_mastercard",
+   "why_verify_identity",
+   "wrong_amount_of_cash_received",
+   "wrong_exchange_rate_for_cash_withdrawal"
+  ]
+ },
+ "plan_sizes": {
+  "0.02": 4016,
+  "0.05": 658,
+  "0.10": 168,
+  "0.15": 72,
+  "0.20": 39
+ },
+ "seconds_per_case": {
+  "prompt": 0.29,
+  "agent": 1.05
+ },
+ "price_tables": [
+  {
+   "name": "local_amortized",
+   "input_usd_per_mtok": 0.05,
+   "output_usd_per_mtok": 0.1,
+   "assumed": true
+  },
+  {
+   "name": "cloud_small",
+   "input_usd_per_mtok": 0.25,
+   "output_usd_per_mtok": 1.25,
+   "assumed": true
+  },
+  {
+   "name": "cloud_large",
+   "input_usd_per_mtok": 3.0,
+   "output_usd_per_mtok": 15.0,
+   "assumed": true
+  }
+ ],
+ "saved_run": {
+  "plan": {
+   "arms": [
+    "majority",
+    "linear",
+    "naive_bayes",
+    "linear_svm",
+    "prompt",
+    "agent"
+   ],
+   "base_prereg": "prereg.yaml",
+   "base_prereg_sha256": "1b83181605925cdb899559b67b728e45d9c4eb6cc7da7a48b31ebd3b97596501",
+   "case_ids_sha256": "acd675879d0c1444c4bed3cc0f0f8b79c60d7d986afa6febe7e219e90c532d0d",
+   "cases": 168,
+   "comparator": "linear",
+   "comparator_rule": "best free model on the tune split",
+   "copies_of_dev_removed": 10,
+   "early_stopping": {
+    "boundaries": [
+     4.382613,
+     3.099732,
+     2.553439,
+     2.254038,
+     2.063791
+    ],
+    "looks": [
+     34,
+     67,
+     101,
+     134,
+     168
+    ],
+    "order_seed": 1,
+    "order_sha256": "416bb1061bd12f0f11f59e8aaf396baf8059a92665470d331579f160252a1aff",
+    "spending": "Lan-DeMets O'Brien-Fleming, two-sided alpha"
+   },
+   "eval_cases": 1472,
+   "gap": 0.1,
+   "model_digest": "46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e",
+   "planned_cases": 168,
+   "planning_disagreement": 0.2,
+   "population": 189,
+   "sample_seed": 0,
+   "scenario": "banking77",
+   "scope": {
+    "labels": [
+     "activate_my_card",
+     "card_arrival",
+     "card_delivery_estimate",
+     "get_physical_card"
+    ],
+    "near_misses": [
+     "card_linking",
+     "order_physical_card",
+     "pin_blocked",
+     "change_pin"
+    ],
+    "not_mine_label": "not_mine",
+    "others_seed": 2,
+    "others_share": 0.2
+   },
+   "tune_accuracy": {
+    "linear": 0.9838709677419355,
+    "linear_svm": 0.967741935483871,
+    "majority": 0.5806451612903226,
+    "naive_bayes": 0.8548387096774194
+   }
+  },
+  "scope": {
+   "majority": {
+    "in_scope_cases": 27,
+    "in_scope_accuracy": 0.0,
+    "other_cases": 40,
+    "false_grab_rate": 0.0
+   },
+   "linear": {
+    "in_scope_cases": 27,
+    "in_scope_accuracy": 0.9629629629629629,
+    "other_cases": 40,
+    "false_grab_rate": 0.0
+   },
+   "naive_bayes": {
+    "in_scope_cases": 27,
+    "in_scope_accuracy": 0.7777777777777778,
+    "other_cases": 40,
+    "false_grab_rate": 0.025
+   },
+   "linear_svm": {
+    "in_scope_cases": 27,
+    "in_scope_accuracy": 0.9629629629629629,
+    "other_cases": 40,
+    "false_grab_rate": 0.025
+   },
+   "prompt": {
+    "in_scope_cases": 27,
+    "in_scope_accuracy": 0.7407407407407407,
+    "other_cases": 40,
+    "false_grab_rate": 0.1
+   },
+   "agent": {
+    "in_scope_cases": 27,
+    "in_scope_accuracy": 0.7407407407407407,
+    "other_cases": 40,
+    "false_grab_rate": 0.05
+   },
+   "cascade": {
+    "in_scope_cases": 27,
+    "in_scope_accuracy": 0.9629629629629629,
+    "other_cases": 40,
+    "false_grab_rate": 0.0
+   }
+  },
+  "verdict": {
+   "verdict": "USE_SIMPLER",
+   "evidence_level": "REAL",
+   "audit": {
+    "git_commit": "dce4a72676a991f16eb8bd8e64950dd0d184cc23",
+    "prereg_sha256": "1b83181605925cdb899559b67b728e45d9c4eb6cc7da7a48b31ebd3b97596501",
+    "dev_report_sha256": "quick test plan 6dd76190bff8b2e8e63767faad313859c6a3da002b694a522296ba3e4020684d",
+    "test_sha256": "quick test: DEV eval sample, sealed test not opened",
+    "model_digest": "46e0c10c039e019119339687c3c1757cc81b9da49709a3b3924863ba87ca666e",
+    "layer_fingerprint": "f5292dc4d5ae11888bc8e6ddc2f5645519a9bf833362fbe1846e672bc849563d",
+    "predictions_sha256": "89d243df7287212b984b630dacd6db2e9eae192f62efc5257a24a4f0254d9a14"
+   },
+   "reasons": [
+    "QUICK TEST on 67 of 168 sampled DEV eval cases (gap 0.100, seed 0): exploratory, not a sealed verdict.",
+    "Quick test: the 'score close to its DEV score' check was not run (it needs the DEV report this test skips); the other checks ran.",
+    "Scope: 4 labels; a case not in scope counts right when the model answers any label outside the scope ('not_mine').",
+    "majority: 0.0% right on in-scope cases, 0.0% of other cases wrongly claimed as in scope",
+    "linear: 96.3% right on in-scope cases, 0.0% of other cases wrongly claimed as in scope",
+    "naive_bayes: 77.8% right on in-scope cases, 2.5% of other cases wrongly claimed as in scope",
+    "linear_svm: 96.3% right on in-scope cases, 2.5% of other cases wrongly claimed as in scope",
+    "prompt: 74.1% right on in-scope cases, 10.0% of other cases wrongly claimed as in scope",
+    "agent: 74.1% right on in-scope cases, 5.0% of other cases wrongly claimed as in scope",
+    "cascade: 96.3% right on in-scope cases, 0.0% of other cases wrongly claimed as in scope",
+    "Early stopping: a gain of the gap is ruled out at 67 of 168 cases.",
+    "Repeated confidence interval for the gain: -0.242 to +0.003, valid at any look; an interval quoted below by the engine assumes a fixed-size run.",
+    "A gain of 0.1 or more is ruled out (CI -0.194 to -0.045), and linear costs no more per case under every price table.",
+    "Lower expected cost per scenario (price table@error cost): agent: none; linear: local_amortized@$0.5, local_amortized@$20, cloud_small@$0.5, cloud_small@$20, cloud_large@$0.5, cloud_large@$20.",
+    "No break-even error cost: the accuracy difference CI is not entirely above 0."
+   ],
+   "scorer": "exact_label",
+   "quality_floor_passed": true,
+   "accuracy": {
+    "agent": 0.8656716417910447,
+    "linear": 0.9850746268656716,
+    "majority": 0.5970149253731343,
+    "naive_bayes": 0.8955223880597015,
+    "linear_svm": 0.9701492537313433,
+    "prompt": 0.8059701492537313,
+    "cascade": 0.9850746268656716
+   },
+   "flagged_rate": 0.05970149253731343,
+   "shortlist_coverage": 0.40298507462686567,
+   "flagged_accuracy": {
+    "agent": 0.75,
+    "linear": 0.75,
+    "majority": 0.5,
+    "naive_bayes": 0.75,
+    "linear_svm": 0.5,
+    "prompt": 0.75,
+    "cascade": 0.75
+   },
+   "accuracy_diff": -0.11940298507462686,
+   "accuracy_diff_ci": [
+    -0.24219862300617676,
+    0.0033926528569230285
+   ],
+   "mcnemar_p": 0.0078125,
+   "aa_false_winner_rate": 0.008,
+   "break_even": [],
+   "latency_s": {
+    "agent": 1.7580906432839272,
+    "linear": 0.0,
+    "majority": 0.0,
+    "naive_bayes": 0.0,
+    "linear_svm": 0.0,
+    "prompt": 0.3623358492538378,
+    "cascade": 0.10865508507467622
+   },
+   "checks": [
+    {
+     "name": "leakage",
+     "value": 0.0,
+     "low": null,
+     "high": 0.005,
+     "passed": true,
+     "effect": "REPORT",
+     "detail": "0/67 copied from DEV; 67 kept"
+    },
+    {
+     "name": "power_cap",
+     "value": 67.0,
+     "low": 67.0,
+     "high": null,
+     "passed": true,
+     "effect": "NEED_MORE_DATA",
+     "detail": "67 test cases after dropping copies; power needs 67"
+    },
+    {
+     "name": "quality_floor",
+     "value": 1.0,
+     "low": 0.9,
+     "high": null,
+     "passed": true,
+     "effect": "INVALID",
+     "detail": "own tool use 1.000, send-backs 0.000"
+    },
+    {
+     "name": "null_rate",
+     "value": 0.05970149253731343,
+     "low": 0.07,
+     "high": 0.13,
+     "passed": false,
+     "effect": "REPORT",
+     "detail": "4/67 flagged, binomial p=0.412 against 0.1"
+    },
+    {
+     "name": "score_drift",
+     "value": 0.12659593598273688,
+     "low": null,
+     "high": 0.1,
+     "passed": true,
+     "effect": "INVALID",
+     "detail": "KS D=0.1266, p=0.538"
+    },
+    {
+     "name": "domain_auc",
+     "value": 0.45427811437860205,
+     "low": null,
+     "high": 0.6,
+     "passed": true,
+     "effect": "INVALID",
+     "detail": "5-fold AUC=0.4543, p=0.895, 1010 DEV vs 67 new"
+    },
+    {
+     "name": "label_mix",
+     "value": 0.07304566277523274,
+     "low": null,
+     "high": 0.1,
+     "passed": true,
+     "effect": "REPORT",
+     "detail": "total variation 0.0730"
+    },
+    {
+     "name": "false_alarm_rate",
+     "value": 0.05,
+     "low": null,
+     "high": 0.05,
+     "passed": true,
+     "effect": "INVALID",
+     "detail": "5/100 random halves raised drift"
+    },
+    {
+     "name": "per_label_bias",
+     "value": 0.04609539046095391,
+     "low": 0.05,
+     "high": null,
+     "passed": false,
+     "effect": "REPORT",
+     "detail": "overall gap -0.119; largest label departure 0.381; BH-significant labels: none"
+    },
+    {
+     "name": "flagged_split",
+     "value": 0.12698412698412698,
+     "low": null,
+     "high": null,
+     "passed": false,
+     "effect": "REPORT",
+     "detail": "flagged minus unflagged gap +0.1270, CI [+0.0484, +0.2154]"
+    }
+   ],
+   "agent_arm": "agent",
+   "simpler_arm": "linear",
+   "n_cases": 67,
+   "n_dropped": 0,
+   "mcnemar_counts": [
+    0,
+    8
+   ],
+   "arms": [
+    {
+     "name": "agent",
+     "n": 67,
+     "correct": 58,
+     "accuracy": 0.8656716417910447,
+     "prompt_tokens_mean": 665.2537313432836,
+     "completion_tokens_mean": 24.34328358208955,
+     "latency_s_mean": 1.7580906432839272,
+     "flagged_accuracy": 0.75,
+     "inference_cost": {
+      "local_amortized": 3.569701492537314e-05,
+      "cloud_small": 0.0001967425373134328,
+      "cloud_large": 0.002360910447761194
+     }
+    },
+    {
+     "name": "linear",
+     "n": 67,
+     "correct": 66,
+     "accuracy": 0.9850746268656716,
+     "prompt_tokens_mean": 0.0,
+     "completion_tokens_mean": 0.0,
+     "latency_s_mean": 0.0,
+     "flagged_accuracy": 0.75,
+     "inference_cost": {
+      "local_amortized": 0.0,
+      "cloud_small": 0.0,
+      "cloud_large": 0.0
+     }
+    },
+    {
+     "name": "majority",
+     "n": 67,
+     "correct": 40,
+     "accuracy": 0.5970149253731343,
+     "prompt_tokens_mean": 0.0,
+     "completion_tokens_mean": 0.0,
+     "latency_s_mean": 0.0,
+     "flagged_accuracy": 0.5,
+     "inference_cost": {
+      "local_amortized": 0.0,
+      "cloud_small": 0.0,
+      "cloud_large": 0.0
+     }
+    },
+    {
+     "name": "naive_bayes",
+     "n": 67,
+     "correct": 60,
+     "accuracy": 0.8955223880597015,
+     "prompt_tokens_mean": 0.0,
+     "completion_tokens_mean": 0.0,
+     "latency_s_mean": 0.0,
+     "flagged_accuracy": 0.75,
+     "inference_cost": {
+      "local_amortized": 0.0,
+      "cloud_small": 0.0,
+      "cloud_large": 0.0
+     }
+    },
+    {
+     "name": "linear_svm",
+     "n": 67,
+     "correct": 65,
+     "accuracy": 0.9701492537313433,
+     "prompt_tokens_mean": 0.0,
+     "completion_tokens_mean": 0.0,
+     "latency_s_mean": 0.0,
+     "flagged_accuracy": 0.5,
+     "inference_cost": {
+      "local_amortized": 0.0,
+      "cloud_small": 0.0,
+      "cloud_large": 0.0
+     }
+    },
+    {
+     "name": "prompt",
+     "n": 67,
+     "correct": 54,
+     "accuracy": 0.8059701492537313,
+     "prompt_tokens_mean": 220.5820895522388,
+     "completion_tokens_mean": 3.970149253731343,
+     "latency_s_mean": 0.3623358492538378,
+     "flagged_accuracy": 0.75,
+     "inference_cost": {
+      "local_amortized": 1.1426119402985077e-05,
+      "cloud_small": 6.010820895522388e-05,
+      "cloud_large": 0.0007212985074626866
+     }
+    },
+    {
+     "name": "cascade",
+     "n": 67,
+     "correct": 66,
+     "accuracy": 0.9850746268656716,
+     "prompt_tokens_mean": 41.19402985074627,
+     "completion_tokens_mean": 1.4477611940298507,
+     "latency_s_mean": 0.10865508507467622,
+     "flagged_accuracy": 0.75,
+     "inference_cost": {
+      "local_amortized": 2.2044776119402985e-06,
+      "cloud_small": 1.210820895522388e-05,
+      "cloud_large": 0.0001452985074626866
+     }
+    }
+   ],
+   "error_cost_range": [
+    0.5,
+    20.0
+   ],
+   "rehearsal": true,
+   "alpha": 0.05,
+   "ci_level": 0.95,
+   "min_gap": 0.1
+  }
+ }
+}

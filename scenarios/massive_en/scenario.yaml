@@ -1,0 +1,22 @@
+name: massive_en
+description: MASSIVE intents (mteb/amazon_massive_intent, en), all splits pooled
+source:
+  kind: huggingface
+  dataset: mteb/amazon_massive_intent
+  config: en
+  text: text
+  label: label_text
+  splits:
+  - train
+  - validation
+  - test
+  revision: 940fd47a81eaa7f2cc7b129674d945d618ac38c2
+exclude_labels:
+- audio_volume_other
+- cooking_query
+- general_greet
+- music_dislikeness
+task_phrase:
+  item: a voice-assistant command
+  items: voice-assistant commands
+  label_kind: intent

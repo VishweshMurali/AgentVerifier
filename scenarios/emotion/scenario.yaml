@@ -1,0 +1,17 @@
+name: emotion
+description: Emotion (dair-ai/emotion, split), all splits pooled
+source:
+  kind: huggingface
+  dataset: dair-ai/emotion
+  config: split
+  text: text
+  label: label
+  splits:
+  - train
+  - validation
+  - test
+  revision: cab853a1dbdf4c42c2b3ef2173804746df8825fe
+task_phrase:
+  item: a short message
+  items: messages
+  label_kind: emotion

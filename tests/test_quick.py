@@ -6,8 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from agent_committee import power, quick
+from agent_committee import model_cache, power, quick
 from agent_committee.schemas import ArmName, ArmPrediction, Case
+
+
+@pytest.fixture(autouse=True)
+def _own_model_cache(tmp_path, monkeypatch):
+    """Saved models from tests go to a temporary folder, never the project's cache."""
+    monkeypatch.setattr(model_cache, "CACHE_DIR", tmp_path / "saved-models")
 
 
 def make_cases(n, prefix="c"):
@@ -140,6 +146,7 @@ def _fake_run(tmp_path, monkeypatch):
         return dataclasses.replace(real(name, repo), results_dir=str(tmp_path))
 
     monkeypatch.setattr(quick, "get_scenario", scenario)
+    monkeypatch.setattr(model_cache, "CACHE_DIR", tmp_path / "models")  # never the real cache
     monkeypatch.setattr(llm, "LLMClient", FakeClient)
     monkeypatch.setattr(agent_arm, "make_arm", lambda *a, **k: FakeLLMArm("agent", 0.6, labels))
 
@@ -326,3 +333,225 @@ def test_scoped_end_to_end_on_banking77_card_labels(tmp_path, monkeypatch):
     verdict = json.loads((run / "verdict.json").read_text(encoding="utf-8"))
     assert verdict["verdict"] != "INVALID"  # the scoped mix is not mistaken for drift
     assert any(r.startswith("Scope: 4 labels") for r in verdict["reasons"])
+
+
+def test_one_route_scores_a_mix_up_between_picked_kinds_as_right():
+    cases = [Case(id=f"c{i:03d}", text="t", label=lb)
+             for i, lb in enumerate(["a"] * 10 + ["b"] * 10 + ["far"] * 100)]  # fmt: skip
+    mix = quick.scoped(cases, ["a", "b"], [], route=True)
+    assert {c.label for c in mix} == {quick.ROUTE, quick.NOT_MINE}
+
+    class Answers:
+        name = "x"
+
+        def __init__(self, pred):
+            self.pred = pred
+
+        def predict(self, case_id, text):
+            return ArmPrediction(case_id=case_id, arm=ArmName.LINEAR, pred=self.pred)
+
+    # "b" for an "a" message is the same route; strict scoring keeps the kind itself
+    assert (
+        quick.in_scope(Answers("b"), ["a", "b"], route=True).predict("c", "t").pred == quick.ROUTE
+    )
+    assert quick.in_scope(Answers("b"), ["a", "b"]).predict("c", "t").pred == "b"
+    assert (
+        quick.in_scope(Answers("far"), ["a", "b"], route=True).predict("c", "t").pred
+        == quick.NOT_MINE
+    )
+    assert quick.in_scope(Answers(None), ["a", "b"], route=True).predict("c", "t").pred is None
+
+
+def test_scope_summary_reads_the_route_label(tmp_path):
+    used = [Case(id="1", text="t", label=quick.ROUTE), Case(id="2", text="t", label=quick.NOT_MINE)]
+    rows = [
+        {"arm": "agent", "case_id": "1", "pred": quick.ROUTE, "correct": True},
+        {"arm": "agent", "case_id": "2", "pred": quick.ROUTE, "correct": False},
+    ]
+    path = tmp_path / "p.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    s = quick.scope_summary(path, used, ["a", "b"], route=True)["agent"]
+    assert s["in_scope_cases"] == 1 and s["in_scope_accuracy"] == 1.0
+    assert s["other_cases"] == 1 and s["false_grab_rate"] == 1.0
+
+
+@pytest.mark.parametrize("scope", [None, "card_arrival"])
+def test_one_route_needs_two_or_more_picked_kinds(scope, capsys):
+    args = [
+        "--scenario",
+        "banking77",
+        "--gap",
+        "0.1",
+        "--arms",
+        "linear,agent",
+        "--yes",
+        "--one-route",
+    ]
+    if scope:
+        args += ["--scope", scope]
+    assert quick.main(args) == 1
+    assert "two or more kinds" in capsys.readouterr().err
+
+
+def test_one_route_end_to_end_gets_its_own_folder_and_says_so(tmp_path, monkeypatch):
+    _fake_run(tmp_path, monkeypatch)
+    scope = "card_arrival,card_delivery_estimate"
+    base = [
+        "--scenario",
+        "banking77",
+        "--gap",
+        "0.2",
+        "--scope",
+        scope,
+        "--arms",
+        "linear,agent",
+        "--yes",
+    ]
+    assert quick.main(base) == 0
+    assert quick.main([*base, "--one-route"]) == 0
+    runs = sorted(p.name for p in (tmp_path / "quick").iterdir())
+    assert len(runs) == 2 and "-route-" in runs[1] and "-route-" not in runs[0]
+    route_run = tmp_path / "quick" / runs[1]
+    plan = json.loads((route_run / "plan.json").read_text(encoding="utf-8"))
+    assert plan["scope"]["one_route"] is True and plan["scope"]["route_label"] == quick.ROUTE
+    verdict = json.loads((route_run / "verdict.json").read_text(encoding="utf-8"))
+    assert any(r.startswith("One route: the 2 picked kinds") for r in verdict["reasons"])
+
+
+def test_saved_models_are_reused_only_for_identical_data_and_code(tmp_path):
+    fits = []
+
+    def fit():
+        fits.append(1)
+        return {"model": len(fits)}
+
+    key = model_cache.model_key("m", "data1", "code1")
+    first, _, saved1 = model_cache.load_or_fit(tmp_path, "m", key, fit)
+    again, _, saved2 = model_cache.load_or_fit(tmp_path, "m", key, fit)
+    assert (saved1, saved2) == (False, True) and again == first and len(fits) == 1
+    other = model_cache.model_key("m", "data2", "code1")
+    assert other != key and model_cache.load_or_fit(tmp_path, "m", other, fit)[2] is False
+    # a broken file is refitted, not trusted
+    (tmp_path / model_cache.CACHE_DIR / f"m-{key}.pkl").write_bytes(b"not a pickle")
+    assert model_cache.load_or_fit(tmp_path, "m", key, fit)[2] is False
+
+
+def test_data_key_follows_the_messages_not_the_order():
+    a = [Case(id="1", text="x", label="p"), Case(id="2", text="y", label="q")]
+    assert model_cache.data_digest(a) == model_cache.data_digest(list(reversed(a)))
+    changed = [a[0], Case(id="2", text="y", label="r")]
+    assert model_cache.data_digest(changed) != model_cache.data_digest(a)
+
+
+def test_a_saved_model_predicts_exactly_like_a_fresh_fit(tmp_path):
+    from agent_committee.arms.classic import NaiveBayesArm
+    from agent_committee.data import load_dev
+
+    pool = load_dev(Path("data"))[:600]
+
+    def fit():
+        arm = NaiveBayesArm()
+        arm.fit(pool)
+        return arm
+
+    key = model_cache.model_key("naive_bayes", model_cache.data_digest(pool), "c")
+    fresh, _, _ = model_cache.load_or_fit(tmp_path, "naive_bayes", key, fit)
+    loaded, _, saved = model_cache.load_or_fit(tmp_path, "naive_bayes", key, fit)
+    assert saved
+    for c in pool[:200]:
+        assert (
+            loaded.predict(c.id, c.text).pred
+            == fresh.predict(c.id, c.text).pred
+            == fit().predict(c.id, c.text).pred
+        )
+
+
+def test_each_case_is_answered_once_and_the_verdict_uses_the_stopping_answers(
+    tmp_path, monkeypatch
+):
+    """R12: the agent was asked again after stopping (16 calls for 8 cases), and the verdict used
+    the second answers. A changing agent must be called once per case and judged on those."""
+    from agent_committee.arms import agent as agent_arm
+    from agent_committee.data import load_dev
+
+    _fake_run(tmp_path, monkeypatch)
+    labels = {c.id: c.label for c in load_dev(Path("data"))}
+    calls: dict[str, int] = {}
+
+    class Changing:
+        name = ArmName.AGENT
+
+        def predict(self, case_id, text):
+            calls[case_id] = calls.get(case_id, 0) + 1
+            # right the first time it is asked, wrong any later time
+            pred = labels[case_id] if calls[case_id] == 1 else "wrong"
+            return ArmPrediction(case_id=case_id, arm=self.name, pred=pred, own_tool_calls=1)
+
+    monkeypatch.setattr(agent_arm, "make_arm", lambda *a, **k: Changing())
+    assert (
+        quick.main(["--scenario", "banking77", "--gap", "0.2", "--arms", "linear,agent", "--yes"])
+        == 0
+    )
+    assert calls and set(calls.values()) == {1}
+    [run] = list((tmp_path / "quick").iterdir())
+    rows = [
+        json.loads(x) for x in (run / "predictions.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    agent_rows = [r for r in rows if r["arm"] == "agent"]
+    assert len(agent_rows) == len(calls) and all(r["correct"] for r in agent_rows)
+
+
+def test_your_agent_runs_without_ollama(tmp_path, monkeypatch):
+    """R12: an external-only test built the Ollama client first and stopped when it was off."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from agent_committee import llm
+
+    _fake_run(tmp_path, monkeypatch)
+
+    class NoOllama:
+        def __init__(self, **kw):
+            raise ConnectionError("Ollama is off")
+
+    monkeypatch.setattr(llm, "LLMClient", NoOllama)
+
+    class H(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+            out = json.dumps({"label": body["labels"][0]}).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.end_headers()
+            self.wfile.write(out)
+
+        def log_message(self, *a):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{srv.server_port}/c"
+        args = ["--scenario", "banking77", "--gap", "0.2", "--arms", "linear,agent", "--yes",
+                "--agent-url", url, "--agent-cost", "0.001"]  # fmt: skip
+        assert quick.main(args) == 0
+        # the single-prompt model does need Ollama, so it still refuses when Ollama is off
+        with pytest.raises(ConnectionError):
+            quick.main([a if a != "linear,agent" else "linear,prompt,agent" for a in args])
+    finally:
+        srv.shutdown()
+
+
+def test_every_run_gets_its_own_folder(tmp_path):
+    a = quick.new_run_dir(tmp_path, "gap0.100-n90")
+    b = quick.new_run_dir(tmp_path, "gap0.100-n90")
+    assert a != b and a.is_dir() and b.is_dir() and a.name.startswith("gap0.100-n90-")
+
+
+def test_training_key_cannot_be_forged_by_separator_characters():
+    one = [Case(id="1", text="a\x1fb", label="c")]
+    two = [Case(id="1", text="a", label="b\x1fc")]
+    assert model_cache.data_digest(one) != model_cache.data_digest(two)
+    three = [Case(id="1", text="x\n2\x1fy", label="z")]
+    four = [Case(id="1", text="x", label="z"), Case(id="2", text="y", label="z")]
+    assert model_cache.data_digest(three) != model_cache.data_digest(four)

@@ -1,4 +1,5 @@
-"""Background jobs. Only one exists: the DEV rehearsal (`runner --rehearse`, never opens TEST).
+"""Background jobs: the DEV rehearsal (`runner --rehearse`) and quick tests
+(`agent_committee.quick`), both on DEV only; neither opens TEST.
 
 The sealed run is deliberately not offered here: it runs once, by hand, after the user's OK.
 One job at a time, also across server restarts: a pid file (results/rehearsal/job.pid) records the
@@ -14,6 +15,7 @@ import threading
 import time
 import uuid
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -32,6 +34,11 @@ class Job:
     finished: float | None = None
     returncode: int | None = None
     tail: deque[str] = field(default_factory=lambda: deque(maxlen=40))
+    # parsed from the output as it arrives (quick tests); kept whole, unlike the tail
+    progress: dict[str, Any] = field(default_factory=dict)
+    cmd: list[str] = field(default_factory=list, repr=False)
+    timeout_s: float = TIMEOUT_S
+    parse: Callable[[dict[str, Any], str], None] | None = field(default=None, repr=False)
 
     def view(self) -> dict[str, Any]:
         return {
@@ -42,6 +49,7 @@ class Job:
             "finished": self.finished,
             "returncode": self.returncode,
             "output_tail": list(self.tail),
+            "progress": self.progress,
         }
 
 
@@ -107,12 +115,24 @@ class JobManager:
         return pid
 
     def start_rehearsal(self) -> Job:
+        return self.start("rehearsal", self.cmd, self.timeout_s)
+
+    def start(
+        self,
+        kind: str,
+        cmd: list[str],
+        timeout_s: float,
+        parse: Callable[[dict[str, Any], str], None] | None = None,
+    ) -> Job:
+        """Start one job; refused while any job (or an earlier server's child) is running."""
         with self._lock:
             if busy := next((j for j in self._jobs.values() if j.state == "running"), None):
                 raise JobBusy(busy.id)
             if (pid := self.orphan_pid()) is not None:
-                raise JobBusy(f"rehearsal process {pid} from an earlier server is still running")
-            job = Job(id=uuid.uuid4().hex[:12], kind="rehearsal")
+                raise JobBusy(f"process {pid} from an earlier server is still running")
+            job = Job(
+                id=uuid.uuid4().hex[:12], kind=kind, cmd=list(cmd), timeout_s=timeout_s, parse=parse
+            )
             self._jobs[job.id] = job
         threading.Thread(target=self._run, args=(job,), daemon=True).start()
         return job
@@ -130,7 +150,7 @@ class JobManager:
         timed_out = threading.Event()
         try:
             proc = subprocess.Popen(
-                self.cmd,
+                job.cmd,
                 cwd=self.root,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -147,15 +167,20 @@ class JobManager:
                 timed_out.set()
                 proc.kill()
 
-            timer = threading.Timer(self.timeout_s, kill_on_timeout)
+            timer = threading.Timer(job.timeout_s, kill_on_timeout)
             timer.daemon = True
             timer.start()
             assert proc.stdout is not None
             for line in proc.stdout:
                 job.tail.append(line.rstrip())
+                if job.parse is not None:
+                    try:
+                        job.parse(job.progress, line)
+                    except Exception as exc:  # a parsing slip must not end the run
+                        job.tail.append(f"progress parse error: {exc!r}")
             job.returncode = proc.wait()
             if timed_out.is_set():
-                job.tail.append(f"stopped: exceeded the {self.timeout_s:.0f} s timeout")
+                job.tail.append(f"stopped: exceeded the {job.timeout_s:.0f} s timeout")
             ok = job.returncode == 0 and not timed_out.is_set()
             job.state = "succeeded" if ok else "failed"
         except Exception as exc:  # any failure must end the job, or it blocks every later one

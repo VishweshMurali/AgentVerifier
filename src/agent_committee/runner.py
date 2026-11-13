@@ -251,6 +251,7 @@ def evaluate(
     out_dir: Path,
     false_alarm_reps: int = FALSE_ALARM_REPS,
     log: Callable[[str], None] = print,
+    agent_fixed_usd: float = 0.0,
 ) -> VerdictJSON:
     """Leakage, the paired run, checks and the decision. Writes predictions.jsonl in out_dir.
 
@@ -308,6 +309,7 @@ def evaluate(
         AuditBundle(**audit, predictions_sha256=predictions_sha),
         len(cases) - len(kept),
         coverage,
+        agent_fixed_usd=agent_fixed_usd,
     )
 
 

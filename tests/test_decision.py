@@ -286,3 +286,31 @@ def test_flagged_or_other_arms_of_the_wrong_length_are_refused():
         run(agent, simpler, flagged=np.zeros(5, dtype=bool))
     with pytest.raises(ValueError):
         run(agent, simpler, others=[paired(1, 1, n=10)[0]])
+
+
+def test_a_stated_agent_price_is_a_no_op_at_zero_and_adds_to_every_table():
+    a = arm("agent", 0.96, prompt=700, completion=26, seed=1)
+    s = arm("linear", 0.86, seed=2)
+    plain, zero = run(a, s), run(a, s, agent_fixed_usd=0.0)
+    assert zero.model_dump() == plain.model_dump()
+    priced = run(a, s, agent_fixed_usd=0.01)
+    agent_plain = next(x for x in plain.arms if x.name == "agent")
+    agent_priced = next(x for x in priced.arms if x.name == "agent")
+    for t, c in agent_plain.inference_cost.items():
+        assert agent_priced.inference_cost[t] == pytest.approx(c + 0.01)
+    linear = [next(x for x in v.arms if x.name == "linear") for v in (plain, priced)]
+    assert linear[0].inference_cost == linear[1].inference_cost
+    # a dearer agent needs a dearer mistake to break even
+    assert all(p.value > q.value for p, q in zip(priced.break_even, plain.break_even, strict=True))
+
+
+def test_the_aa_check_keeps_a_stated_price_with_the_agent():
+    a = arm("agent", 0.96, n=600, prompt=700, completion=26, seed=1)
+    s = arm("linear", 0.86, n=600, seed=2)
+    assert run(a, s, agent_fixed_usd=0.0).aa_false_winner_rate == run(a, s).aa_false_winner_rate
+    # swapped simulations put the agent's run in the other slot: its price goes with it
+    swapped = run(s, a, simpler_fixed_usd=0.25, run_aa=False)
+    real_agent = next(x for x in swapped.arms if x.name == "agent")
+    plain = next(x for x in run(s, a, run_aa=False).arms if x.name == "agent")
+    for t, c in plain.inference_cost.items():
+        assert real_agent.inference_cost[t] == pytest.approx(c + 0.25)

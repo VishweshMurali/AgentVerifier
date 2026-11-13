@@ -31,6 +31,7 @@ import argparse
 import hashlib
 import json
 import sys
+import time
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -52,6 +53,9 @@ SAMPLE_SEED = 0  # fixed: a user may not re-draw the sample
 ORDER_SEED = 1  # fixed scoring order for the looks (early stopping, owner approved 2026-11-11)
 # use-case scoping (owner approved 2026-11-11): labels picked from a list
 NOT_MINE = "not_mine"
+# "my kinds all go to the same place" (owner approved 2026-11-12, quick tests only): the picked
+# kinds are scored as one route, so a mix-up between two of them counts as right, for every arm
+ROUTE = "my_kinds"
 OTHERS_SHARE = 0.20  # unrelated labels' share of the scoped test mix
 SCOPE_SEED = 2
 AGENT = "agent"
@@ -96,6 +100,37 @@ def look_order(cases: Sequence[Case], seed: int = ORDER_SEED) -> list[Case]:
     return [ordered[i] for i in np.random.default_rng(seed).permutation(len(ordered))]
 
 
+def new_run_dir(parent: Path, settings: str) -> Path:
+    """A fresh folder named by the settings and the start time; created exclusively."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    parent.mkdir(parents=True, exist_ok=True)
+    for i in range(1000):
+        path = parent / f"{settings}-{stamp}{'' if i == 0 else f'-{i}'}"
+        try:
+            path.mkdir()
+            return path
+        except FileExistsError:
+            continue
+    raise RuntimeError(f"could not create a new run folder under {parent}")
+
+
+class _AnswerOnce:
+    """An arm that answers each case once: the stopping rule and the verdict see the same answer,
+    and the user's agent is called (and charged) once per case. A failed call is not kept."""
+
+    def __init__(self, arm) -> None:
+        self._arm, self._seen = arm, {}
+        self.name = getattr(arm, "name", None)
+
+    def fit(self, pool) -> None:
+        return None
+
+    def predict(self, case_id: str, text: str):
+        if case_id not in self._seen:
+            self._seen[case_id] = self._arm.predict(case_id, text)
+        return self._seen[case_id]
+
+
 def run_looks(
     order: Sequence[Case], agent, simpler, scorer, gap: float, bounds: np.ndarray
 ) -> "sequential.Look":
@@ -110,6 +145,8 @@ def run_looks(
             a = scorer(agent.predict(case.id, case.text).pred, case.label)
             b = scorer(simpler.predict(case.id, case.text).pred, case.label)
             d.append(int(a) - int(b))
+            if len(d) % 10 == 0:  # progress for a watcher; scoring is unchanged
+                print(f"  scored {len(d)} of {len(order)} cases")
         done = n
         look = sequential.check(np.array(d), gap, c)
         print(f"  look at {n} cases: gain {look.diff:+.3f}, z(agent ahead) {look.z0:.2f}, "
@@ -174,8 +211,18 @@ def near_misses(layer, pool: Sequence[Case], scope: Sequence[str]) -> list[str]:
     return sorted(counts, key=lambda lb: (-counts[lb], lb))[: len(inside)]
 
 
+def _relabel(c: Case, inside: set[str], route: bool) -> Case:
+    if c.label not in inside:
+        return c.model_copy(update={"label": NOT_MINE})
+    return c.model_copy(update={"label": ROUTE}) if route else c
+
+
 def scoped(
-    cases: Sequence[Case], scope: Sequence[str], near: Sequence[str], seed: int = SCOPE_SEED
+    cases: Sequence[Case],
+    scope: Sequence[str],
+    near: Sequence[str],
+    seed: int = SCOPE_SEED,
+    route: bool = False,
 ) -> list[Case]:
     """The scoped mix: every in-scope and near-miss case, plus a fixed-seed random slice of the
     rest sized to OTHERS_SHARE of the mix. Cases outside the scope are relabelled NOT_MINE."""
@@ -186,7 +233,7 @@ def scoped(
     picked = np.random.default_rng(seed).choice(len(rest), size=k, replace=False)
     mix = core + [rest[i] for i in picked]
     return sorted(
-        (c if c.label in inside else c.model_copy(update={"label": NOT_MINE}) for c in mix),
+        (_relabel(c, inside, route) for c in mix),
         key=lambda c: c.id,
     )
 
@@ -195,26 +242,30 @@ class _InScope:
     """An arm whose answers outside the scope read as NOT_MINE. No answer stays no answer (a
     malformed reply still scores wrong)."""
 
-    def __init__(self, arm, scope: Sequence[str]) -> None:
-        self._arm, self._scope = arm, set(scope)
+    def __init__(self, arm, scope: Sequence[str], route: bool = False) -> None:
+        self._arm, self._scope, self._route = arm, set(scope), route
         self.name = getattr(arm, "name", None)
 
     def predict(self, case_id: str, text: str):
         p = self._arm.predict(case_id, text)
-        if p.pred is None or p.pred in self._scope:
+        if p.pred is None:
             return p
+        if p.pred in self._scope:
+            return p.model_copy(update={"pred": ROUTE}) if self._route else p
         return p.model_copy(update={"pred": NOT_MINE})
 
 
-def in_scope(arm, scope: Sequence[str]):
+def in_scope(arm, scope: Sequence[str], route: bool = False):
     """The arm itself without a scope; with one, its answers mapped to the scope."""
-    return _InScope(arm, scope) if scope else arm
+    return _InScope(arm, scope, route) if scope else arm
 
 
-def scope_summary(predictions: Path, used: Sequence[Case], scope: Sequence[str]) -> dict:
+def scope_summary(
+    predictions: Path, used: Sequence[Case], scope: Sequence[str], route: bool = False
+) -> dict:
     """Per arm: accuracy on in-scope cases and the share of other cases claimed as in scope."""
     gold = {c.id: c.label for c in used}
-    inside = set(scope)
+    inside = set(scope) | ({ROUTE} if route else set())
     tally: dict[str, list[int]] = {}
     for line in predictions.read_text(encoding="utf-8").splitlines():
         row = json.loads(line)
@@ -255,6 +306,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--arms", help="comma-separated arms (default: every runnable arm)")
     ap.add_argument("--prereg", help="base prereg (default: the scenario's, else prereg.yaml)")
     ap.add_argument("--scope", help="comma-separated labels your agent handles (use-case scoping)")
+    ap.add_argument(
+        "--one-route",
+        action="store_true",
+        help="score the --scope kinds as one route (a mix-up between them counts as right)",
+    )
+    ap.add_argument("--agent-url", help="your own agent over HTTP (agent_committee.external)")
+    ap.add_argument("--agent-cost", type=float, help="your agent's price per message, USD")
     ap.add_argument("--repo", default=".")
     ap.add_argument("--yes", action="store_true", help="run without the size/time confirmation")
     args = ap.parse_args(argv)
@@ -279,6 +337,27 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{s.name!r} has no prereg yet: using {base} (Banking77's ASSUMED prices, error "
               "costs and check thresholds)")  # fmt: skip
     prereg = load_prereg(base)
+    external = None
+    if args.agent_url:
+        from agent_committee.external import check_url, public_endpoint
+
+        try:
+            check_url(args.agent_url)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        if args.agent_cost is None or args.agent_cost < 0:
+            print("--agent-cost (USD per message, 0 or more) is required with --agent-url",
+                  file=sys.stderr)  # fmt: skip
+            return 1
+        external = {
+            "kind": "external",
+            "endpoint": public_endpoint(args.agent_url),
+            "usd_per_message": args.agent_cost,
+            "usd_per_message_source": "stated by the user",
+            "pinned": False,
+            "note": "the user's own agent over HTTP; not pinned, so a re-run may differ",
+        }
     if not 0 < args.gap < 1:
         print("--gap is a fraction of accuracy, e.g. 0.05 for 5 points", file=sys.stderr)
         return 1
@@ -296,23 +375,44 @@ def main(argv: list[str] | None = None) -> int:
     # copies of DEV are removed before sampling, so the sample keeps its planned size
     _, clean = checks.leakage(split.eval, split.pool + split.tune, prereg.checks)
     n_clean = len(clean)
+    from agent_committee import model_cache
     from agent_committee.arms.linear import calibrated_layer
 
-    layer = calibrated_layer(split.pool, split.tune)
+    # fitted models are saved and reused when the training data and the code are identical
+    code_key = model_cache.code_digest()
+    pool_key = model_cache.data_digest(split.pool)
+    layer_key = model_cache.model_key(
+        "layer", model_cache.data_digest(split.pool, split.tune), code_key
+    )
+    layer, layer_seconds, layer_saved = model_cache.load_or_fit(
+        repo, "layer", layer_key, lambda: calibrated_layer(split.pool, split.tune)
+    )
+    fit_seconds: dict[str, float] = {}
     scope: list[str] = []
     near: list[str] = []
     pool_ref, tune_ref = split.pool, split.tune
+    route = bool(args.one_route)
+    if (
+        route
+    ):  # one route needs a real subset of two or more kinds, or it would score anything right
+        picked = {a.strip() for a in (args.scope or "").split(",") if a.strip()}
+        if len(picked) < 2 or picked >= {c.label for c in dev}:
+            print(
+                "--one-route needs --scope with two or more kinds, not all of them", file=sys.stderr
+            )
+            return 1
     if args.scope:
         scope = sorted({a.strip() for a in args.scope.split(",") if a.strip()})
         known = {c.label for c in dev}
         wrong = [label for label in scope if label not in known]
-        if not scope or wrong or NOT_MINE in known:
+        if not scope or wrong or NOT_MINE in known or ROUTE in known:
             print(f"--scope needs labels of this dataset; unknown: {wrong}", file=sys.stderr)
             return 1
         near = near_misses(layer, split.pool, scope)
         # the test mix, and the references the checks compare it with, are built the same way
-        clean = scoped(clean, scope, near)
-        pool_ref, tune_ref = scoped(split.pool, scope, near), scoped(split.tune, scope, near)
+        clean = scoped(clean, scope, near, route=route)
+        pool_ref = scoped(split.pool, scope, near, route=route)
+        tune_ref = scoped(split.tune, scope, near, route=route)
         print(
             f"scope: {len(scope)} labels, near misses {near}, others {OTHERS_SHARE:.0%} of the mix"
         )
@@ -360,12 +460,33 @@ def main(argv: list[str] | None = None) -> int:
         "random_forest": lambda: fitted(RandomForestArm(), split.pool),
         "boosting": lambda: fitted(BoostingArm(), split.pool),
     }
-    free_arms = {n: in_scope(free_factories[n](), scope) for n in free}
+    free_arms = {}
+    for n in free:  # one line before and after each, so a watcher can show training progress
+        print(f"training {n} ...")
+        t0 = time.perf_counter()
+        if n == "linear":  # the layer above is the linear model
+            model, fit_seconds[n], saved = free_factories[n](), layer_seconds, layer_saved
+        else:
+            key = model_cache.model_key(n, pool_key, code_key)
+            model, fit_seconds[n], saved = model_cache.load_or_fit(repo, n, key, free_factories[n])
+        free_arms[n] = in_scope(model, scope, route)
+        print(f"trained {n} in {time.perf_counter() - t0:.0f} s")
+        if saved:
+            print(f"  ({n}: loaded the saved model; a fresh fit took {fit_seconds[n]:.0f} s)")
+    # for the page's time estimate: how long fitting takes here, and whether it is saved now
+    model_cache.write_summary(repo, s.name, code_key, fit_seconds)
     comparator, tune_scores = pick_comparator(free_arms, tune_ref)
     print(f"simpler model to beat (best free model on tune): {comparator} {tune_scores}")
 
     tag = f"-scope{hashlib.sha256(','.join(scope).encode()).hexdigest()[:8]}" if scope else ""
-    out_dir = repo / s.results_dir / "quick" / f"gap{args.gap:.3f}-n{len(cases)}{tag}"
+    if route:  # never on top of the strict result for the same picks
+        tag += "-route"
+    if external:  # their agent's results never land on the reference agent's folder
+        key = f"{external['endpoint']}|{external['usd_per_message']}"
+        tag += f"-ext{hashlib.sha256(key.encode()).hexdigest()[:8]}"
+    # every run gets its own folder (settings plus start time), so a later run never replaces an
+    # earlier run's plan, answers or verdict
+    out_dir = new_run_dir(repo / s.results_dir / "quick", f"gap{args.gap:.3f}-n{len(cases)}{tag}")
     order = look_order(cases)
     bounds = sequential.boundaries(prereg.alpha)
     plan = {
@@ -392,6 +513,8 @@ def main(argv: list[str] | None = None) -> int:
             "others_share": OTHERS_SHARE,
             "others_seed": SCOPE_SEED,
             "not_mine_label": NOT_MINE,
+            "one_route": route,
+            "route_label": ROUTE if route else None,
         }
         if scope
         else None,
@@ -405,7 +528,8 @@ def main(argv: list[str] | None = None) -> int:
         "arms": names,
         "base_prereg": str(base),
         "base_prereg_sha256": sha256_file(base),
-        "model_digest": MODEL_DIGEST,
+        "model_digest": MODEL_DIGEST if not external else "external agent (not pinned)",
+        "agent": external or {"kind": "reference", "model": "llama3.1:8b via Ollama"},
     }
     plan_sha = write_plan(out_dir / "plan.json", plan)
     audit = {
@@ -413,26 +537,56 @@ def main(argv: list[str] | None = None) -> int:
         "prereg_sha256": sha256_file(base),
         "dev_report_sha256": f"quick test plan {plan_sha}",
         "test_sha256": "quick test: DEV eval sample, sealed test not opened",
-        "model_digest": MODEL_DIGEST,
+        "model_digest": MODEL_DIGEST if not external else "external agent (not pinned)",
         "layer_fingerprint": layer.fingerprint(),
     }
     # the cascade (report-only) is derived from linear and the agent: only when both run
-    report = {"results": {CASCADE: {}} if "linear" in names else {}, "best_simpler_arm": comparator}
+    # (not with the user's agent: the cascade is priced from the reference agent's tokens)
+    with_cascade = "linear" in names and not external
+    report = {"results": {CASCADE: {}} if with_cascade else {}, "best_simpler_arm": comparator}
     book = build_label_book(split.pool)
-    with LLMClient(phase="build", model_digest=MODEL_DIGEST) as client:
+    needs_ollama = not external or "prompt" in names
+    from contextlib import nullcontext
+
+    llm_client = (
+        LLMClient(phase="build", model_digest=MODEL_DIGEST) if needs_ollama else nullcontext()
+    )
+    with llm_client as client:
         arms = dict(free_arms)
         if "prompt" in names:
             arms["prompt"] = in_scope(
-                prompt_arm.make_arm(split.pool, book, layer, client, task), scope
+                prompt_arm.make_arm(split.pool, book, layer, client, task), scope, route
             )
-        arms[AGENT] = in_scope(agent_arm.make_arm(split.pool, book, layer, client, task), scope)
-        arms = {n: arms[n] for n in names}
+        if external:
+            from agent_committee.external import ExternalAgentArm
+
+            labels = sorted({c.label for c in split.pool})
+            arms[AGENT] = in_scope(ExternalAgentArm(args.agent_url, labels), scope, route)
+        else:
+            arms[AGENT] = in_scope(
+                agent_arm.make_arm(split.pool, book, layer, client, task), scope, route
+            )
+        arms = {n: _AnswerOnce(arms[n]) for n in names}
         if prereg.scorer is None:  # no plain-code scorer: the engine returns INVALID unrun
             print("the prereg declares no scorer: INVALID", file=sys.stderr)
             return 1
         scorer = resolve_scorer(prereg.scorer.target)
-        look = run_looks(order, arms[AGENT], arms[comparator], scorer, args.gap, bounds)
+        from agent_committee.external import AgentDown
+
+        t_race = time.perf_counter()
+        try:
+            look = run_looks(order, arms[AGENT], arms[comparator], scorer, args.gap, bounds)
+        except AgentDown as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         used = order[: look.n]
+        # measured speed of our test agent, for the page's next time estimate (real calls only:
+        # answers replayed from the LLM cache would make it look faster than it is)
+        per_case = (time.perf_counter() - t_race) / max(1, look.n)
+        if not external and per_case > 0.3:
+            model_cache.write_summary(
+                repo, s.name, code_key, {}, agent_seconds_per_case=round(per_case, 2)
+            )
         print(f"stopped at {look.n} of {len(order)} cases: {look.outcome or 'no boundary crossed'}")
         # the sequential design, not the fixed-size power gate, governs the size of this run
         judged = prereg.model_copy(
@@ -440,10 +594,25 @@ def main(argv: list[str] | None = None) -> int:
         )
         # leakage is checked against all of DEV; drift is compared with references built
         # the same way as the test mix (a scoped mix would otherwise look like drift)
-        verdict = evaluate(
-            judged, used, split.pool + split.tune, pool_ref, held_ref, layer, arms, report,
-            audit, out_dir,
-        )  # fmt: skip
+        try:
+            verdict = evaluate(
+                judged, used, split.pool + split.tune, pool_ref, held_ref, layer, arms, report,
+                audit, out_dir, agent_fixed_usd=external["usd_per_message"] if external else 0.0,
+            )  # fmt: skip
+        except AgentDown as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+    if external:  # a black box shows no tool use: the floor measured the share of valid answers
+        verdict = verdict.model_copy(
+            update={
+                "checks": [
+                    c.model_copy(update={"detail": f"valid answers {c.value:.3f} (your agent)"})
+                    if c.name == "quality_floor" and c.value is not None
+                    else c
+                    for c in verdict.checks
+                ]
+            }
+        )
     note = (
         f"QUICK TEST on {look.n} of {len(cases)} sampled DEV eval cases (gap {args.gap:.3f}, "
         f"seed {SAMPLE_SEED}): exploratory, not a sealed verdict."
@@ -451,12 +620,18 @@ def main(argv: list[str] | None = None) -> int:
     verdict = apply_early_stop(verdict, look, len(order))
     extra = []
     if scope:
-        summary = scope_summary(out_dir / "predictions.jsonl", used, scope)
+        summary = scope_summary(out_dir / "predictions.jsonl", used, scope, route)
         (out_dir / "scope.json").write_text(json.dumps(summary, indent=2) + "\n", "utf-8")
         extra = [
-            f"Scope: {len(scope)} labels; a case not in scope counts right when the model answers "
-            f"any label outside the scope ('{NOT_MINE}')."
-        ] + [
+            f"Scope: {len(scope)} labels; a case not in scope counts right when the model "
+            f"answers any label outside the scope ('{NOT_MINE}')."
+        ]
+        if route:
+            extra.append(
+                f"One route: the {len(scope)} picked kinds are scored as one ('{ROUTE}'), so a "
+                "mix-up between two of them counts as right, for every model alike."
+            )
+        extra += [
             f"{arm}: {v['in_scope_accuracy']:.1%} right on in-scope cases, "
             f"{v['false_grab_rate']:.1%} of other cases wrongly claimed as in scope"
             for arm, v in summary.items()

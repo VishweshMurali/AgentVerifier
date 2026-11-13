@@ -1,0 +1,19 @@
+{
+  "dev_sha256": "4179ecf58dfeae2f615c0894f5c96923f3ea35a1eb4edd7bf39f502f8b943ff2",
+  "excluded_labels": [
+    "audio_volume_other",
+    "cooking_query",
+    "general_greet",
+    "music_dislikeness"
+  ],
+  "meets_min_test_n": true,
+  "min_test_n": 3028,
+  "n_dev": 12332,
+  "n_excluded_cases": 78,
+  "n_labels": 56,
+  "n_test": 4111,
+  "n_test_texts_duplicated_in_dev": 22,
+  "seed": 20260101,
+  "test_fraction": 0.25,
+  "test_sha256": "19711daee2de1cdb68e203b7f760333d17b70b69f6407ae27f71b3e0f53e006c"
+}

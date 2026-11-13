@@ -1,13 +1,18 @@
 # Agent Verifier front end
 
-A 9-scene scroll story that shows the agent-committee results: the three arms, the pre-registered
-rules, accuracy, integrity checks, the accuracy gap, the error-cost slider, one disagreement case and
-the recap. The design is locked in `design/frontend/SPEC.md`.
+React + Vite + TypeScript. One build, four pages chosen by the address:
 
-The page only displays results. Every number comes from `public/data/story.json`. The robot's lines
-are fixed templates in `src/story/lines.ts`, picked by plain code from that data. No AI writes any
-text on the page. When `story.json` has `"source": "rehearsal"`, the page says clearly that it is a
-DEV rehearsal preview and not the sealed verdict.
+| Address | Page |
+|---|---|
+| `/` | **the live page** (`LiveApp`, `components/MockPage.tsx`): a ten-screen scroll story. Describe your agent, pick its kinds of message, race it against simpler models, see one mistake, set your costs, then get the answer. With the local server it runs real quick tests; without it, it shows a saved example run. |
+| `?story` | the earlier nine-scene story of the sealed Banking77 result (`story.json`) |
+| `?test` | the quick-test flow prototype (`FlowApp`) |
+| `?mock` | the static design mockup (`MockApp`) |
+
+Every number on the pages comes from the pipeline's files or the local server; plain code picks the
+robot's lines. No AI writes text on the main page. The live page says plainly when it shows the
+example and when it shows your run, and which agent raced (a local Ollama model unless you bring
+your own).
 
 Stack: React + Vite + TypeScript only (exact versions are pinned in `package.json`).
 
@@ -61,6 +66,13 @@ The story is rebuilt from data, so refresh `story.json` before each build you de
 
 ```
 src/
+  LiveApp.tsx          the live page: loads the example, the server's menu and libraries, runs tests
+  components/MockPage.tsx   the ten screens, the robot's lines, the costs, the answer
+  components/UseCases.tsx   use-case cards, bring your own data, bring your agent
+  components/ScrollText.tsx words and cards built by scrolling
+  motion/brain.ts      the 3D message graph behind the page
+  flow/                pure, tested helpers: run steps, time estimate, guide answers, run mapping
+
   data/types.ts        TypeScript types mirroring story.json
   data/provider.ts     DataProvider interface, StaticJsonProvider, validateStory (pure, tested)
   data/index.ts        picks the provider from VITE_DATA_PROVIDER

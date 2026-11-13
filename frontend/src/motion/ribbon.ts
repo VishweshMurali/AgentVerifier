@@ -12,6 +12,16 @@ export interface Lane {
   score: number;
 }
 
+/** Where the lanes split apart, turn into a score chart, show the reveal and rejoin. */
+export interface Beats {
+  split: number;
+  chart: number;
+  reveal: number;
+  rejoin: number;
+}
+
+export const STORY_BEATS: Beats = { split: 1, chart: 3, reveal: 5, rejoin: 8 };
+
 export interface Flyer {
   x: number;
   y: number;
@@ -25,6 +35,8 @@ export interface RibbonOptions {
   revealDirection: number;
   /** Cases in the run, for the readout counter. */
   nCases: number;
+  /** Scene positions (0-based) of the story beats; defaults are the 9-scene story's. */
+  beats?: Beats;
   still: boolean;
   isNight: () => boolean;
   /** The robot's screen position and velocity, or null when it is docked. */
@@ -135,10 +147,11 @@ export function startRibbon(cv: HTMLCanvasElement, o: RibbonOptions): () => void
   };
   type Look = ReturnType<typeof look>;
 
+  const B = o.beats ?? STORY_BEATS;
   const story = (p: number) => ({
-    split: sstep(0.55, 1.0, p) * (1 - sstep(7.2, 8.0, p)),
-    drop: sstep(4.5, 5.0, p) * (1 - sstep(7.0, 8.0, p)) * o.revealDirection,
-    chart: sstep(2.4, 3.0, p) * (1 - sstep(3.0, 3.7, p)),
+    split: sstep(B.split - 0.45, B.split, p) * (1 - sstep(B.rejoin - 0.8, B.rejoin, p)),
+    drop: sstep(B.reveal - 0.5, B.reveal, p) * (1 - sstep(B.rejoin - 1, B.rejoin, p)) * o.revealDirection,
+    chart: sstep(B.chart - 0.6, B.chart, p) * (1 - sstep(B.chart, B.chart + 0.7, p)),
   });
 
   const ribbon = (P: Look, sp: number, dr: number, infl: Influence[]) => {
@@ -364,7 +377,7 @@ export function startRibbon(cv: HTMLCanvasElement, o: RibbonOptions): () => void
     const sr = story(pos);
     ch = sr.chart;
     // at the reveal the swarm opens a ring around the gap number and holds it open
-    const hole = sstep(4.55, 5.0, pos) * (1 - sstep(5.0, 5.6, pos));
+    const hole = sstep(B.reveal - 0.45, B.reveal, pos) * (1 - sstep(B.reveal, B.reveal + 0.6, pos));
     if (hole > 0.02) infl.push({ x: W / 2, y: H / 2, r: Math.min(W, H) * 0.42, p: 260 * hole, dx: 0, dy: 0, sw: 40 * hole, gl: 0 });
     // text blocks the dots keep clear of; the list is refreshed twice a second so new panels count
     if (now - tElsAt > 500) {
