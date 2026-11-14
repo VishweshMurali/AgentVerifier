@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MockPage, type LiveControl, type MockRun } from './components/MockPage.tsx';
 import { caseCard, type AgentCheck, type MyAgent, type OwnUpload, type UseCase } from './components/UseCases.tsx';
 import type { Arm, PriceTable, Verdict } from './data/types.ts';
-import type { ScopeScore } from './flow/model.ts';
+import { runTables, type ScopeScore } from './flow/model.ts';
 import { failureReason } from './flow/run.ts';
 
 /**
@@ -44,7 +44,7 @@ export function toRun(r: Result, flow: FlowChoices, library: Library, dataset: s
     scope,
     verdict: r.verdict,
     stream: r.messages.map((m) => ({ agent: m.agent_ok, simpler: m.simpler_ok })),
-    price_tables: flow.price_tables,
+    price_tables: runTables(r.verdict, flow.price_tables),
     scope_labels: r.plan.scope?.labels ?? flow.labels[dataset] ?? [],
     library,
     messages: r.messages,

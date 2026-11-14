@@ -106,6 +106,7 @@ def create_app(
 
         # ...or until a file it is built from changes (scenarios, splits, saved models and speeds)
         inputs = [
+            *root.glob("prereg.yaml"),  # the shared prices and thresholds
             *root.glob("scenarios/*/*.yaml"),
             *root.glob("data/*/split_manifest.json"),
             *root.glob("cache/quick-models/summary-*.json"),

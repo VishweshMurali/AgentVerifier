@@ -359,3 +359,16 @@ def test_same_place_needs_two_or_more_picked_kinds_not_all():
 def test_wrongly_shaped_datasets_are_refused_not_crashed(bad):
     with pytest.raises(flow.FlowRefused):
         flow.quick_command({**OK, "scenario": bad}, DATA)
+
+
+def test_speeds_survive_a_malformed_summary(root):
+    from agent_committee import model_cache
+
+    folder = root / model_cache.CACHE_DIR
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "summary-banking77.json").write_text("[1, 2]", encoding="utf-8")
+    assert flow.speeds(root, "banking77") == {
+        "models_saved": False,
+        "fit_seconds": None,
+        "agent_seconds_per_case": None,
+    }

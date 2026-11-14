@@ -207,3 +207,11 @@ export function shownAccuracy(run: SavedRun, arm: string): number | null {
 export function stoppedEarly(run: SavedRun): boolean {
   return run.verdict.n_cases < run.plan.planned_cases;
 }
+
+/** The price tables a run was priced with: the ones in its own verdict (a scenario may have its own
+ *  prereg), in the menu's order when known. Never a table the verdict has no price for. */
+export function runTables(verdict: Pick<Verdict, 'arms'>, known: PriceTable[]): PriceTable[] {
+  const names = Object.keys(verdict.arms[0]?.inference_cost ?? {});
+  return names.map((n) => known.find((t) => t.name === n) ?? { name: n, input_usd_per_mtok: 0, output_usd_per_mtok: 0, assumed: true });
+}
+

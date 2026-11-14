@@ -103,6 +103,8 @@ def write_summary(
         old = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         old = {}
+    if not isinstance(old, dict) or not isinstance(old.get("fit_seconds", {}), dict):
+        old = {}
     if old.get("code") != code:
         old = {}
     fits = {**old.get("fit_seconds", {}), **{k: round(v, 2) for k, v in fit_seconds.items()}}
@@ -115,4 +117,15 @@ def read_summary(repo: Path, scenario: str) -> dict[str, Any] | None:
         out = json.loads((repo / CACHE_DIR / f"summary-{scenario}.json").read_text("utf-8"))
     except (OSError, ValueError):
         return None
-    return out if out.get("code") == code_digest() else None
+    # a file of the wrong shape is ignored (the estimate falls back to defaults), never a crash
+    if not isinstance(out, dict) or out.get("code") != code_digest():
+        return None
+    fits = out.get("fit_seconds")
+    if not isinstance(fits, dict) or not all(
+        isinstance(v, (int, float)) and not isinstance(v, bool) for v in fits.values()
+    ):
+        out["fit_seconds"] = {}
+    speed = out.get("agent_seconds_per_case")
+    if not isinstance(speed, (int, float)) or isinstance(speed, bool) or speed <= 0:
+        out["agent_seconds_per_case"] = None
+    return out

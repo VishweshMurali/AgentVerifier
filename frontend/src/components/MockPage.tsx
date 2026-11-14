@@ -258,6 +258,10 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
   // one mistake = the fixer's hourly cost x minutes to fix / 60 (plain code)
   const mistake = (hourly * minutes) / 60;
   const [table, setTable] = useState(TABLE0);
+  // a run priced with other tables (a scenario's own prereg): pick one it has
+  useEffect(() => {
+    if (run.price_tables.length && !run.price_tables.some((p) => p.name === table)) setTable(run.price_tables[0].name);
+  }, [run, table]);
 
   // screen 3: the messages worth a close-up (either side wrong), starting with the agent's first slip
   const mistakes = useMemo(() => run.messages.map((m, i) => (!m.agent_ok || !m.simpler_ok ? i : -1)).filter((i) => i >= 0), [run.messages]);

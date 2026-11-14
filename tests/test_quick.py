@@ -555,3 +555,25 @@ def test_training_key_cannot_be_forged_by_separator_characters():
     three = [Case(id="1", text="x\n2\x1fy", label="z")]
     four = [Case(id="1", text="x", label="z"), Case(id="2", text="y", label="z")]
     assert model_cache.data_digest(three) != model_cache.data_digest(four)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "[1, 2]",
+        "{bad json",
+        '{"code": "C", "fit_seconds": [1]}',
+        '{"code": "C", "agent_seconds_per_case": "fast"}',
+    ],
+)
+def test_a_malformed_speed_summary_is_ignored_not_a_crash(tmp_path, monkeypatch, content):
+    monkeypatch.setattr(model_cache, "code_digest", lambda: "C")
+    folder = tmp_path / model_cache.CACHE_DIR
+    folder.mkdir(parents=True)
+    (folder / "summary-x.json").write_text(content, encoding="utf-8")
+    got = model_cache.read_summary(tmp_path, "x")
+    assert got is None or (
+        isinstance(got["fit_seconds"], dict) and got["agent_seconds_per_case"] is None
+    )
+    model_cache.write_summary(tmp_path, "x", "C", {"linear": 2.0})  # rewrites a bad file cleanly
+    assert model_cache.read_summary(tmp_path, "x")["fit_seconds"] == {"linear": 2.0}
