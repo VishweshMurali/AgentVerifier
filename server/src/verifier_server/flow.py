@@ -40,8 +40,9 @@ def _ready(entry: dict[str, Any]) -> bool:
     return entry.get("status") in READY
 
 
-def flow_data(root: Path) -> dict[str, Any]:
-    """The page's choices: datasets, labels of the ready ones, test sizes, timings, prices."""
+def flow_data(root: Path, cfg: Any = None) -> dict[str, Any]:
+    """The page's choices: datasets, labels of the ready ones, test sizes, timings, prices.
+    `cfg` (settings.Settings) narrows the models and gaps a public deployment offers."""
     from agent_committee import catalog, quick
     from agent_committee.data import load_dev
     from agent_committee.prereg import load_prereg
@@ -81,10 +82,13 @@ def flow_data(root: Path) -> dict[str, Any]:
             }
         )
         labels[name] = sorted({c.label for c in load_dev(root / s.data_dir)})
+    gaps = (cfg.gaps if cfg is not None else None) or GAPS
     return {
+        **(cfg.view() if cfg is not None else {}),
+        "arms": list((cfg.arms if cfg is not None else None) or ARMS),
         "datasets": datasets,
         "labels": labels,
-        "plan_sizes": {f"{g:.2f}": quick.plan_size(g, prereg.alpha, prereg.power) for g in GAPS},
+        "plan_sizes": {f"{g:.2f}": quick.plan_size(g, prereg.alpha, prereg.power) for g in gaps},
         "seconds_per_case": dict(quick.SECONDS_PER_CASE),
         "price_tables": [t.model_dump() for t in prereg.price_tables],
         "eval_sizes": {name: eval_size(root, name) for name in labels},
@@ -107,18 +111,26 @@ def speeds(root: Path, scenario: str) -> dict[str, Any]:
     }
 
 
-def quick_command(choice: dict[str, Any], data: dict[str, Any]) -> list[str]:
+def planned_cases(choice: dict[str, Any], data: dict[str, Any]) -> int:
+    """The cases a checked choice plans to send to the agent (before any early stop)."""
+    return int(data["plan_sizes"][f"{float(choice['gap']):.2f}"])
+
+
+def quick_command(choice: dict[str, Any], data: dict[str, Any], cfg: Any = None) -> list[str]:
     """The child command for a checked choice. Every value is checked against an allow-list and
-    passed as its own argument (never through a shell)."""
+    passed as its own argument (never through a shell). `cfg` (settings.Settings) narrows the
+    allow-lists on a public deployment."""
+    gaps = (cfg.gaps if cfg is not None else None) or GAPS
+    allowed = (cfg.arms if cfg is not None else None) or ARMS
     scenario = choice.get("scenario")
     if not isinstance(scenario, str) or scenario not in data["labels"]:
         raise FlowRefused(f"dataset {scenario!r} is not ready to test")
     gap = choice.get("gap")
-    if not isinstance(gap, (int, float)) or round(float(gap), 2) not in GAPS:
-        raise FlowRefused(f"gap must be one of {list(GAPS)}")
+    if not isinstance(gap, (int, float)) or round(float(gap), 2) not in gaps:
+        raise FlowRefused(f"gap must be one of {list(gaps)}")
     arms = choice.get("arms")
-    if not isinstance(arms, list) or not arms or any(a not in ARMS for a in arms):
-        raise FlowRefused(f"arms must be among {list(ARMS)}")
+    if not isinstance(arms, list) or not arms or any(a not in allowed for a in arms):
+        raise FlowRefused(f"arms must be among {list(allowed)}")
     if AGENT not in arms or all(a in LLM_ARMS for a in arms):
         raise FlowRefused("include the agent and at least one free model")
     scope = choice.get("scope")
@@ -147,6 +159,8 @@ def quick_command(choice: dict[str, Any], data: dict[str, Any]) -> list[str]:
         cmd += ["--one-route"]
     agent = choice.get("agent")
     if agent is not None:  # the user's own agent over HTTP (agent_committee.external)
+        if cfg is not None and cfg.public:
+            raise FlowRefused("bring your agent is off on the public site; run it locally")
         url, cost = agent_choice(agent)
         if "prompt" in arms:
             raise FlowRefused(
@@ -470,15 +484,31 @@ def _own_rows(raw: bytes, fmt: str) -> list[dict[str, str]]:
 
 
 def own_cases(raw: bytes, fmt: str) -> list[Any]:
-    """Cases from an upload. Without an id column, ids come from each row's own text and label
-    (plus a counter for repeats), so the split never depends on the file's row order."""
+    """Cases from an upload, personal details masked (see `masked_cases`)."""
+    return masked_cases(raw, fmt)[0]
+
+
+def masked_cases(raw: bytes, fmt: str) -> tuple[list[Any], dict[str, Any]]:
+    """Cases from an upload, and what the PII layer masked. Every message is masked first
+    (agent_committee.pii), so ids, the saved file and the split only ever see masked text; an id
+    or group that itself holds a personal detail is dropped (the id is then made from the text).
+    Without an id column, ids come from each row's own text and label (plus a counter for
+    repeats), so the split never depends on the file's row order."""
     import hashlib
 
+    from agent_committee import pii
     from agent_committee.schemas import Case
 
+    rows = _own_rows(raw, fmt)
+    texts, kinds, changed = pii.mask_all([row["text"] for row in rows])
     seen: dict[str, int] = {}
     cases = []
-    for row in _own_rows(raw, fmt):
+    for row, text in zip(rows, texts, strict=True):
+        row = {**row, "text": text}
+        for field in ("id", "group"):
+            value = row.get(field)
+            if isinstance(value, str) and pii.mask(value)[1]:
+                row[field] = None
         rid = row.get("id")
         if not (isinstance(rid, str) and rid.strip()):
             key = f"{row['text']}\x1f{row['label']}".encode()
@@ -490,11 +520,17 @@ def own_cases(raw: bytes, fmt: str) -> list[Any]:
         cases.append(Case(id=rid, text=row["text"], label=row["label"].strip(), group=group))
     if len({c.id for c in cases}) != len(cases):
         raise FlowRefused("ids must be unique")
-    return cases
+    return cases, {"kinds": kinds, "messages": changed, "not_found": "names, details in words"}
 
 
 def add_own(
-    root: Path, name: str, fmt: str, raw: bytes, phrase: dict[str, str], title: str = ""
+    root: Path,
+    name: str,
+    fmt: str,
+    raw: bytes,
+    phrase: dict[str, str],
+    title: str = "",
+    max_bytes: int = OWN_MAX_BYTES,
 ) -> dict[str, Any]:
     """The reader's own data, end to end: check it in memory with the same split checks a build
     runs, and only then write sources/own/<name>.jsonl, its scenario, its prereg (Banking77's
@@ -523,14 +559,14 @@ def add_own(
     )
     if taken:
         raise FlowRefused(f"a dataset called {name!r} already exists; pick another name")
-    if len(raw) > OWN_MAX_BYTES:
-        raise FlowRefused("the file is larger than 20 MB")
+    if len(raw) > max_bytes:
+        raise FlowRefused(f"the file is larger than {max_bytes // (1024 * 1024)} MB")
     if not all(
         isinstance(phrase.get(k), str) and phrase[k].strip()
         for k in ("item", "items", "label_kind")
     ):
         raise FlowRefused("say what one message is, what many are called, and what a label is")
-    cases = own_cases(raw, fmt)
+    cases, masked = masked_cases(raw, fmt)  # personal details never reach the disk
     prereg = load_prereg(root / "prereg.yaml")
     try:
         planned_split(cases, prereg.split)  # every check a build runs; writes nothing
@@ -574,4 +610,5 @@ def add_own(
         "dev": manifest.get("n_dev"),
         "eval": n_eval,
         "detectable_gap": detectable(n_eval, sizes),
+        "masked": masked,
     }

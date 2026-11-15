@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Arm, LiveStatus, Story } from '../data/types.ts';
-import { liveLine } from '../story/live.ts';
+import { agentReady, liveLine } from '../story/live.ts';
 import { costGap, defaultErrorCost, expectedCost, sliderStep } from '../story/cost.ts';
 import { num, pct, tableLabel, usd } from '../story/format.ts';
 import * as L from '../story/lines.ts';
@@ -237,8 +237,8 @@ export function StoryPage({ story, live = null }: { story: Story; live?: LiveSta
           Agent Verifier<span className="t-teal">.</span>
         </span>
         {live && (
-          <span className="live glass" role="status" title="Live status from the local server">
-            <i className={live.ollama ? 'on' : 'off'} aria-hidden="true" />
+          <span className="live glass" role="status" title="Live status from the server">
+            <i className={agentReady(live) ? 'on' : 'off'} aria-hidden="true" />
             {liveLine(live)}
           </span>
         )}

@@ -19,6 +19,7 @@ import type { Mood, SceneDef } from '../story/scenes.ts';
 import { Icon } from './Icons.tsx';
 import { Reveal, ScrollRise, ScrollTiles, ScrollWrite, type Part } from './ScrollText.tsx';
 import { CASE_KEYWORDS, UseCases, type AgentCheck, type MyAgent, type OwnUpload, type UseCase } from './UseCases.tsx';
+import { agentWords, runAgent, type AgentInfo } from '../flow/agentInfo.ts';
 import { Decode } from './Motion.tsx';
 import { Robot } from './Robot.tsx';
 import { Timeline } from './Timeline.tsx';
@@ -56,10 +57,16 @@ export interface LiveControl {
   canUpload?: boolean;
   upload?: (u: OwnUpload) => void;
   uploadState?: { busy: boolean; error: string | null; note: string | null };
-  /** the reader's own agent; null = our test agent (llama3.1:8b on Ollama) races */
+  /** the reader's own agent; null = our test agent races (agentInfo says which one) */
   agent?: MyAgent | null;
   setAgent?: (a: MyAgent | null) => void;
   checkAgent?: (url: string) => Promise<AgentCheck>;
+  /** the agent this deployment races by default: local Ollama, or a hosted model (not pinned) */
+  agentInfo?: AgentInfo;
+  /** the public demo: bring-your-agent is off and only the larger differences are offered */
+  publicMode?: boolean;
+  /** largest upload this deployment takes, in bytes */
+  ownMaxBytes?: number;
 }
 
 // how big a difference the reader wants to be able to see (the test's planned gap)
@@ -81,8 +88,8 @@ export interface MockRun {
     /** messages drawn for this test (population = the whole pool they were drawn from) */
     cases?: number;
     scope?: { labels?: string[]; one_route?: boolean } | null;
-    /** who raced: the reference test agent (Ollama) or the user's own agent over HTTP */
-    agent?: { kind: 'reference' | 'external'; model?: string; endpoint?: string; usd_per_message?: number };
+    /** who raced: the reference test agent (Ollama), a hosted model, or the user's own agent over HTTP */
+    agent?: { kind: 'reference' | 'hosted' | 'external'; model?: string; endpoint?: string; usd_per_message?: number };
   };
   scope: Record<string, ScopeScore>;
   verdict: Verdict;
@@ -206,11 +213,15 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
   // one name for the racing agent: ours by default (llama3.1:8b on Ollama), "Your agent" once the
   // reader plugs in their own; while a test runs, the one being tested
   const extRun = run.plan.agent?.kind === 'external';
-  const AG = extRun ? 'Your agent' : 'Local Ollama agent';
-  const ag = extRun ? 'your agent' : 'the local Ollama agent';
-  const agWho = extRun ? `your agent at ${run.plan.agent?.endpoint ?? 'your address'}` : 'llama3.1:8b, running on this computer through Ollama';
+  // the result on screen names the agent its own plan recorded; a test about to run names the
+  // agent this deployment races (local Ollama, or a hosted model that is not pinned)
+  const ran = agentWords(runAgent(run.plan.agent));
+  const ours = agentWords(live?.agentInfo);
+  const AG = extRun ? 'Your agent' : ran.name;
+  const ag = extRun ? 'your agent' : ran.lower;
+  const agWho = extRun ? `your agent at ${run.plan.agent?.endpoint ?? 'your address'}` : ran.who;
   const modelLabel = (id: string) => (id === AGENT ? AG : baseLabel(id));
-  const runningLabel = (id: string) => (id === AGENT ? (live?.agent ? 'Your agent' : 'Local Ollama agent') : baseLabel(id));
+  const runningLabel = (id: string) => (id === AGENT ? (live?.agent ? 'Your agent' : ours.name) : baseLabel(id));
   const sugg = useMemo(() => matchLabels(desc, lib), [desc, lib]);
   const [allKinds, setAllKinds] = useState(false);
   const everyKind = useMemo(() => [...new Set(lib.map((m) => m.label))].sort((x, y) => x.localeCompare(y, 'en', { sensitivity: 'base' })), [lib]);
@@ -235,7 +246,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
     if (!handPicked.current && live?.chosen) setPicked(sugg);
   }, [sugg, live?.chosen]);
   const canRoute = picked.length >= 2 && (!chosenCase || picked.length < chosenCase.labels);
-  const fits = (g: number) => !chosenCase?.evalSize || (live?.planSizes?.[g.toFixed(2)] ?? 0) <= chosenCase.evalSize;
+  // a deployment may offer only some differences (the public demo: the larger ones)
+  const offered = (g: number) => !live?.planSizes || Object.keys(live.planSizes).length === 0 || g.toFixed(2) in live.planSizes;
+  const fits = (g: number) => offered(g) && (!chosenCase?.evalSize || (live?.planSizes?.[g.toFixed(2)] ?? 0) <= chosenCase.evalSize);
   useEffect(() => {
     if (!fits(gap)) {
       const ok = GAP_CHOICES.map(([g]) => g).filter(fits).sort((a, b) => a - b)[0];
@@ -583,7 +596,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           Agent Verifier<span className="t-teal">.</span>
         </span>
         <span className="live glass">
-          {live?.mine ? `Your result · ${live.cases?.find((c) => c.option === run.plan.scenario)?.title ?? 'exploratory'}` : running ? (live?.agent ? 'Testing your agent…' : 'Testing with the local Ollama agent…') : chosenCase ? `${chosenCase.title} · not run yet` : 'Example · a refund agent'}
+          {live?.mine ? `Your result · ${live.cases?.find((c) => c.option === run.plan.scenario)?.title ?? 'exploratory'}` : running ? (live?.agent ? 'Testing your agent…' : `Testing with ${ours.lower}…`) : chosenCase ? `${chosenCase.title} · not run yet` : 'Example · a refund agent'}
         </span>
         <div className="top-actions">
           <button type="button" className="pill glass" aria-pressed={night} onClick={() => setNight(!night)}>
@@ -626,8 +639,14 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               <>We’ll race <b>your agent</b> at {live.agent.url.replace(/\?.*$/, '')}.</>
             ) : (
               <>
-                The agent in this test is a <b>local Ollama model</b> (llama3.1:8b, running on this computer), standing in for yours. Have your own? Use{' '}
-                <b>Bring your agent</b> below.
+                The agent in this test is <b>{ours.standIn}</b>, standing in for yours.{' '}
+                {live?.publicMode ? (
+                  <>To test your own agent, run the verifier on your machine.</>
+                ) : (
+                  <>
+                    Have your own? Use <b>Bring your agent</b> below.
+                  </>
+                )}
               </>
             )}
           </p>
@@ -660,6 +679,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               agent={live.agent ?? null}
               setAgent={live.setAgent}
               checkAgent={live.checkAgent}
+              ours={ours}
+              publicMode={!!live.publicMode}
+              maxBytes={live.ownMaxBytes}
             />
           ) : null}
         </section>
@@ -740,7 +762,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
                   <span className="mono muted">Spot a difference that’s</span>
                   <div className="chips">
                     {GAP_CHOICES.map(([g, name]) => (
-                      <button key={g} type="button" className={`chip small${gap === g ? ' on' : ''}`} onClick={() => setGap(g)} disabled={running || !fits(g)} title={fits(g) ? '' : 'Not enough messages in this data for so small a difference'}>
+                      <button key={g} type="button" className={`chip small${gap === g ? ' on' : ''}`} onClick={() => setGap(g)} disabled={running || !fits(g)} title={fits(g) ? '' : offered(g) ? 'Not enough messages in this data for so small a difference' : 'Not offered on this demo: the hosted model’s free limit only covers larger differences. Run the verifier locally for smaller ones.'}>
                         {name} · {Math.round(g * 100)} pts
                       </button>
                     ))}
@@ -776,7 +798,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
                     </small>
                   )}
                   <small className="mono muted racer">
-                    Racing: {live.agent ? `your agent (${live.agent.url.replace(/\?.*$/, '')}, $${live.agent.usd}/answer)` : 'a local Ollama model (llama3.1:8b on this computer) standing in for your agent'} ·{' '}
+                    Racing: {live.agent ? `your agent (${live.agent.url.replace(/\?.*$/, '')}, $${live.agent.usd}/answer)` : `${ours.standIn} standing in for your agent`} ·{' '}
                     <button type="button" className="link" onClick={() => document.getElementById('m1')?.scrollIntoView({ behavior: 'smooth' })}>
                       change
                     </button>
@@ -859,7 +881,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               <div className="closeup-rows">
                 <div className={fm.agent_ok ? 'ok' : 'no'}>
                   <span>
-                    {AG} <small className="mono muted">· {extRun ? 'your agent' : 'llama3.1:8b via Ollama'}</small>
+                    {AG} <small className="mono muted">· {extRun ? 'your agent' : ran.tag}</small>
                   </span>
                   <b className="mono">{fm.agent === 'not_mine' ? 'not one of your kinds' : kind(fm.agent)}</b>
                   <small>
@@ -1166,7 +1188,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           <dd className="mono">
             {extRun
               ? `your agent at ${run.plan.agent?.endpoint} · $${run.plan.agent?.usd_per_message}/message (your figure) · not pinned, a re-run may differ`
-              : 'local Ollama agent: llama3.1:8b on this computer (used when you don’t bring yours)'}{' '}
+              : ran.hosted
+                ? `hosted test agent: ${ran.tag} · a re-run may differ`
+                : 'local Ollama agent: llama3.1:8b on this computer (used when you don’t bring yours)'}{' '}
             · {v.audit.git_commit.slice(0, 7)}
           </dd>
         </dl>

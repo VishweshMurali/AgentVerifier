@@ -1,4 +1,5 @@
-"""Agent Verifier local API. Binds to 127.0.0.1 only (see __main__.py).
+"""Agent Verifier API. Local by default: binds to 127.0.0.1 only (see __main__.py). A public
+deployment (settings.py, VERIFIER_PUBLIC=1) runs the hosted agent with the limits listed there.
 
     GET  /api/health          liveness
     GET  /api/story           the page's data (same shape as frontend/public/data/story.json)
@@ -27,14 +28,19 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import flow, guide
+from . import settings as deploy
 from .jobs import JobBusy, JobManager
-from .status import Paths, ollama_up, project_status
+from .status import Paths, ollama_up, project_status, tokens_today
 from .story import StoryService, VerdictUnreadable
 from .warmup import Prewarmer
 
 ROOT = Path(__file__).resolve().parents[3]
 # Writes need this header: a cross-site page cannot send it without a CORS preflight, which fails.
 CLIENT_HEADER = "x-verifier-client"
+# Public mode: the names of the datasets this visitor added (each name ends in a random code the
+# server made up, so knowing the name is what lets a visitor see or test that dataset).
+OWN_HEADER = "x-verifier-own"
+PUBLIC_OWN_LIMIT = 20  # uploads kept on a public host until it restarts
 
 
 def create_app(
@@ -48,13 +54,21 @@ def create_app(
     with_case: bool = True,
     testing: bool = False,
     prewarm: bool | None = None,
+    settings: deploy.Settings | None = None,
 ) -> FastAPI:
+    cfg = settings or (deploy.Settings() if testing else deploy.load())
     paths = Paths(root)
     # the export code always comes from this checkout; `root` only says where the data lives
     stories = story or StoryService(paths, with_case=with_case, script_root=ROOT)
     manager = jobs or JobManager(root)
     # free models are trained ahead of time, in the background (never in tests)
-    warmer = Prewarmer(root) if (not testing if prewarm is None else prewarm) else None
+    warmer = (
+        Prewarmer(root, arms=cfg.arms) if (not testing if prewarm is None else prewarm) else None
+    )
+
+    def agent_ready() -> bool:
+        """The agent a test would race: the hosted one needs only its key (checked at start)."""
+        return True if cfg.provider else ollama()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -72,7 +86,7 @@ def create_app(
         lifespan=lifespan,
     )
     # refuse other Host names (DNS rebinding); "testserver" (the test client's) only in tests
-    hosts = ["127.0.0.1", "localhost"] + (["testserver"] if testing else [])
+    hosts = [*cfg.hosts] + (["testserver"] if testing else [])
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
 
     @app.get("/api/health")
@@ -94,12 +108,29 @@ def create_app(
         running = manager.running()
         status["job"] = running.view() if running else None
         status["warmup"] = warmer.state if warmer is not None else None
+        if cfg.public:
+            # a job's id opens its result and audit, and its output and the pre-training state
+            # name private uploads: other visitors learn only that something is running
+            if running:
+                status["job"] = {"kind": running.kind, "state": running.state}
+            if warmer is not None:
+                status["warmup"] = {"running": warmer.state["running"] is not None}
+        status.update(cfg.view())
+        status["agent"]["ready"] = agent_ready()
+        if cfg.daily_tokens is not None:
+            status["budget"] = {
+                "daily_tokens": cfg.daily_tokens,
+                "used_today": tokens_today(paths.cache),
+                "tokens_per_case": deploy.TOKENS_PER_CASE,
+            }
         return status
 
     @app.post("/api/jobs/rehearsal", status_code=202)
     def start_rehearsal(request: Request) -> dict[str, Any]:
         if request.headers.get(CLIENT_HEADER) != "1":
             raise HTTPException(403, f"send the header {CLIENT_HEADER}: 1")
+        if cfg.public:
+            raise HTTPException(403, "rehearsals are not run on the public site")
         if not ollama():
             raise HTTPException(503, "Ollama is not reachable; start it before a rehearsal")
         try:
@@ -125,12 +156,30 @@ def create_app(
             ([(e["option"], e.get("status")) for e in catalog.menu(root)], len(inputs), stamp)
         )
         if flow_cache.get("key") != key:
-            flow_cache.update(key=key, data=flow.flow_data(root))
+            flow_cache.update(key=key, data=flow.flow_data(root, cfg))
         return flow_cache["data"]
 
+    def mine(request: Request) -> set[str]:
+        return {n.strip() for n in request.headers.get(OWN_HEADER, "").split(",") if n.strip()}
+
+    def choices_for(request: Request) -> dict[str, Any]:
+        """The choices this visitor may see: on the public site, a dataset someone added is
+        listed only for the visitor who names it."""
+        data = flow_choices()
+        if not cfg.public:
+            return data
+        hidden = {d["option"] for d in data["datasets"] if d.get("own")} - mine(request)
+        if not hidden:
+            return data
+        out = dict(data)
+        out["datasets"] = [d for d in data["datasets"] if d["option"] not in hidden]
+        for part in ("labels", "eval_sizes", "speeds"):
+            out[part] = {k: v for k, v in data[part].items() if k not in hidden}
+        return out
+
     @app.get("/api/flow")
-    def get_flow() -> dict[str, Any]:
-        return flow_choices()
+    def get_flow(request: Request) -> dict[str, Any]:
+        return choices_for(request)
 
     library_cache: dict[str, list[dict[str, str]]] = {}
 
@@ -149,8 +198,15 @@ def create_app(
             raise HTTPException(403, f"send the header {CLIENT_HEADER}: 1")
         raw = await request.body()
         phrase = {"item": item, "items": items, "label_kind": label_kind}
+        if cfg.public:
+            import secrets
+
+            kept = sum(1 for d in flow_choices()["datasets"] if d.get("own"))
+            if kept >= PUBLIC_OWN_LIMIT:
+                raise HTTPException(429, "this demo is holding as many uploads as it can for now")
+            name = f"{name}_{secrets.token_hex(6)}"  # only this visitor learns the full name
         try:
-            out = flow.add_own(root, name, format, raw, phrase, title)
+            out = flow.add_own(root, name, format, raw, phrase, title, cfg.own_max_bytes)
         except flow.FlowRefused as exc:
             raise HTTPException(422, str(exc)) from exc
         except (ValueError, UnicodeDecodeError) as exc:
@@ -161,8 +217,8 @@ def create_app(
         return out
 
     @app.get("/api/flow/library")
-    def get_library(dataset: str) -> list[dict[str, str]]:
-        if dataset not in flow_choices()["labels"]:
+    def get_library(request: Request, dataset: str) -> list[dict[str, str]]:
+        if dataset not in choices_for(request)["labels"]:
             raise HTTPException(404, f"dataset {dataset!r} is not ready")
         if dataset not in library_cache:
             library_cache[dataset] = flow.library(root, dataset)
@@ -178,16 +234,34 @@ def create_app(
             raise HTTPException(400, "send the choice as JSON") from exc
         if not isinstance(choice, dict):
             raise HTTPException(400, "send the choice as a JSON object")
+        data = choices_for(request)
         try:
-            cmd = flow.quick_command(choice, flow_choices())
+            cmd = flow.quick_command(choice, data, cfg)
         except flow.FlowRefused as exc:
             raise HTTPException(422, str(exc)) from exc
         # the reference agent runs on Ollama; the user's own agent does not need it
-        if choice.get("agent") is None and not ollama():
+        if choice.get("agent") is None and not agent_ready():
             raise HTTPException(503, "Ollama is not reachable; start it before a test")
+        if cfg.daily_tokens is not None:
+            # the hosted agent's free tokens are shared by every visitor: a test starts only
+            # when all of its planned cases still fit in what is left of today
+            need = flow.planned_cases(choice, data) * deploy.TOKENS_PER_CASE
+            if need > cfg.daily_tokens - tokens_today(paths.cache):
+                raise HTTPException(
+                    429,
+                    "Today's free test budget is used up (the hosted model allows a fixed "
+                    "number of tokens a day, shared by every visitor). Come back tomorrow, or "
+                    "run the verifier on your own machine.",
+                )
         try:
             return manager.start("quick", cmd, flow.QUICK_TIMEOUT_S, flow.read_progress).view()
         except JobBusy as exc:
+            if cfg.public:  # never another visitor's job id
+                raise HTTPException(
+                    409,
+                    "Another visitor's test is running; this demo runs one at a time. "
+                    "Try again in a few minutes.",
+                ) from exc
             raise HTTPException(409, f"a job is already running: {exc}") from exc
 
     @app.post("/api/agent/check")
@@ -195,6 +269,8 @@ def create_app(
         """Send three practice messages to the user's agent and show what came back."""
         if request.headers.get(CLIENT_HEADER) != "1":
             raise HTTPException(403, f"send the header {CLIENT_HEADER}: 1")
+        if cfg.public:
+            raise HTTPException(403, "bring your agent is off on the public site; run it locally")
         try:
             body = await request.json()
         except ValueError as exc:
@@ -224,7 +300,8 @@ def create_app(
             raise HTTPException(400, "send a JSON object")
         from starlette.concurrency import run_in_threadpool
 
-        return await run_in_threadpool(guide.guide_reply, payload)
+        # the public site words the guide in plain code only: no model call spends shared tokens
+        return await run_in_threadpool(guide.guide_reply, payload, None, not cfg.public)
 
     @app.get("/api/jobs/{job_id}/result")
     def get_result(job_id: str) -> dict[str, Any]:

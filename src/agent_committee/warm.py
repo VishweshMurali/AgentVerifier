@@ -39,8 +39,9 @@ def ready_scenarios(repo: Path) -> list[str]:
     return out
 
 
-def warm(repo: Path, scenario: str, log=print) -> dict[str, float]:
-    """Fit and save whatever is missing for one scenario; returns each model's fit seconds."""
+def warm(repo: Path, scenario: str, log=print, only=None) -> dict[str, float]:
+    """Fit and save whatever is missing for one scenario; returns each model's fit seconds.
+    `only` names the models to prepare (the shared layer always is); None is every free model."""
     from agent_committee import quick
     from agent_committee.arms.evaluate import CLASSIC
     from agent_committee.arms.splits import make_arms_split
@@ -52,7 +53,7 @@ def warm(repo: Path, scenario: str, log=print) -> dict[str, float]:
     layer, layer_seconds, _ = quick.load_or_fit_layer(repo, split)
     seconds = {"linear": layer_seconds}
     for name in CLASSIC:
-        if name == "linear":
+        if name == "linear" or (only is not None and name not in only):
             continue
         key = quick.free_model_key(name, split)
         saved = repo / model_cache.CACHE_DIR / f"{name}-{key}.pkl"
@@ -73,13 +74,15 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--scenario")
     group.add_argument("--all", action="store_true")
     ap.add_argument("--repo", default=".")
+    ap.add_argument("--arms", help="comma-separated models to prepare (default: every free one)")
     args = ap.parse_args(argv)
+    only = {a.strip() for a in args.arms.split(",") if a.strip()} if args.arms else None
     repo = Path(args.repo)
     names = ready_scenarios(repo) if args.all else [args.scenario]
     failed = 0
     for name in names:
         try:
-            warm(repo, name)
+            warm(repo, name, only=only)
         except Exception as exc:  # noqa: BLE001 (one scenario failing must not stop the rest)
             failed += 1
             print(f"{name}: could not prepare ({exc})", file=sys.stderr)

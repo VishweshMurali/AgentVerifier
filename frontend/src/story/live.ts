@@ -19,8 +19,15 @@ export function sealedRunText(s: LiveStatus): string {
   return answers ? `Sealed run started: ${answers}${of} answers` : 'Sealed run started, no answers yet';
 }
 
+/** True when the agent a test would race is reachable (Ollama locally, the hosted model in public). */
+export function agentReady(s: LiveStatus): boolean {
+  return s.agent && s.agent.provider !== 'ollama' ? s.agent.ready : s.ollama;
+}
+
 export function liveLine(s: LiveStatus): string {
-  const parts = [s.ollama ? 'Ollama on' : 'Ollama off', sealedRunText(s)];
+  const hosted = s.agent && s.agent.provider !== 'ollama';
+  const agent = hosted ? (s.agent!.ready ? 'Hosted agent ready' : 'Hosted agent off') : s.ollama ? 'Ollama on' : 'Ollama off';
+  const parts = [agent, sealedRunText(s)];
   if (s.job) parts.push(`${s.job.kind} ${s.job.state}`);
   return parts.join(' · ');
 }

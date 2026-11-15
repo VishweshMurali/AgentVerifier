@@ -16,8 +16,10 @@ BELOW_NORMAL = 0x00004000  # Windows: a lower CPU priority, so tests and the pag
 
 
 class Prewarmer:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, arms: tuple[str, ...] | None = None) -> None:
         self.root = root
+        # a small host trains only the models it offers (None = every free model)
+        self._only = ["--arms", ",".join(arms)] if arms else []
         self._lock = threading.Lock()
         self._queue: list[list[str]] = []
         self._proc: subprocess.Popen | None = None
@@ -47,7 +49,7 @@ class Prewarmer:
             started = time.time()
             try:
                 self._proc = subprocess.Popen(
-                    [sys.executable, "-u", "-m", "agent_committee.warm", *args],
+                    [sys.executable, "-u", "-m", "agent_committee.warm", *args, *self._only],
                     cwd=self.root,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,

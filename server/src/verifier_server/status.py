@@ -82,6 +82,29 @@ def run_progress(cache: Path) -> tuple[dict[str, int], str | None]:
     return {str(arm): int(n) for arm, n in rows}, None
 
 
+def tokens_today(cache: Path, now: float | None = None) -> int:
+    """Tokens the LLM arms really spent since midnight UTC (replayed answers cost nothing).
+    Sums only; no prompt or answer is read. An unreadable ledger counts as 0."""
+    import time
+
+    if not cache.exists():
+        return 0
+    now = time.time() if now is None else now
+    try:
+        con = sqlite3.connect(f"file:{cache.as_posix()}?mode=ro", uri=True, timeout=0.5)
+        try:
+            row = con.execute(
+                "SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0) FROM calls "
+                "WHERE cached = 0 AND ts >= ?",
+                (now - now % 86400,),
+            ).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return 0
+    return int(row[0])
+
+
 def _file(path: Path) -> dict[str, Any] | None:
     try:
         return {"mtime": path.stat().st_mtime}

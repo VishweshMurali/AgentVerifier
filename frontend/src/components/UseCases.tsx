@@ -2,6 +2,7 @@
 // uploaded datasets, "Bring your own data" (upload, checked and split once by the server) and
 // "Bring your agent" (an HTTP address, checked with three practice messages, plus its price per
 // message). Without one, our test agent (llama3.1:8b on Ollama) races. Plain code only.
+import { agentWords, type AgentWords } from '../flow/agentInfo.ts';
 import { useState, type CSSProperties } from 'react';
 import { Icon } from './Icons.tsx';
 import { Reveal } from './ScrollText.tsx';
@@ -70,6 +71,9 @@ export function UseCases({
   agent = null,
   setAgent,
   checkAgent,
+  ours = agentWords(null),
+  publicMode = false,
+  maxBytes = 20 * 1024 * 1024,
 }: {
   cases: UseCase[];
   chosen: string | null;
@@ -81,6 +85,11 @@ export function UseCases({
   agent?: MyAgent | null;
   setAgent?: (a: MyAgent | null) => void;
   checkAgent?: (url: string) => Promise<AgentCheck>;
+  /** how the agent this deployment races by default is named */
+  ours?: AgentWords;
+  /** the public demo: bring-your-agent is off */
+  publicMode?: boolean;
+  maxBytes?: number;
 }) {
   const [url, setUrl] = useState(agent?.url ?? '');
   const [usd, setUsd] = useState(agent ? String(agent.usd) : '');
@@ -136,12 +145,14 @@ export function UseCases({
           <b>Bring your own data</b>
           <small>A .csv or .jsonl with text and label columns</small>
         </button>
-        <button type="button" className={`case glass extra${open === 'agent' ? ' on' : ''}`} onClick={() => setOpen(open === 'agent' ? null : 'agent')}>
-          <span className="case-plus">⇄</span>
-          <b>Bring your agent</b>
-          <small>{agent ? 'Your agent is plugged in' : 'Test your own agent instead of ours'}</small>
-          <span className="case-meta mono">{agent ? 'connected' : 'local Ollama by default'}</span>
-        </button>
+        {!publicMode && (
+          <button type="button" className={`case glass extra${open === 'agent' ? ' on' : ''}`} onClick={() => setOpen(open === 'agent' ? null : 'agent')}>
+            <span className="case-plus">⇄</span>
+            <b>Bring your agent</b>
+            <small>{agent ? 'Your agent is plugged in' : 'Test your own agent instead of ours'}</small>
+            <span className="case-meta mono">{agent ? 'connected' : ours.hosted ? 'hosted model by default' : 'local Ollama by default'}</span>
+          </button>
+        )}
       </Reveal>
 
       {open === 'own' && (
@@ -157,7 +168,11 @@ export function UseCases({
             <span>{file ? file.name : 'Choose a .csv or .jsonl file'}</span>
           </label>
           <small className="mono muted">
-            Columns: <b>text</b> and <b>label</b> (optional <b>id</b>, <b>group</b>). At least 30 rows per label. Up to 20 MB.
+            Columns: <b>text</b> and <b>label</b> (optional <b>id</b>, <b>group</b>). At least 30 rows per label. Up to {Math.round(maxBytes / (1024 * 1024))} MB.
+          </small>
+          <small className="mono muted">
+            Before anything is saved, emails, phone, card and ID numbers and street addresses are replaced with tags like [EMAIL]. Names can’t be detected: remove them
+            first{ours.hosted ? '. The masked messages are sent to the hosted model to be classified' : ''}.
           </small>
           <label className="own-row">
             <span>Name it</span>
@@ -175,7 +190,7 @@ export function UseCases({
             <button type="submit" className="chip primary" disabled={!canUpload || !file || !name || uploadState.busy}>
               {uploadState.busy ? 'Checking and splitting…' : 'Add my data'}
             </button>
-            {!canUpload && <small className="mono muted">Needs the local server.</small>}
+            {!canUpload && <small className="mono muted">Needs the live server.</small>}
           </div>
           {uploadState.error && <small className="run-error">{uploadState.error}</small>}
           {uploadState.note && <small className="own-note">{uploadState.note}</small>}
@@ -188,7 +203,7 @@ export function UseCases({
         <div className="own glass agent-form">
           <b>Plug in your own agent</b>
           <p className="muted">
-            Without one, we race <b>a local Ollama model</b> (llama3.1:8b, running on this computer). To race yours instead, give its address: it gets one message and the list
+            Without one, we race <b>{ours.standIn}</b>. To race yours instead, give its address: it gets one message and the list
             of kinds, and must answer one of those kinds (or <code>not_mine</code>). Anything else counts as wrong, the same rule our agent follows.
           </p>
           <code className="mono">{'POST your-url  { "text": "…", "labels": ["…"] }  →  { "label": "…" }'}</code>
@@ -217,7 +232,7 @@ export function UseCases({
             </button>
             {agent && (
               <button type="button" className="chip small" onClick={() => setAgent?.(null)}>
-                Use the local Ollama agent instead
+                Use {ours.lower} instead
               </button>
             )}
           </div>

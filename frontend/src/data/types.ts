@@ -119,6 +119,9 @@ export interface Story {
 /** GET /api/status from the local server (server/), when the page runs against it. */
 export interface LiveStatus {
   ollama: boolean;
+  /** the agent a test races here: local Ollama, or a hosted model on a public deployment */
+  agent?: { provider: string; name: string; model: string; pinned: boolean; ready: boolean };
+  public?: boolean;
   sealed_run: {
     state: 'not_started' | 'started_not_finished' | 'finished' | string;
     started_at_commit: string | null;

@@ -27,7 +27,7 @@ import { useActiveScene, useScenesInView } from '../hooks/useActiveScene.ts';
 import { prefersReducedMotion, startSmoothWheel } from '../motion/flight.ts';
 import type { Flyer, Lane } from '../motion/ribbon.ts';
 import { count, pct, tableLabel, usd } from '../story/format.ts';
-import { liveLine } from '../story/live.ts';
+import { agentReady, liveLine } from '../story/live.ts';
 import { revealMood } from '../story/lines.ts';
 import type { Mood } from '../story/scenes.ts';
 import { Icon } from './Icons.tsx';
@@ -229,8 +229,8 @@ export function FlowPage({ data, api, live = null, storyHref }: { data: FlowData
           Agent Verifier<span className="t-teal">.</span>
         </span>
         {live && (
-          <span className="live glass" role="status" title="Live status from the local server">
-            <i className={live.ollama ? 'on' : 'off'} aria-hidden="true" />
+          <span className="live glass" role="status" title="Live status from the server">
+            <i className={agentReady(live) ? 'on' : 'off'} aria-hidden="true" />
             {liveLine(live)}
           </span>
         )}

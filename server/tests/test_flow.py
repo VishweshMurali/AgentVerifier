@@ -159,9 +159,11 @@ def test_results_are_read_only_from_inside_results(root, tmp_path):
 def quick_client(
     root: Path, monkeypatch, ollama: bool = True, lines: list[str] = LINES
 ) -> TestClient:
-    monkeypatch.setattr(flow, "flow_data", lambda _root: DATA)
+    monkeypatch.setattr(flow, "flow_data", lambda _root, _cfg=None: DATA)
     script = "import time\n" + "".join(f"print({line!r}); time.sleep(0.02)\n" for line in lines)
-    monkeypatch.setattr(flow, "quick_command", lambda choice, data: [sys.executable, "-c", script])
+    monkeypatch.setattr(
+        flow, "quick_command", lambda choice, data, cfg=None: [sys.executable, "-c", script]
+    )
     return TestClient(make_app(root, ollama))
 
 
@@ -177,7 +179,7 @@ def test_quick_needs_the_client_header_and_ollama(root, monkeypatch):
 
 
 def test_a_refused_choice_is_422(root, monkeypatch):
-    monkeypatch.setattr(flow, "flow_data", lambda _root: DATA)
+    monkeypatch.setattr(flow, "flow_data", lambda _root, _cfg=None: DATA)
     c = TestClient(make_app(root))
     assert c.post("/api/jobs/quick", json={**OK, "gap": 0.33}, headers=H).status_code == 422
 
@@ -242,7 +244,7 @@ def test_run_messages_join_both_answers_in_the_agents_order(tmp_path, monkeypatc
 
 
 def test_library_endpoint_refuses_unknown_datasets(root, monkeypatch):
-    monkeypatch.setattr(flow, "flow_data", lambda _root: DATA)
+    monkeypatch.setattr(flow, "flow_data", lambda _root, _cfg=None: DATA)
     monkeypatch.setattr(flow, "library", lambda _root, name: [{"text": "t", "label": "a"}])
     client = TestClient(make_app(root, True))
     got = client.get("/api/flow/library", params={"dataset": "banking77"}).json()

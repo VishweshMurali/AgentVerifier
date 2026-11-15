@@ -90,13 +90,14 @@ def ask_model(question: str, description: str, facts: str, call=None) -> str:
     return str(data["choices"][0]["message"]["content"]).strip()
 
 
-def guide_reply(payload: dict[str, Any], call=None) -> dict[str, Any]:
-    """{question, description, facts, fallback} -> {reply, worded_by, checked, rejected}."""
+def guide_reply(payload: dict[str, Any], call=None, use_model: bool = True) -> dict[str, Any]:
+    """{question, description, facts, fallback} -> {reply, worded_by, checked, rejected}.
+    `use_model=False` (the public site) gives the plain-code answer without a model call."""
     question = str(payload.get("question", ""))[:500]
     description = str(payload.get("description", ""))[:300]
     facts = str(payload.get("facts", ""))
     fallback = str(payload.get("fallback", ""))
-    if not question.strip() or not facts.strip():
+    if not use_model or not question.strip() or not facts.strip():
         return {"reply": fallback, "worded_by": "code", "checked": True, "rejected": []}
     try:
         reply = ask_model(question, description, facts, call)

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { MockPage, type LiveControl, type MockRun } from './components/MockPage.tsx';
 import { caseCard, type AgentCheck, type MyAgent, type OwnUpload, type UseCase } from './components/UseCases.tsx';
 import type { Arm, PriceTable, Verdict } from './data/types.ts';
+import { maskedNote, type AgentInfo } from './flow/agentInfo.ts';
 import { runTables, type ScopeScore } from './flow/model.ts';
 import { failureReason } from './flow/run.ts';
 
@@ -21,7 +22,37 @@ interface FlowChoices {
   plan_sizes: Record<string, number>;
   eval_sizes?: Record<string, number>;
   speeds?: Record<string, { models_saved: boolean; fit_seconds: number | null; agent_seconds_per_case: number | null }>;
+  /** the models this deployment runs (the public demo leaves the heavy ones out) */
+  arms?: string[];
+  public?: boolean;
+  agent?: AgentInfo;
+  own_max_bytes?: number;
 }
+
+// The public demo lists an uploaded dataset only for the visitor who added it: the server gives
+// each upload a private name, kept here and sent back with every request.
+const OWN_KEY = 'verifier-own-datasets';
+function ownNames(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(OWN_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+function rememberOwn(name: string): void {
+  try {
+    localStorage.setItem(OWN_KEY, JSON.stringify([...new Set([...ownNames(), name])].slice(-20)));
+  } catch {
+    /* private window: the dataset stays usable until the page is reloaded */
+  }
+}
+const sessionOwn = new Set<string>();
+function ownHeader(): Record<string, string> {
+  const names = [...new Set([...ownNames(), ...sessionOwn])];
+  return names.length ? { 'x-verifier-own': names.join(',') } : {};
+}
+
 interface Result {
   plan: MockRun['plan'] & { scenario?: string; scope?: { labels?: string[]; near_misses?: string[] } | null };
   scope: Record<string, ScopeScore> | null;
@@ -74,7 +105,7 @@ export function LiveApp() {
   }, []);
 
   const getJson = useCallback(async <T,>(path: string): Promise<T> => {
-    const r = await fetch(`${api}${path}`);
+    const r = await fetch(`${api}${path}`, { headers: ownHeader() });
     if (!r.ok) throw new Error(`${r.status}`);
     return (await r.json()) as T;
   }, [api]);
@@ -108,8 +139,8 @@ export function LiveApp() {
       try {
         const r = await fetch(`${api}/api/jobs/quick`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-verifier-client': '1' },
-          body: JSON.stringify({ scenario: dataset, gap, arms: ARMS, scope, one_route: oneRoute, ...(agent ? { agent: { url: agent.url, usd_per_message: agent.usd } } : {}) }),
+          headers: { 'content-type': 'application/json', 'x-verifier-client': '1', ...ownHeader() },
+          body: JSON.stringify({ scenario: dataset, gap, arms: ARMS.filter((a) => !flow.arms || flow.arms.includes(a)), scope, one_route: oneRoute, ...(agent ? { agent: { url: agent.url, usd_per_message: agent.usd } } : {}) }),
         });
         if (!r.ok) throw new Error(((await r.json().catch(() => ({}))) as { detail?: string }).detail ?? `${r.status}`);
         const job = (await r.json()) as { id: string };
@@ -144,12 +175,23 @@ export function LiveApp() {
         const fmt = u.file.name.toLowerCase().endsWith('.jsonl') ? 'jsonl' : 'csv';
         const q = new URLSearchParams({ name: u.name, format: fmt, item: u.item, items: u.items, label_kind: u.labelKind, title: u.title || u.name });
         const r = await fetch(`${api}/api/own?${q}`, { method: 'POST', headers: { 'x-verifier-client': '1' }, body: await u.file.arrayBuffer() });
-        const out = (await r.json().catch(() => ({}))) as { detail?: string; name?: string; cases?: number; labels?: number; detectable_gap?: number | null };
+        const out = (await r.json().catch(() => ({}))) as {
+          detail?: string;
+          name?: string;
+          cases?: number;
+          labels?: number;
+          detectable_gap?: number | null;
+          masked?: { kinds?: Record<string, number>; messages?: number };
+        };
         if (!r.ok) throw new Error(out.detail ?? `${r.status}`);
+        if (out.name) {
+          sessionOwn.add(out.name);
+          rememberOwn(out.name);
+        }
         await loadFlow();
         setChosen(out.name ?? u.name);
         const can = out.detectable_gap == null ? 'Too few messages for even a 20-point difference: add more rows.' : `It can spot a ${Math.round(out.detectable_gap * 100)}-point difference or bigger.`;
-        setUpload({ busy: false, error: null, note: `Added ${out.cases} messages in ${out.labels} kinds and split them once. ${can}` });
+        setUpload({ busy: false, error: null, note: `Added ${out.cases} messages in ${out.labels} kinds and split them once. ${can} ${maskedNote(out.masked)}` });
       } catch (e) {
         setUpload({ busy: false, error: e instanceof Error ? e.message : String(e), note: null });
       }
@@ -203,6 +245,9 @@ export function LiveApp() {
     agent,
     setAgent,
     checkAgent,
+    agentInfo: flow?.agent,
+    publicMode: !!flow?.public,
+    ownMaxBytes: flow?.own_max_bytes,
   };
   return <MockPage run={mine ?? example} library={chosen ? libraries[chosen] : undefined} live={live} aiGuide={false} />;
 }

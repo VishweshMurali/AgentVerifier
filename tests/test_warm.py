@@ -33,3 +33,24 @@ def test_prepares_the_same_models_a_test_would_load(tmp_path, monkeypatch):
 def test_ready_scenarios_include_banking77_and_built_ones():
     names = warm.ready_scenarios(Path("."))
     assert names[0] == "banking77" and "clinc150" in names
+
+
+def test_only_the_named_models_are_prepared(tmp_path, monkeypatch):
+    """A small host prepares the light models only (the shared layer always is)."""
+    from agent_committee import scenarios
+    from agent_committee.arms.splits import make_arms_split
+    from agent_committee.data import load_dev
+
+    monkeypatch.setattr(model_cache, "CACHE_DIR", tmp_path / "models")
+    small = sorted(load_dev(Path("data")), key=lambda c: c.id)[:600]
+    monkeypatch.setattr("agent_committee.data.load_dev", lambda _d: small)
+    real = scenarios.get_scenario
+    monkeypatch.setattr(scenarios, "get_scenario", lambda n, r: dataclasses.replace(real(n, r)))
+    seconds = warm.warm(Path("."), "banking77", log=lambda _line: None, only={"naive_bayes"})
+    assert set(seconds) == {"linear", "naive_bayes"}
+    split = make_arms_split(small)
+    saved = {p.name.split("-")[0] for p in (tmp_path / "models").glob("*.pkl")}
+    assert saved == {"layer", "naive_bayes"}
+    assert not (
+        tmp_path / "models" / f"boosting-{quick.free_model_key('boosting', split)}.pkl"
+    ).exists()

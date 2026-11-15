@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { LiveStatus } from '../data/types.ts';
-import { liveLine, sealedRunText, verdictStamp } from './live.ts';
+import { agentReady, liveLine, sealedRunText, verdictStamp } from './live.ts';
 
 const base = (over: Partial<LiveStatus['sealed_run']> = {}): LiveStatus => ({
   ollama: true,
@@ -30,6 +30,14 @@ test('sealed run states read plainly', () => {
 test('live line joins Ollama, the run and a job', () => {
   const s = { ...base(), ollama: false, job: { id: 'x', kind: 'rehearsal', state: 'running' } };
   assert.equal(liveLine(s), 'Ollama off · Sealed run not started · rehearsal running');
+});
+
+test('on a public deployment the live line names the hosted agent, not Ollama', () => {
+  const agent = { provider: 'groq', name: 'Hosted test agent', model: 'm via Groq (hosted, not pinned)', pinned: false, ready: true };
+  const s = { ...base(), ollama: false, agent };
+  assert.equal(liveLine(s), 'Hosted agent ready · Sealed run not started');
+  assert.equal(agentReady(s), true);
+  assert.equal(agentReady({ ...base(), ollama: false }), false);
 });
 
 test('the verdict stamp changes when a verdict file is written', () => {
