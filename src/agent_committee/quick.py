@@ -39,7 +39,7 @@ from pathlib import Path
 
 import numpy as np
 
-from agent_committee import checks, power, sequential
+from agent_committee import checks, hosted, power, sequential
 from agent_committee.arms.config import BANKING77_TASK, MODEL_DIGEST, task_from_dict
 from agent_committee.arms.evaluate import CLASSIC
 from agent_committee.arms.splits import make_arms_split
@@ -58,7 +58,28 @@ NOT_MINE = "not_mine"
 # kinds are scored as one route, so a mix-up between two of them counts as right, for every arm
 ROUTE = "my_kinds"
 # the 100 self-check repeats run side by side in quick tests (same results; capped for memory)
-FALSE_ALARM_WORKERS = max(1, min(8, (os.cpu_count() or 2) - 2))
+# (FALSE_ALARM_WORKERS sets it: a small host reports the machine's cores, not its own share)
+FALSE_ALARM_WORKERS = max(
+    1, int(os.environ.get("FALSE_ALARM_WORKERS") or min(8, (os.cpu_count() or 2) - 2))
+)
+
+
+def source_commit(repo: Path) -> str:
+    """The commit the code runs from: git's, or the one the host names when the code was
+    deployed without its .git folder (SOURCE_COMMIT, or Render's RENDER_GIT_COMMIT)."""
+    import subprocess
+
+    from agent_committee.runner import git_commit
+
+    try:
+        return git_commit(repo)
+    except (subprocess.CalledProcessError, OSError):
+        named = os.environ.get("SOURCE_COMMIT") or os.environ.get("RENDER_GIT_COMMIT")
+        if not named:
+            raise
+        return named.strip()
+
+
 OTHERS_SHARE = 0.20  # unrelated labels' share of the scoped test mix
 SCOPE_SEED = 2
 AGENT = "agent"
@@ -406,7 +427,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     repo = Path(args.repo)
 
-    from agent_committee.runner import RUNNABLE, evaluate, fitted, git_commit, sha256_file
+    from agent_committee.runner import RUNNABLE, evaluate, fitted, sha256_file
 
     s = get_scenario(args.scenario, repo)
     if not s.arms_ready:
@@ -569,6 +590,13 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = new_run_dir(repo / s.results_dir / "quick", f"gap{args.gap:.3f}-n{len(cases)}{tag}")
     order = look_order(cases)
     bounds = sequential.boundaries(prereg.alpha)
+    # the LLM arms run on local Ollama (pinned) or, when AGENT_PROVIDER says so, on a hosted
+    # model that is not pinned (hosted.py); the reader's own agent is never pinned
+    host = hosted.provider()
+    pin = "external agent (not pinned)" if external else hosted.NOT_PINNED if host else MODEL_DIGEST
+    reference = (
+        hosted.settings() if host else {"kind": "reference", "model": "llama3.1:8b via Ollama"}
+    )
     plan = {
         "early_stopping": {
             "looks": sequential.look_sizes(len(order), len(bounds)),
@@ -608,16 +636,16 @@ def main(argv: list[str] | None = None) -> int:
         "arms": names,
         "base_prereg": str(base),
         "base_prereg_sha256": sha256_file(base),
-        "model_digest": MODEL_DIGEST if not external else "external agent (not pinned)",
-        "agent": external or {"kind": "reference", "model": "llama3.1:8b via Ollama"},
+        "model_digest": pin,
+        "agent": external or reference,
     }
     plan_sha = write_plan(out_dir / "plan.json", plan)
     audit = {
-        "git_commit": git_commit(repo),
+        "git_commit": source_commit(repo),
         "prereg_sha256": sha256_file(base),
         "dev_report_sha256": f"quick test plan {plan_sha}",
         "test_sha256": "quick test: DEV eval sample, sealed test not opened",
-        "model_digest": MODEL_DIGEST if not external else "external agent (not pinned)",
+        "model_digest": pin,
         "layer_fingerprint": layer.fingerprint(),
     }
     # the cascade (report-only) is derived from linear and the agent: only when both run
@@ -628,9 +656,12 @@ def main(argv: list[str] | None = None) -> int:
     needs_ollama = not external or "prompt" in names
     from contextlib import nullcontext
 
-    llm_client = (
-        LLMClient(phase="build", model_digest=MODEL_DIGEST) if needs_ollama else nullcontext()
-    )
+    if not needs_ollama:
+        llm_client = nullcontext()
+    elif host:
+        llm_client = hosted.client(phase="build")
+    else:
+        llm_client = LLMClient(phase="build", model_digest=MODEL_DIGEST)
     with llm_client as client:
         arms = dict(free_arms)
         if "prompt" in names:
