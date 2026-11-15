@@ -27,6 +27,10 @@ In quick tests the agent is, by default, a **local Ollama model** (llama3.1:8b o
 standing in for yours. You can plug in **your own agent** over HTTP instead
 (`POST {"text", "labels"} -> {"label"}`), with your own price per answer.
 
+You can also bring **your own data** (.csv or .jsonl). Before anything is saved, emails, phone,
+card and ID numbers, IP and street addresses are replaced with tags such as `[EMAIL]`
+(`src/agent_committee/pii.py`, plain code). Names cannot be detected, so remove them first.
+
 ## Quick start
 
 Needs Python 3.12 with [uv](https://docs.astral.sh/uv/), Node 24, and [Ollama](https://ollama.com)
@@ -47,6 +51,33 @@ uv run python -m agent_committee.quick --scenario banking77 --gap 0.10 --scope c
 
 Check everything (what CI runs): `uv run python scripts/check.py`.
 
+## Public demo (hosted)
+
+The public site runs the same page and API with a **hosted agent**: `openai/gpt-oss-20b` on Groq,
+labelled "hosted, not pinned" everywhere, because the provider can change the model and a re-run
+may differ. The local Ollama model stays the pinned reference, and the sealed run never uses Groq.
+
+Public mode (`VERIFIER_PUBLIC=1`) is built for strangers on a small shared host:
+
+- only the light free models run (majority, linear, Naive Bayes, linear SVM);
+- only the 10- and 20-point differences are offered, and a test starts only if its planned cases
+  fit in what is left of the hosted model's free daily tokens (shared by every visitor);
+- rehearsals and "bring your agent" are off (the server would call any address a visitor names);
+- an uploaded dataset is listed only for the visitor who added it, and is masked as above.
+
+```sh
+docker build -f docker/public.Dockerfile -t agent-verifier .
+docker run --rm -p 8000:8000 -e PORT=8000 -e GROQ_API_KEY=your-key   -e SOURCE_COMMIT=$(git rev-parse HEAD) agent-verifier
+```
+
+The image holds no `.git` folder, so the commit each audit records comes from `SOURCE_COMMIT`
+(Render sets `RENDER_GIT_COMMIT` itself). Without either, a test stops rather than record no commit.
+
+A live test peaks at about 1.5 GB of memory (server plus test process, measured on Banking77 and
+CLINC150), so Render's free and 512 MB web services cannot run one. `render.yaml` therefore
+deploys the page as a **free static site** showing a saved, real quick test; the live service is
+kept in the same file, commented out, for a 2 GB plan.
+
 ## Layout
 
 ```
@@ -63,7 +94,9 @@ tests/                 pipeline tests
 
 ## What is not verified
 
-- Docker images are written but not built or started.
+- Docker images (local and public) are written but not built or started.
+- The hosted agent is not pinned: its results can change when the provider changes the model.
+- PII masking finds patterns (emails, numbers, addresses), not names or details written in words.
 - Quick tests are exploratory; only the sealed run is a verified verdict.
 - The CLINC150, Emotion and MASSIVE-en preregs copy Banking77's assumed prices and thresholds.
 

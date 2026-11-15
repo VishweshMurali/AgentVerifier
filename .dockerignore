@@ -8,3 +8,5 @@ cache
 results
 sources
 .playwright-mcp
+# kept on this computer, not published (owner decision 2026-11-13)
+data/emotion

@@ -31,6 +31,16 @@ Banking77 is the first task and proves the method.
   scored as one route (two or more, not all; every arm alike; recorded in plan.json). Free models are saved and reused
   (`model_cache.py`) only when the training data, arms code and sklearn version are identical. The sealed run uses none
   of these.
+  Public site (approved 2026-11-14, quick tests only): with `AGENT_PROVIDER=groq` the LLM arms run on a hosted Groq
+  model (`hosted.py`; default `openai/gpt-oss-20b`), labelled "hosted, not pinned" in plan.json, the audit and the
+  page. Ollama stays the local pinned reference; the sealed run never uses Groq. Public mode (`VERIFIER_PUBLIC=1`,
+  `server/.../settings.py`) keeps uploads on; personal details in an upload are masked before anything is saved
+  (`pii.py`; names cannot be detected).
+  Built on 2026-11-14 but NOT yet approved by the owner (ask before relying on them): least reasoning effort for the
+  hosted model; a tool call Groq refuses scores as malformed with estimated tokens; calls paced under the free limit;
+  public mode offers only the light free models and gaps 0.10 and 0.20, starts a test only if it fits the day's
+  remaining tokens, turns rehearsal and bring-your-agent off, lists an upload only for its visitor and answers the
+  guide in plain code; masking also applies to local uploads.
 - Null is a flag for low-confidence cases (the lowest 10% on tune), not a score. All arms answer them, and accuracy on those cases is reported per arm.
 - Agent rules: a no-tool answer is sent back once, the last call must answer, a malformed tool call scores wrong. Maximum 4 model calls per case.
 - No RAG for now. `search` stays a single swappable tool.
@@ -84,6 +94,8 @@ src/agent_committee/
   runner.py      Phase D runner, the ONLY sealed-test reader; `--rehearse` runs it on DEV instead
   quick.py       quick exploratory test on a DEV sample sized from the user's gap (never opens TEST)
   external.py    the user's own agent over HTTP for quick tests (stdlib only; outside the frozen arms)
+  hosted.py      hosted agent model for quick tests (Groq; not pinned; paced under the rate limit; outside the arms)
+  pii.py         masks personal details in a reader's own data before it is saved (plain code, stdlib only)
   model_cache.py saved free models for quick tests (cache/quick-models, keyed by data + code + sklearn)
   report.py      results/report.html from verdict.json (templates/report.html.j2)
   arms/          base protocol, config, splits, labels, linear (shared layer + arm 1), prompt, agent, tools, evaluate,
@@ -112,4 +124,10 @@ tests/
 - Dataset menu: `uv run python -m agent_committee.catalog` (`--choose NAME`)
 - MCP data endpoints (tools: list_datasets, choose_dataset, list_scenarios, check_dataset, prereg_template, dev_stats, add_dataset): stdio `uv run --project mcp_server python -m verifier_mcp`; HTTP `... --http` (127.0.0.1:8765, read-only unless `--allow-writes`); Docker `docker compose -f mcp_server/compose.yaml up --build`; tests `uv run --project mcp_server pytest mcp_server/tests`
 - Docker (page + MCP, Ollama on the host): `docker compose up --build`, page http://127.0.0.1:8000, MCP http://127.0.0.1:8765/mcp. Written, NOT yet built or tested. The sealed run stays a host command.
+- Render (`render.yaml`, owner decision 2026-11-14): a free static site built from `frontend/` (saved example only);
+  the live service is commented out there because a live test needs about 1.5 GB and the free plan has 512 MB.
+- Public demo image (standalone, for a 2 GB host): `docker build -f docker/public.Dockerfile -t agent-verifier .`
+  then `docker run --rm -p 8000:8000 -e PORT=8000 -e GROQ_API_KEY=... -e SOURCE_COMMIT=$(git rev-parse HEAD) agent-verifier`.
+  Written, NOT yet built or tested.
+  Public mode without Docker: set `VERIFIER_PUBLIC=1 AGENT_PROVIDER=groq GROQ_API_KEY=...` and start the local server.
 - Local server + live page: `npm --prefix frontend run build:server` then `uv run --project server python -m verifier_server` (http://127.0.0.1:8000); tests `uv run --project server pytest server/tests`
