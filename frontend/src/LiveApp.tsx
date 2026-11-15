@@ -61,6 +61,7 @@ export function LiveApp() {
   const [state, setState] = useState<LiveControl['state']>('idle');
   const [progress, setProgress] = useState<LiveControl['progress']>(null);
   const [startedAt, setStartedAt] = useState(0);
+  const [auditUrl, setAuditUrl] = useState<string | null>(null);
   // the reader's own agent; null = our test agent (llama3.1:8b on Ollama)
   const [agent, setAgent] = useState<MyAgent | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +124,7 @@ export function LiveApp() {
         const res = await getJson<Result>(`/api/jobs/${job.id}/result`);
         if (!alive.current) return;
         setMine(toRun(res, flow, libraries[dataset], dataset));
+        setAuditUrl(`${api}/api/jobs/${job.id}/audit`);
         getJson<FlowChoices>('/api/flow').then((f) => alive.current && setFlow(f)).catch(() => undefined);
         setState('done');
       } catch (e) {
@@ -185,6 +187,7 @@ export function LiveApp() {
     state,
     progress,
     startedAt,
+    auditUrl,
     error,
     mine: !!mine,
     start,

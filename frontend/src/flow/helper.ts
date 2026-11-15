@@ -89,7 +89,7 @@ export function answer(question: string, ctx: HelperContext): Answer {
   const simpler = ctx.label(ctx.simpler);
   // the racing agent's name: the reference test agent, or the user's own when they plugged it in
   const A = ctx.label('agent');
-  const a = A.charAt(0).toLowerCase() + A.slice(1);
+  const agentLower = A.charAt(0).toLowerCase() + A.slice(1);
   const aboutSimpler = has(q, ctx.label(ctx.simpler).toLowerCase(), 'simpl', 'linear', 'free model', 'cheap model');
 
   // costs, with the reader's own numbers when the question gives them
@@ -106,7 +106,7 @@ export function answer(question: string, ctx: HelperContext): Answer {
       text: [
         `At ${Math.round(volume).toLocaleString('en-US')} messages a month and `,
         { b: `$${mistake.toLocaleString('en-US')}` },
-        ` per mistake: ${a} costs about `,
+        ` per mistake: ${agentLower} costs about `,
         { b: usd(ag) },
         `, ${simpler} about `,
         { b: usd(si) },
@@ -151,7 +151,7 @@ export function answer(question: string, ctx: HelperContext): Answer {
     if (!pairs.size) return { text: [`${A} made no mistakes here, so there is no pattern.`], chips: STARTERS };
     const top = [...pairs.entries()].sort((a, b) => b[1].length - a[1].length);
     return {
-      text: [`Here is what ${a} mixed up (what it should be → what it said):`],
+      text: [`Here is what ${agentLower} mixed up (what it should be → what it said):`],
       list: top.map(([k, ids]) => [{ b: `${ids.length}×` }, ` ${k}`]),
       focus: top[0][1],
       go: 'm2',
@@ -161,7 +161,7 @@ export function answer(question: string, ctx: HelperContext): Answer {
 
   // zoom into one mistake
   if (has(q, 'zoom', 'show me', 'example', 'one of them', 'worst', 'close')) {
-    return { text: [`Diving into one message ${a} got wrong, step by step.`], go: 'm3', chips: ['What do these have in common?', 'What if a mistake costs $5?'] };
+    return { text: [`Diving into one message ${agentLower} got wrong, step by step.`], go: 'm3', chips: ['What do these have in common?', 'What if a mistake costs $5?'] };
   }
 
   // how sure: the interval, the check-ins, the false-winner rate
@@ -207,7 +207,7 @@ export function answer(question: string, ctx: HelperContext): Answer {
       groups.set(m.gold, g);
     });
     return {
-      text: [`Right answers by kind of message (${a} vs ${simpler}):`],
+      text: [`Right answers by kind of message (${agentLower} vs ${simpler}):`],
       list: [...groups.entries()].map(([g, v]) => [
         { b: kind(g) },
         ` · ${v.n} messages · agent ${pct(v.a / v.n)}, wrong on ${v.n - v.a} of ${v.n} · ${simpler} ${pct(v.s / v.n)}, wrong on ${v.n - v.s} of ${v.n}`,
@@ -236,7 +236,7 @@ export function answer(question: string, ctx: HelperContext): Answer {
       list: [
         ['Each ', { b: 'dot' }, ' is a real message, tied to the 3 most like it.'],
         ['Each ', { b: 'hub' }, ' is a kind of message; your kinds on the left, "not yours" on the right.'],
-        [{ b: 'Solid' }, ` threads are ${a}’s answers, `, { b: 'dashed' }, ` ones ${simpler}’s.`],
+        [{ b: 'Solid' }, ` threads are ${agentLower}’s answers, `, { b: 'dashed' }, ` ones ${simpler}’s.`],
         [{ b: 'Red' }, ' means wrong; right answers fade into the background.'],
       ],
       chips: ['Which messages did my agent get wrong?', 'How sure is this?'],
@@ -245,12 +245,12 @@ export function answer(question: string, ctx: HelperContext): Answer {
 
   // the decision
   if (has(q, 'should', 'deploy', 'use', 'recommend', 'verdict', 'decision', 'worth', 'need')) {
-    const word = ctx.verdict === 'USE_SIMPLER' ? `use ${simpler}` : ctx.verdict === 'DEPLOY_AGENT' ? `deploy ${a}` : 'wait for more data';
+    const word = ctx.verdict === 'USE_SIMPLER' ? `use ${simpler}` : ctx.verdict === 'DEPLOY_AGENT' ? `deploy ${agentLower}` : 'wait for more data';
     return {
       text: ['On this test: ', { b: word }, '.'],
       list: [
         ctx.verdict === 'USE_SIMPLER'
-          ? [`A gain of +${Math.round(ctx.gap * 100)} points from ${a} is ruled out, and ${simpler} costs less per message.`]
+          ? [`A gain of +${Math.round(ctx.gap * 100)} points from ${agentLower} is ruled out, and ${simpler} costs less per message.`]
           : ctx.verdict === 'DEPLOY_AGENT'
             ? [`${A} is clearly more accurate, enough to beat ${simpler}’s lower cost.`]
             : ['The two are too close to call on this many messages.'],

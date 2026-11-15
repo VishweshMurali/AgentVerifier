@@ -13,6 +13,7 @@ import { answer, STARTERS, type Seg } from '../flow/helper.ts';
 import { revealMood } from '../story/lines.ts';
 import { runLog, type RunProgress } from '../flow/runlog.ts';
 import { estimateText } from '../flow/estimate.ts';
+import { chatActions, hasActions } from '../flow/actions.ts';
 import { count, pct, tableLabel } from '../story/format.ts';
 import type { Mood, SceneDef } from '../story/scenes.ts';
 import { Icon } from './Icons.tsx';
@@ -38,6 +39,8 @@ export interface LiveControl {
   /** when the reader pressed Run (ms), for the elapsed time in the robot's bubble */
   startedAt?: number;
   error: string | null;
+  /** the finished run's audit bundle (zip), once there is one */
+  auditUrl?: string | null;
   /** true once the page shows the reader's own result instead of the example */
   mine: boolean;
   start: (scope: string[], gap: number, oneRoute?: boolean) => void;
@@ -75,6 +78,8 @@ export interface MockRun {
     population: number;
     early_stopping: { looks: number[] };
     scenario?: string;
+    /** messages drawn for this test (population = the whole pool they were drawn from) */
+    cases?: number;
     scope?: { labels?: string[]; one_route?: boolean } | null;
     /** who raced: the reference test agent (Ollama) or the user's own agent over HTTP */
     agent?: { kind: 'reference' | 'external'; model?: string; endpoint?: string; usd_per_message?: number };
@@ -256,7 +261,8 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
   const [hourly, setHourly] = useState(30);
   const [minutes, setMinutes] = useState(5);
   // one mistake = the fixer's hourly cost x minutes to fix / 60 (plain code)
-  const mistake = (hourly * minutes) / 60;
+  const [mistakeSaid, setMistakeSaid] = useState<number | null>(null);
+  const mistake = mistakeSaid ?? (hourly * minutes) / 60;
   const [table, setTable] = useState(TABLE0);
   // a run priced with other tables (a scenario's own prereg): pick one it has
   useEffect(() => {
@@ -381,7 +387,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
     gap: run.plan.gap,
     ci: v.accuracy_diff_ci,
     nCases: v.n_cases,
-    planned: run.plan.population,
+    planned: run.plan.cases ?? run.plan.population,
     looks: run.plan.early_stopping.looks,
     // the guide quotes the same numbers the reader set on screen 5
     volume,
@@ -415,9 +421,44 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
   };
   const askGuide = async (q: string) => {
     if (!q.trim() || thinking) return;
-    const a = answer(q, helperCtx);
-    if (live && !live.mine)
+    const act = chatActions(q);
+    const did: string[] = [];
+    if (act.describe) {
+      setDesc(act.describe);
+      did.push(`your agent “${act.describe}” (screens 1–2 now match it)`);
+    }
+    if (act.volume !== undefined) {
+      setVolume(Math.min(act.volume, volFromSlider(300)));
+      did.push(`${Math.round(act.volume).toLocaleString('en-US')} messages a month`);
+    }
+    if (act.mistake !== undefined) {
+      setMistakeSaid(act.mistake);
+      did.push(`$${act.mistake.toLocaleString('en-US')} per mistake`);
+    }
+    if (act.gap !== undefined && fits(act.gap)) {
+      setGap(act.gap);
+      did.push(`a ${Math.round(act.gap * 100)}-point difference to look for`);
+    }
+    if (act.table && run.price_tables.some((p) => p.name === act.table)) {
+      setTable(act.table);
+      did.push(`prices for ${tableLabel(act.table)}`);
+    }
+    const ctxNow = { ...helperCtx, volume: act.volume ?? helperCtx.volume, mistake: act.mistake ?? helperCtx.mistake, table: act.table ?? helperCtx.table };
+    const a = answer(q, ctxNow);
+    let actionOnly = false;
+    if (hasActions(act) && did.length) {
+      const done = `Done: I set ${did.join(', ')}. `;
+      const fallback = flat(a.text).startsWith('I can only answer');
+      actionOnly = fallback;
+      a.text = fallback ? [done, act.describe ? 'Pick your kinds on screen 2, then run.' : 'The costs screens use them now.'] : [done, ...a.text];
+      if (fallback) {
+        a.list = undefined;
+        a.go = act.describe ? 'm1b' : act.mistake !== undefined ? 'm5' : act.volume !== undefined || act.table ? 'm5b' : a.go;
+      }
+    }
+    if (live && !live.mine && !actionOnly)
       a.text = [
+        ...(typeof a.text[0] === 'string' && a.text[0].startsWith('Done:') ? [a.text.shift() as string] : []),
         running ? 'Your test is still running, so this is about the example run (a bank refund agent): ' : 'You haven’t run a test yet, so this is about the example run (a bank refund agent): ',
         ...a.text,
       ];
@@ -890,18 +931,19 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
                   <span>
                     They cost <b>${hourly}</b> an hour
                   </span>
-                  <input type="range" min={10} max={200} step={5} value={hourly} onChange={(e) => setHourly(Number(e.target.value))} />
+                  <input type="range" min={10} max={200} step={5} value={hourly} onChange={(e) => (setMistakeSaid(null), setHourly(Number(e.target.value)))} />
                 </label>
                 <label className="slider">
                   <span>
                     A fix takes <b>{minutes} min</b>
                   </span>
-                  <input type="range" min={1} max={60} step={1} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} />
+                  <input type="range" min={1} max={60} step={1} value={minutes} onChange={(e) => (setMistakeSaid(null), setMinutes(Number(e.target.value)))} />
                 </label>
               </div>
             )}
             <p className="mistake-is mono">
-              = <b>${mistake.toFixed(2)}</b> per mistake{fixer === 'nobody' ? ' (no one is paid to fix it; the cost is your customer’s time)' : ''}
+              = <b>${mistake.toFixed(2)}</b> per mistake
+              {mistakeSaid !== null ? ' (you told the guide; move a slider to use these instead)' : fixer === 'nobody' ? ' (no one is paid to fix it; the cost is your customer’s time)' : ''}
             </p>
           </Reveal>
         </section>
@@ -1028,7 +1070,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
                 <b>
                   <Counter to={v.n_cases} run={inView.has('m4')} />
                 </b>
-                <small>messages tested{v.n_cases < run.plan.population ? ` · stopped early (of ${count(run.plan.population)} planned)` : ''}</small>
+                <small>messages tested{v.n_cases < (run.plan.cases ?? run.plan.population) ? ` · stopped early (of ${count(run.plan.cases ?? run.plan.population)} planned)` : ''}</small>
               </div>
             </Reveal>
             <div className="chips">
@@ -1048,10 +1090,17 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               <b>See the full story</b>
               <small>Every number, every check, step by step</small>
             </a>
-            <button type="button" className="glass next-card">
-              <b>Download the audit file</b>
-              <small>Re-run it and get the same answer</small>
-            </button>
+            {live?.auditUrl ? (
+              <a className="glass next-card" href={live.auditUrl} download>
+                <b>Download the audit file</b>
+                <small>The plan, every answer, the verdict and the report (zip)</small>
+              </a>
+            ) : (
+              <button type="button" className="glass next-card" disabled title="Run your own test first">
+                <b>Download the audit file</b>
+                <small>{running ? 'Ready when your test finishes' : 'Run your own test first; the example has none'}</small>
+              </button>
+            )}
             <button type="button" className="glass next-card" onClick={() => document.getElementById('m1')?.scrollIntoView({ behavior: 'smooth' })}>
               <b>Test your own data</b>
               <small>Upload your messages</small>
@@ -1061,7 +1110,6 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               <small>About anything in your run</small>
             </button>
           </Reveal>
-          <small className="mono muted">The audit file download isn’t wired up yet.</small>
         </section>
       </main>
 
@@ -1106,7 +1154,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           </dd>
           <dt>Stopped</dt>
           <dd>
-            check-in {stopLook} of 5 · {count(v.n_cases)} of {count(run.plan.population)} messages
+            check-in {stopLook} of 5 · {count(v.n_cases)} of {count(run.plan.cases ?? run.plan.population)} messages
           </dd>
           <dt>Gain range</dt>
           <dd>

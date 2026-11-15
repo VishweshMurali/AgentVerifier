@@ -287,14 +287,39 @@ def read_progress(progress: dict[str, Any], line: str) -> None:
         progress.update(verdict=m[1], result=m[2].strip(), phase="done")
 
 
-def read_result(root: Path, verdict_path: str) -> dict[str, Any]:
-    """plan.json, scope.json (when scoped) and verdict.json of a finished quick test. The folder
-    must be inside results/ (the child's own output names it)."""
+AUDIT_FILES = ("plan.json", "scope.json", "verdict.json", "predictions.jsonl", "report.html")
+
+
+def run_folder(root: Path, verdict_path: str) -> Path:
+    """A finished quick test's folder; it must be inside results/."""
     results = (root / "results").resolve()
     path = Path(verdict_path)
     folder = (path if path.is_absolute() else root / path).resolve().parent
     if results not in folder.parents or folder.name == "":
         raise FlowRefused("result folder is outside results/")
+    return folder
+
+
+def audit_zip(root: Path, verdict_path: str) -> tuple[str, bytes]:
+    """(file name, zip bytes) of a finished run's audit bundle: the plan (with its seeds and
+    hashes), the verdict, every model's answer per message and the HTML report."""
+    import io
+    import zipfile
+
+    folder = run_folder(root, verdict_path)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name in AUDIT_FILES:
+            f = folder / name
+            if f.is_file():
+                z.write(f, f"{folder.name}/{name}")
+    return f"agent-verifier-{folder.name}.zip", buf.getvalue()
+
+
+def read_result(root: Path, verdict_path: str) -> dict[str, Any]:
+    """plan.json, scope.json (when scoped) and verdict.json of a finished quick test. The folder
+    must be inside results/ (the child's own output names it)."""
+    folder = run_folder(root, verdict_path)
     out: dict[str, Any] = {}
     for name in ("plan", "scope", "verdict"):
         f = folder / f"{name}.json"

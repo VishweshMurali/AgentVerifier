@@ -30,6 +30,7 @@ tune; planning disagreement 20%; the DEV-score check is not run (it needs the DE
 import argparse
 import hashlib
 import json
+import os
 import sys
 import time
 from collections import Counter
@@ -56,6 +57,8 @@ NOT_MINE = "not_mine"
 # "my kinds all go to the same place" (owner approved 2026-11-12, quick tests only): the picked
 # kinds are scored as one route, so a mix-up between two of them counts as right, for every arm
 ROUTE = "my_kinds"
+# the 100 self-check repeats run side by side in quick tests (same results; capped for memory)
+FALSE_ALARM_WORKERS = max(1, min(8, (os.cpu_count() or 2) - 2))
 OTHERS_SHARE = 0.20  # unrelated labels' share of the scoped test mix
 SCOPE_SEED = 2
 AGENT = "agent"
@@ -83,12 +86,93 @@ def sample_cases(cases: Sequence[Case], n: int, seed: int = SAMPLE_SEED) -> list
     return sorted((ordered[i] for i in picked), key=lambda c: c.id)
 
 
+def load_or_fit_layer(repo: Path, split) -> tuple[object, float, bool]:
+    """The shared linear layer for this training data: loaded when saved, else fitted and saved."""
+    from agent_committee import model_cache
+    from agent_committee.arms.linear import calibrated_layer
+
+    key = model_cache.model_key(
+        "layer", model_cache.data_digest(split.pool, split.tune), model_cache.code_digest()
+    )
+    return model_cache.load_or_fit(
+        repo, "layer", key, lambda: calibrated_layer(split.pool, split.tune)
+    )
+
+
+def free_model_key(name: str, split) -> str:
+    """Where a free model trained on this pool with this code is saved."""
+    from agent_committee import model_cache
+
+    return model_cache.model_key(
+        name, model_cache.data_digest(split.pool), model_cache.code_digest()
+    )
+
+
+def load_or_fit_free(repo: Path, name: str, split, layer) -> tuple[object, float, bool]:
+    """A free model for this pool: loaded when saved, else fitted and saved (one key)."""
+    from agent_committee import model_cache
+    from agent_committee.arms.classic import (
+        BoostingArm,
+        LinearSVMArm,
+        MajorityArm,
+        NaiveBayesArm,
+        RandomForestArm,
+    )
+    from agent_committee.arms.linear import LinearArm
+    from agent_committee.runner import fitted
+
+    if name == "linear":  # the shared layer is the linear model
+        return LinearArm(layer), 0.0, True
+    classes = {
+        "majority": MajorityArm,
+        "naive_bayes": NaiveBayesArm,
+        "linear_svm": LinearSVMArm,
+        "random_forest": RandomForestArm,
+        "boosting": BoostingArm,
+    }
+    key = free_model_key(name, split)
+    return model_cache.load_or_fit(repo, name, key, lambda: fitted(classes[name](), split.pool))
+
+
+def batch_labels(arm, texts: Sequence[str]) -> list[str | None] | None:
+    """Answers for many texts in one call, exactly as the arm's predict() gives them one by one:
+    the same scores and the same argmax (ties go to the sorted label). One call per batch instead
+    of one per message (forest and boosting were ~0.2 s a message; a batch of 2,000 takes <1 s).
+    Checked equal answer by answer on every dataset. None when the arm has no batch path; the
+    caller then asks one message at a time. Lives here, not in the frozen arms/ code."""
+    from agent_committee.arms import classic
+
+    if isinstance(arm, _InScope):
+        raw = batch_labels(arm._arm, texts)
+        return None if raw is None else [arm._map(p) for p in raw]
+    if isinstance(arm, classic.MajorityArm):
+        return None if arm._label is None else [arm._label] * len(texts)
+    model = getattr(arm, "_model", None)
+    if model is None:
+        return None
+    if not texts:
+        return []
+    if isinstance(arm, classic.NaiveBayesArm):
+        scores = model.predict_log_proba(list(texts))
+    elif isinstance(arm, classic.LinearSVMArm):
+        scores = model.decision_function(list(texts))
+        if scores.ndim == 1:  # two classes: one margin, positive means the second class
+            scores = np.column_stack([-scores, scores])
+    elif isinstance(arm, classic._SklearnArm):
+        scores = model.predict_proba(list(texts))
+    else:
+        return None
+    return [str(model.classes_[int(i)]) for i in np.argmax(scores, axis=1)]
+
+
 def pick_comparator(free_arms: Mapping[str, object], tune: Sequence[Case]) -> tuple[str, dict]:
     """The free arm with the highest accuracy on tune; ties go to the earlier arm in CLASSIC."""
-    scores = {
-        name: float(np.mean([arm.predict(c.id, c.text).pred == c.label for c in tune]))
-        for name, arm in free_arms.items()
-    }
+    scores = {}
+    for name, arm in free_arms.items():
+        preds = batch_labels(arm, [c.text for c in tune])
+        if preds is None:
+            preds = [arm.predict(c.id, c.text).pred for c in tune]
+        scores[name] = float(np.mean([p == c.label for p, c in zip(preds, tune, strict=True)]))
     best = max(scores, key=lambda n: (scores[n], -CLASSIC.index(n)))
     return best, scores
 
@@ -246,13 +330,17 @@ class _InScope:
         self._arm, self._scope, self._route = arm, set(scope), route
         self.name = getattr(arm, "name", None)
 
+    def _map(self, pred: str | None) -> str | None:
+        if pred is None:
+            return None
+        if pred in self._scope:
+            return ROUTE if self._route else pred
+        return NOT_MINE
+
     def predict(self, case_id: str, text: str):
         p = self._arm.predict(case_id, text)
-        if p.pred is None:
-            return p
-        if p.pred in self._scope:
-            return p.model_copy(update={"pred": ROUTE}) if self._route else p
-        return p.model_copy(update={"pred": NOT_MINE})
+        mapped = self._map(p.pred)
+        return p if mapped == p.pred else p.model_copy(update={"pred": mapped})
 
 
 def in_scope(arm, scope: Sequence[str], route: bool = False):
@@ -376,17 +464,10 @@ def main(argv: list[str] | None = None) -> int:
     _, clean = checks.leakage(split.eval, split.pool + split.tune, prereg.checks)
     n_clean = len(clean)
     from agent_committee import model_cache
-    from agent_committee.arms.linear import calibrated_layer
 
     # fitted models are saved and reused when the training data and the code are identical
     code_key = model_cache.code_digest()
-    pool_key = model_cache.data_digest(split.pool)
-    layer_key = model_cache.model_key(
-        "layer", model_cache.data_digest(split.pool, split.tune), code_key
-    )
-    layer, layer_seconds, layer_saved = model_cache.load_or_fit(
-        repo, "layer", layer_key, lambda: calibrated_layer(split.pool, split.tune)
-    )
+    layer, layer_seconds, layer_saved = load_or_fit_layer(repo, split)
     fit_seconds: dict[str, float] = {}
     scope: list[str] = []
     near: list[str] = []
@@ -467,8 +548,7 @@ def main(argv: list[str] | None = None) -> int:
         if n == "linear":  # the layer above is the linear model
             model, fit_seconds[n], saved = free_factories[n](), layer_seconds, layer_saved
         else:
-            key = model_cache.model_key(n, pool_key, code_key)
-            model, fit_seconds[n], saved = model_cache.load_or_fit(repo, n, key, free_factories[n])
+            model, fit_seconds[n], saved = load_or_fit_free(repo, n, split, layer)
         free_arms[n] = in_scope(model, scope, route)
         print(f"trained {n} in {time.perf_counter() - t0:.0f} s")
         if saved:
@@ -598,6 +678,7 @@ def main(argv: list[str] | None = None) -> int:
             verdict = evaluate(
                 judged, used, split.pool + split.tune, pool_ref, held_ref, layer, arms, report,
                 audit, out_dir, agent_fixed_usd=external["usd_per_message"] if external else 0.0,
+                false_alarm_workers=FALSE_ALARM_WORKERS,
             )  # fmt: skip
         except AgentDown as exc:
             print(str(exc), file=sys.stderr)

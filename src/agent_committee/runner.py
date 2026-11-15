@@ -143,6 +143,7 @@ def build_checks(
     dev_results: Mapping[str, Mapping],
     simpler: str,
     false_alarm_reps: int = FALSE_ALARM_REPS,
+    false_alarm_workers: int = 1,
 ) -> list[CheckResult]:
     """Every pre-registered check, run on the paired cases against DEV references."""
     cfg, st, own = prereg.checks, prereg.stats, True
@@ -175,6 +176,7 @@ def build_checks(
             cfg,
             false_alarm_reps,
             st.seed,
+            false_alarm_workers,
         )
     )
     labels = [c.label for c in cases]
@@ -252,6 +254,7 @@ def evaluate(
     false_alarm_reps: int = FALSE_ALARM_REPS,
     log: Callable[[str], None] = print,
     agent_fixed_usd: float = 0.0,
+    false_alarm_workers: int = 1,
 ) -> VerdictJSON:
     """Leakage, the paired run, checks and the decision. Writes predictions.jsonl in out_dir.
 
@@ -290,6 +293,7 @@ def evaluate(
         dev_report["results"],
         simpler,
         false_alarm_reps,
+        false_alarm_workers,
     )
     floor = next(c for c in found if c.name == "quality_floor")
     others = [r for n, r in paired.runs.items() if n not in (AGENT, simpler)]

@@ -206,3 +206,19 @@ def test_validate_checks_script_passes_on_dev(monkeypatch, capsys):
     for name in ("tune_gap[linear]", "score_drift", "domain_auc", "false_alarm_rate"):
         assert "PASS" in next(line for line in out.splitlines() if name in line)
     assert "1/1 random halves" not in out
+
+
+def test_the_self_check_gives_the_same_repeats_on_several_processes():
+    """Quick tests run the false-alarm repeats side by side: every repeat must match the
+    one-after-another run (same halves, same seeds), so the verdict cannot change."""
+    from agent_committee.data import load_dev
+
+    dev = sorted(load_dev(Path("data")), key=lambda c: c.id)[:500]
+    texts = [c.text for c in dev]
+    scores = list(np.linspace(0.1, 0.9, len(texts)))
+    one = checks.false_alarm_alarms(texts, scores, CFG, reps=12, seed=7, workers=1)
+    many = checks.false_alarm_alarms(texts, scores, CFG, reps=12, seed=7, workers=4)
+    assert one == many and len(one) == 12
+    a = checks.false_alarm_rate(texts, scores, CFG, reps=12, seed=7)
+    b = checks.false_alarm_rate(texts, scores, CFG, reps=12, seed=7, workers=4)
+    assert a == b

@@ -309,20 +309,64 @@ def flagged_split(
     )
 
 
-def false_alarm_rate(
-    texts: Sequence[str], scores: Sequence[float], cfg: ChecksConfig, reps: int, seed: int = 0
-) -> CheckResult:
-    """Run the drift checks on random halves of one dataset; they should almost never fire."""
+_HALVES: tuple = ()
+
+
+def _keep_halves(texts, scores, cfg) -> None:
+    global _HALVES
+    _HALVES = (texts, scores, cfg)
+
+
+def _half_alarm(job: tuple[np.ndarray, int]) -> bool:
+    """One repeat of the self-check: do the drift checks fire on two random halves of one set?"""
+    order, rep_seed = job
+    texts, scores, cfg = _HALVES
+    a, b = order[: len(order) // 2], order[len(order) // 2 :]
+    ks = score_drift(scores[a], scores[b], cfg, own_split=True)
+    auc = domain_auc(list(texts[a]), list(texts[b]), cfg, own_split=True, seed=rep_seed)
+    return not (ks.passed and auc.passed)
+
+
+def false_alarm_alarms(
+    texts: Sequence[str],
+    scores: Sequence[float],
+    cfg: ChecksConfig,
+    reps: int,
+    seed: int = 0,
+    workers: int = 1,
+) -> list[bool]:
+    """Whether each repeat raised drift. The halves come from one generator in a fixed order and
+    every repeat keeps its own seed, so running the repeats on several processes gives the same
+    list as running them one after another (quick tests only; the sealed run uses one)."""
     rng = np.random.default_rng(seed)
     texts = np.asarray(texts, dtype=object)
     scores = np.asarray(scores, dtype=float)
-    alarms = 0
-    for r in range(reps):
-        order = rng.permutation(len(texts))
-        a, b = order[: len(order) // 2], order[len(order) // 2 :]
-        ks = score_drift(scores[a], scores[b], cfg, own_split=True)
-        auc = domain_auc(list(texts[a]), list(texts[b]), cfg, own_split=True, seed=seed + r)
-        alarms += not (ks.passed and auc.passed)
+    jobs = [(rng.permutation(len(texts)), seed + r) for r in range(reps)]
+    if workers <= 1:
+        _keep_halves(texts, scores, cfg)
+        return [_half_alarm(j) for j in jobs]
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    with ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_keep_halves,
+        initargs=(texts, scores, cfg),
+    ) as pool:
+        return list(pool.map(_half_alarm, jobs, chunksize=max(1, reps // (workers * 4))))
+
+
+def false_alarm_rate(
+    texts: Sequence[str],
+    scores: Sequence[float],
+    cfg: ChecksConfig,
+    reps: int,
+    seed: int = 0,
+    workers: int = 1,
+) -> CheckResult:
+    """Run the drift checks on random halves of one dataset; they should almost never fire."""
+    alarms = sum(false_alarm_alarms(texts, scores, cfg, reps, seed, workers))
     rate = alarms / reps
     return CheckResult(
         name="false_alarm_rate",

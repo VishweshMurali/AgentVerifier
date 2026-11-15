@@ -372,3 +372,51 @@ def test_speeds_survive_a_malformed_summary(root):
         "fit_seconds": None,
         "agent_seconds_per_case": None,
     }
+
+
+def test_the_audit_zip_holds_the_runs_files_and_nothing_outside_results(root):
+    import io
+    import zipfile
+
+    run = root / "results" / "quick" / "z"
+    run.mkdir(parents=True, exist_ok=True)
+    for name in ("plan.json", "verdict.json", "predictions.jsonl", "report.html"):
+        (run / name).write_text("{}", encoding="utf-8")
+    (run / "other.txt").write_text("not in the bundle", encoding="utf-8")
+    name, blob = flow.audit_zip(root, "results/quick/z/verdict.json")
+    names = zipfile.ZipFile(io.BytesIO(blob)).namelist()
+    assert name == "agent-verifier-z.zip"
+    assert sorted(names) == [
+        "z/plan.json",
+        "z/predictions.jsonl",
+        "z/report.html",
+        "z/verdict.json",
+    ]
+    with pytest.raises(flow.FlowRefused):
+        flow.audit_zip(root, "../outside/verdict.json")
+
+
+def test_prewarming_queues_once_and_never_runs_in_tests(root, monkeypatch):
+    from verifier_server import warmup
+
+    started = []
+
+    class FakeProc:
+        def __init__(self, cmd, **kw):
+            started.append(cmd[-2:] if cmd[-2] == "--scenario" else cmd[-1:])
+
+        def wait(self):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(warmup.subprocess, "Popen", FakeProc)
+    w = warmup.Prewarmer(root)
+    w.request()
+    w.request("emotion")
+    w._thread.join(5)
+    assert started == [["--all"], ["--scenario", "emotion"]]
+    assert [d["what"] for d in w.state["done"]] == ["--all", "--scenario emotion"]
+    with TestClient(make_app(root)) as client:  # the test app never starts pre-training
+        assert client.get("/api/status", headers=H).json().get("warmup") is None

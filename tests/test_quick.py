@@ -577,3 +577,63 @@ def test_a_malformed_speed_summary_is_ignored_not_a_crash(tmp_path, monkeypatch,
     )
     model_cache.write_summary(tmp_path, "x", "C", {"linear": 2.0})  # rewrites a bad file cleanly
     assert model_cache.read_summary(tmp_path, "x")["fit_seconds"] == {"linear": 2.0}
+
+
+def _one_by_one_pick(free_arms, tune):
+    """The comparator pick as it was before batching: every arm, one message at a time."""
+    import numpy as np
+
+    scores = {
+        n: float(np.mean([a.predict(c.id, c.text).pred == c.label for c in tune]))
+        for n, a in free_arms.items()
+    }
+    return max(scores, key=lambda n: (scores[n], -quick.CLASSIC.index(n))), scores
+
+
+@pytest.mark.parametrize("mode", ["plain", "scoped", "route", "two_labels", "tiny"])
+def test_batched_answers_pick_the_same_comparator_with_the_same_scores(mode):
+    from agent_committee.arms.classic import (
+        BoostingArm,
+        LinearSVMArm,
+        MajorityArm,
+        NaiveBayesArm,
+        RandomForestArm,
+    )
+    from agent_committee.data import load_dev
+    from agent_committee.runner import fitted
+
+    dev = sorted(load_dev(Path("data")), key=lambda c: c.id)
+    labels = sorted({c.label for c in dev})
+    keep = set(labels[:2]) if mode == "two_labels" else set(labels[:12])
+    rows = [c for c in dev if c.label in keep]
+    pool, tune = rows[: (40 if mode == "tiny" else 500)], rows[-200:]
+    scope = sorted(keep)[:3] if mode in ("scoped", "route") else []
+    route = mode == "route"
+    if scope:
+        tune = quick.scoped(tune, scope, [], route=route)
+    arms = {
+        n: quick.in_scope(fitted(cls(), pool), scope, route)
+        for n, cls in [
+            ("majority", MajorityArm),
+            ("naive_bayes", NaiveBayesArm),
+            ("linear_svm", LinearSVMArm),
+            ("random_forest", RandomForestArm),
+            ("boosting", BoostingArm),
+        ]  # fmt: skip
+    }
+    assert quick.pick_comparator(arms, tune) == _one_by_one_pick(arms, tune)
+    for a in arms.values():  # and answer by answer
+        texts = [c.text for c in tune]
+        assert quick.batch_labels(a, texts) == [a.predict("x", t).pred for t in texts]
+
+
+def test_arms_without_a_batch_path_are_asked_one_by_one():
+    class Plain:
+        name = ArmName.LINEAR
+
+        def predict(self, case_id, text):
+            return ArmPrediction(case_id=case_id, arm=self.name, pred=text)
+
+    tune = [Case(id="1", text="a", label="a"), Case(id="2", text="b", label="c")]
+    assert quick.batch_labels(Plain(), ["a"]) is None
+    assert quick.pick_comparator({"linear": Plain()}, tune) == ("linear", {"linear": 0.5})

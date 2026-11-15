@@ -30,6 +30,7 @@ from . import flow, guide
 from .jobs import JobBusy, JobManager
 from .status import Paths, ollama_up, project_status
 from .story import StoryService, VerdictUnreadable
+from .warmup import Prewarmer
 
 ROOT = Path(__file__).resolve().parents[3]
 # Writes need this header: a cross-site page cannot send it without a CORS preflight, which fails.
@@ -46,16 +47,23 @@ def create_app(
     page_dir: Path | None = None,
     with_case: bool = True,
     testing: bool = False,
+    prewarm: bool | None = None,
 ) -> FastAPI:
     paths = Paths(root)
     # the export code always comes from this checkout; `root` only says where the data lives
     stories = story or StoryService(paths, with_case=with_case, script_root=ROOT)
     manager = jobs or JobManager(root)
+    # free models are trained ahead of time, in the background (never in tests)
+    warmer = Prewarmer(root) if (not testing if prewarm is None else prewarm) else None
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if warmer is not None:
+            warmer.request()  # every ready use case
         yield
         manager.shutdown()  # a rehearsal never outlives the server
+        if warmer is not None:
+            warmer.shutdown()
 
     app = FastAPI(
         title="Agent Verifier",
@@ -85,6 +93,7 @@ def create_app(
         status = project_status(paths, ollama())
         running = manager.running()
         status["job"] = running.view() if running else None
+        status["warmup"] = warmer.state if warmer is not None else None
         return status
 
     @app.post("/api/jobs/rehearsal", status_code=202)
@@ -147,6 +156,8 @@ def create_app(
         except (ValueError, UnicodeDecodeError) as exc:
             raise HTTPException(422, f"the file could not be read: {exc}") from exc
         flow_cache.clear()
+        if warmer is not None:
+            warmer.request(out["name"])  # its first test then only waits for the agent
         return out
 
     @app.get("/api/flow/library")
@@ -226,6 +237,23 @@ def create_app(
             return flow.read_result(root, job.progress["result"])
         except flow.FlowRefused as exc:
             raise HTTPException(500, str(exc)) from exc
+
+    @app.get("/api/jobs/{job_id}/audit")
+    def get_audit(job_id: str):
+        """The finished run's audit bundle (zip): plan, verdict, every answer, the report."""
+        from fastapi.responses import Response
+
+        job = manager.get(job_id)
+        if job is None or job.kind != "quick":
+            raise HTTPException(404, "no such quick test")
+        if job.state != "succeeded" or "result" not in job.progress:
+            raise HTTPException(409, f"the quick test is {job.state}, no audit file yet")
+        try:
+            name, blob = flow.audit_zip(root, job.progress["result"])
+        except flow.FlowRefused as exc:
+            raise HTTPException(500, str(exc)) from exc
+        headers = {"content-disposition": f'attachment; filename="{name}"'}
+        return Response(blob, media_type="application/zip", headers=headers)
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str) -> dict[str, Any]:
