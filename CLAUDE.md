@@ -36,7 +36,7 @@ Banking77 is the first task and proves the method.
   page. Ollama stays the local pinned reference; the sealed run never uses Groq. Public mode (`VERIFIER_PUBLIC=1`,
   `server/.../settings.py`) keeps uploads on; personal details in an upload are masked before anything is saved
   (`pii.py`; names cannot be detected).
-  Built on 2026-11-14 but NOT yet approved by the owner (ask before relying on them): least reasoning effort for the
+  Approved by the owner 2026-11-15 (Render paid 2 GB plan for the live service): least reasoning effort for the
   hosted model; a tool call Groq refuses scores as malformed with estimated tokens; calls paced under the free limit;
   public mode offers only the light free models and gaps 0.10 and 0.20, starts a test only if it fits the day's
   remaining tokens, turns rehearsal and bring-your-agent off, lists an upload only for its visitor and answers the
@@ -124,8 +124,8 @@ tests/
 - Dataset menu: `uv run python -m agent_committee.catalog` (`--choose NAME`)
 - MCP data endpoints (tools: list_datasets, choose_dataset, list_scenarios, check_dataset, prereg_template, dev_stats, add_dataset): stdio `uv run --project mcp_server python -m verifier_mcp`; HTTP `... --http` (127.0.0.1:8765, read-only unless `--allow-writes`); Docker `docker compose -f mcp_server/compose.yaml up --build`; tests `uv run --project mcp_server pytest mcp_server/tests`
 - Docker (page + MCP, Ollama on the host): `docker compose up --build`, page http://127.0.0.1:8000, MCP http://127.0.0.1:8765/mcp. Written, NOT yet built or tested. The sealed run stays a host command.
-- Render (`render.yaml`, owner decision 2026-11-14): a free static site built from `frontend/` (saved example only);
-  the live service is commented out there because a live test needs about 1.5 GB and the free plan has 512 MB.
+- Render (`render.yaml`, owner decision 2026-11-15): the LIVE service from `docker/public.Dockerfile` on a paid 2 GB plan
+  (a live test needs about 1.5 GB); the free static site (saved example only) is kept there, commented out.
 - Public demo image (standalone, for a 2 GB host): `docker build -f docker/public.Dockerfile -t agent-verifier .`
   then `docker run --rm -p 8000:8000 -e PORT=8000 -e GROQ_API_KEY=... -e SOURCE_COMMIT=$(git rev-parse HEAD) agent-verifier`.
   Written, NOT yet built or tested.

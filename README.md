@@ -75,8 +75,8 @@ The image holds no `.git` folder, so the commit each audit records comes from `S
 
 A live test peaks at about 1.5 GB of memory (server plus test process, measured on Banking77 and
 CLINC150), so Render's free and 512 MB web services cannot run one. `render.yaml` therefore
-deploys the page as a **free static site** showing a saved, real quick test; the live service is
-kept in the same file, commented out, for a 2 GB plan.
+deploys the **live service** on a paid 2 GB plan (`1c-2g`); the free static site, which replays a
+saved, real quick test only, is kept in the same file, commented out.
 
 ## Layout
 

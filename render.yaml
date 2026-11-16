@@ -1,39 +1,36 @@
-# Render blueprint: the public demo as a FREE static site (owner decision 2026-11-14).
-#   Render dashboard > New > Blueprint > pick this repository and branch.
-#
-# What visitors get: the full scroll story on a saved, real quick test (labelled as an example).
-# What they do not get: running their own test. A live test needs about 1.5 GB of memory at its
-# peak (measured 2026-11-14: about 0.3 GB for the server plus 1.1 to 1.25 GB for the test
-# process), and Render's free and 512 MB web services stop mid-test.
+# Render blueprint: the LIVE verifier (page + API, hosted Groq agent), owner decision 2026-11-15:
+# a paid 2 GB plan. A live test needs about 1.5 GB at its peak (measured 2026-11-14: about 0.3 GB for
+# the server plus 1.1 to 1.25 GB for the test process), so Render Free / 512 MB cannot run it.
+#   Render dashboard > New > Blueprint > pick this repository and branch. Render asks for
+#   GROQ_API_KEY while it creates the service (a secret, never stored in this file).
+# Public mode caps the day's hosted tokens (VERIFIER_DAILY_TOKENS) and offers only the light free models.
 services:
   - type: web
     name: agent-verifier
-    runtime: static
-    buildCommand: npm --prefix frontend ci && npm --prefix frontend run build
-    staticPublishPath: ./frontend/dist
+    runtime: docker
+    dockerfilePath: ./docker/public.Dockerfile
+    dockerContext: .
+    plan: 1c-2g
+    healthCheckPath: /api/health
     autoDeployTrigger: "off"
     envVars:
-      - key: NODE_VERSION
-        value: "24"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: VERIFIER_PUBLIC
+        value: "1"
+      - key: AGENT_PROVIDER
+        value: groq
+      - key: FALSE_ALARM_WORKERS
+        value: "1"
 
-# The live verifier (page + API, hosted Groq agent) is ready as docker/public.Dockerfile but needs
-# a paid 2 GB plan. To run it, replace the service above with this one; Render then asks for
-# GROQ_API_KEY while it creates the service (a secret, never stored in this file).
+# The free alternative is a static site that replays the saved example only (no live tests):
 #
 #  - type: web
 #    name: agent-verifier
-#    runtime: docker
-#    dockerfilePath: ./docker/public.Dockerfile
-#    dockerContext: .
-#    plan: 1c-2g
-#    healthCheckPath: /api/health
+#    runtime: static
+#    buildCommand: npm --prefix frontend ci && npm --prefix frontend run build
+#    staticPublishPath: ./frontend/dist
 #    autoDeployTrigger: "off"
 #    envVars:
-#      - key: GROQ_API_KEY
-#        sync: false
-#      - key: VERIFIER_PUBLIC
-#        value: "1"
-#      - key: AGENT_PROVIDER
-#        value: groq
-#      - key: FALSE_ALARM_WORKERS
-#        value: "1"
+#      - key: NODE_VERSION
+#        value: "24"
