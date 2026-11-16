@@ -60,6 +60,20 @@ evenly spaced stops land on each scene. No scroll snapping.
 - Header: brand, night toggle, and a "Try your error cost" button that jumps to scene 7
   (renamed from "Verify an agent", approved 2026-11-05).
 
+## Sphere opening (owner decision 2026-11-15; the opening of the page, replaces the ribbon's first scenes)
+- Life cycle, a pure function of scroll position: a soft frosted ice-blue ball of about 5,000 fine
+  particles, dense bright core, no outline (welcome); it charges and fires spark jets (agent screen);
+  it overcharges, squeezes and shakes; a blast with flash and a soft shockwave; the page's own message
+  graph forms from it, dots spiralling to their places with colour blooming in as each lands.
+- Look: the page's own Night/Day palette, fonts and glass. The welcome text sits lower left, clear of the ball.
+- The numbers the owner chose are the defaults in `frontend/src/motion/birth.ts` (`TUNE_DEFAULTS`). The
+  tuning panel is `?tune`; `?classic` shows the earlier opening; `?motion` forces the full show where
+  the system asks for reduced motion (which gets the same show slowed down: no shake, cursor stir or
+  scroll twist, slower spin and jets).
+- Smoothness: scroll position goes through a critically damped spring; the particle count adapts to
+  frame time (`PERF.q`), so slow phones get fewer particles, never a stutter.
+- Interaction: the cursor parts the particles; fast scrolling twists the outer particles like a galaxy.
+
 ## Checks list (scene 5, approved 2026-11-05)
 - Each check shows a plain, short name (for example "Copies of DEV text", "Per-label bias",
   "No overfitting to DEV: Linear"), its value and its pre-registered limit. The internal name

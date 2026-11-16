@@ -849,3 +849,23 @@ details.more p,details.more ul{margin:10px 0 0;line-height:1.55;animation:landnu
 /* who the agent is, said where it races */
 .race-duel .who{display:block;font-size:.68rem;letter-spacing:0;text-transform:none;margin-top:2px}
 .agent-note{font-size:1rem;max-width:640px}
+
+/* ?sphere: the welcome text sits lower left and the sphere floats clear of it (owner layout 2026-11-15) */
+.mock5.sphere .title-scene{justify-content:flex-end;padding-bottom:13vh;gap:12px}
+.mock5.sphere .title-word{font-size:clamp(46px,7.2vw,92px);max-width:5em}
+.mock5.sphere .title-sub{max-width:420px;gap:14px}
+.mock5.sphere .title-lead{font-size:18px}
+@media (max-width:760px){.mock5.sphere .title-scene{padding-bottom:120px}}
+
+/* ?tune: the sphere settings panel */
+.tune{position:fixed;right:14px;top:70px;bottom:14px;z-index:30;width:min(300px,calc(100vw - 28px));overflow:auto;padding:12px 14px;border-radius:16px;font-size:12.5px;display:flex;flex-direction:column;gap:8px}
+.tune header{display:flex;justify-content:space-between;align-items:center}
+.tune fieldset{border:1px solid rgba(255,255,255,.14);border-radius:10px;margin:0;padding:6px 10px 8px}
+.mock5:not(.night) .tune fieldset{border-color:rgba(14,26,46,.18)}
+.tune legend{padding:0 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;opacity:.75}
+.tune label{display:block;margin-top:6px}
+.tune label span{display:flex;justify-content:space-between}
+.tune label i{font-style:normal;opacity:.75;font-family:"JetBrains Mono",monospace}
+.tune input[type=range]{width:100%;accent-color:#22E3F0}
+.tune-jumps,.tune-go{display:flex;flex-wrap:wrap;gap:6px}
+@media (max-width:700px){.tune{top:auto;bottom:8px;right:8px;left:8px;width:auto;max-height:42vh}}

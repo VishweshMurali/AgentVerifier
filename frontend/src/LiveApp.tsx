@@ -225,6 +225,7 @@ export function LiveApp() {
     .filter((d) => flow?.labels[d.option])
     .map((d) => caseCard(d.option, d.title, flow!.labels[d.option].length, flow!.eval_sizes?.[d.option] ?? null, !!d.own));
   const live: LiveControl = {
+    offline: api === null,
     canRun: api !== null && !!flow && !!chosen && !!libraries[chosen],
     state,
     progress,

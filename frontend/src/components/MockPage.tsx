@@ -8,6 +8,8 @@ import { useActiveScene, useScenesInView } from '../hooks/useActiveScene.ts';
 import { prefersReducedMotion, startSmoothWheel } from '../motion/flight.ts';
 import type { Flyer } from '../motion/ribbon.ts';
 import { startBrain } from '../motion/brain.ts';
+import { SphereTune } from './SphereTune.tsx';
+import { flag } from '../flags.ts';
 import { hubName, matchLabels, matchScore, queryWords } from '../motion/webfield.ts';
 import { answer, STARTERS, type Seg } from '../flow/helper.ts';
 import { revealMood } from '../story/lines.ts';
@@ -34,6 +36,8 @@ interface Turn {
 
 /** A live quick test, driven by the main page (LiveApp). */
 export interface LiveControl {
+  /** no verifier server behind this page (the static site): it replays a saved example */
+  offline?: boolean;
   canRun: boolean;
   state: 'idle' | 'running' | 'done' | 'failed';
   progress: RunProgress | null;
@@ -208,6 +212,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
   const [showAll, setShowAll] = useState(false);
   const [details, setDetails] = useState(false);
   const [night, setNight] = useState(true);
+  // the sphere opening (owner decision 2026-11-15), with the welcome text lower left to sit clear of it;
+  // ?classic brings back the earlier opening
+  const sphereOn = !flag('classic');
   const v = run.verdict;
   const simpler = run.plan.comparator;
   // one name for the racing agent: ours by default (llama3.1:8b on Ollama), "Your agent" once the
@@ -217,9 +224,12 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
   // agent this deployment races (local Ollama, or a hosted model that is not pinned)
   const ran = agentWords(runAgent(run.plan.agent));
   const ours = agentWords(live?.agentInfo);
+  const saved = !live || !!live.offline; // the static site: a saved example, nothing runs here
   const AG = extRun ? 'Your agent' : ran.name;
   const ag = extRun ? 'your agent' : ran.lower;
-  const agWho = extRun ? `your agent at ${run.plan.agent?.endpoint ?? 'your address'}` : ran.who;
+  const agWho = extRun ? `your agent at ${run.plan.agent?.endpoint ?? 'your address'}` : !saved
+      ? ran.who
+      : ran.who.replace(', running on this computer through Ollama', ', through Ollama'); // a saved example did not run here
   const modelLabel = (id: string) => (id === AGENT ? AG : baseLabel(id));
   const runningLabel = (id: string) => (id === AGENT ? (live?.agent ? 'Your agent' : ours.name) : baseLabel(id));
   const sugg = useMemo(() => matchLabels(desc, lib), [desc, lib]);
@@ -312,6 +322,8 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
       onHover: setHover,
       still: prefersReducedMotion(),
       isNight: () => nightRef.current,
+      // ?sphere: the opening screens play the sphere's life cycle before the graph forms
+      birth: sphereOn,
       // screens 1-2 (agent, kinds) are the graph's typing step; then race, close-up, answer as before
       // title and agent screens are the graph's quiet typing step; kinds eases toward the race
       remap: (q) => (q <= 1 ? 0 : q <= 2 ? (q - 1) * 0.3 : q <= 3 ? 0.3 + (q - 2) * 0.7 : q <= 4 ? q - 2 : q <= 8 ? 2 + (q - 4) / 4 : 3 + (q - 8)),
@@ -586,7 +598,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
   };
 
   return (
-    <div className={`page flow mock mock5${night ? ' night' : ''}`} data-scene={active}>
+    <div className={`page flow mock mock5${night ? ' night' : ''}${sphereOn ? ' sphere' : ''}`} data-scene={active}>
       <div className="bg" aria-hidden="true">
         <div className="bg-night" />
         <canvas ref={cv} />
@@ -605,6 +617,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
         </div>
       </header>
       <Timeline active={active} scenes={SCENES} counted />
+      {sphereOn && flag('tune') && <SphereTune />}
 
       <main>
         {/* 0 · Title: the product's name, what it does, and the guide flying in */}
@@ -637,6 +650,10 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           <p className="lead muted agent-note">
             {live?.agent ? (
               <>We’ll race <b>your agent</b> at {live.agent.url.replace(/\?.*$/, '')}.</>
+            ) : saved ? (
+              <>
+                This page replays a <b>saved example</b>: an agent (llama3.1:8b through Ollama) tested against simpler models on real messages. To test your own agent, run the verifier on your machine.
+              </>
             ) : (
               <>
                 The agent in this test is <b>{ours.standIn}</b>, standing in for yours.{' '}
@@ -821,11 +838,13 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                Example run · a bank refund agent{chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
+                Example run · a bank refund agent{saved ? ' · saved, not run live' : chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
               </span>
-              <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
-                Run mine ↑
-              </button>
+              {!saved && (
+                <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
+                  Run mine ↑
+                </button>
+              )}
             </div>
           ) : null}
           <ScrollRise className="mid" text="Every message, checked." />
@@ -868,11 +887,13 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                Example run · a bank refund agent{chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
+                Example run · a bank refund agent{saved ? ' · saved, not run live' : chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
               </span>
-              <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
-                Run mine ↑
-              </button>
+              {!saved && (
+                <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
+                  Run mine ↑
+                </button>
+              )}
             </div>
           ) : null}
           {fm && (
@@ -920,11 +941,13 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                Example run · a bank refund agent{chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
+                Example run · a bank refund agent{saved ? ' · saved, not run live' : chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
               </span>
-              <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
-                Run mine ↑
-              </button>
+              {!saved && (
+                <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
+                  Run mine ↑
+                </button>
+              )}
             </div>
           ) : null}
           <ScrollRise className="mid" text="What’s a mistake worth to you?" />
@@ -976,11 +999,13 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                Example run · a bank refund agent{chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
+                Example run · a bank refund agent{saved ? ' · saved, not run live' : chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
               </span>
-              <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
-                Run mine ↑
-              </button>
+              {!saved && (
+                <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
+                  Run mine ↑
+                </button>
+              )}
             </div>
           ) : null}
           <ScrollRise className="mid" text="How busy is it, and who runs the AI?" />
@@ -1016,11 +1041,13 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                Example run · a bank refund agent{chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
+                Example run · a bank refund agent{saved ? ' · saved, not run live' : chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
               </span>
-              <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
-                Run mine ↑
-              </button>
+              {!saved && (
+                <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
+                  Run mine ↑
+                </button>
+              )}
             </div>
           ) : null}
           <ScrollRise className="mid" text="Three ways to do it." />
@@ -1190,7 +1217,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               ? `your agent at ${run.plan.agent?.endpoint} · $${run.plan.agent?.usd_per_message}/message (your figure) · not pinned, a re-run may differ`
               : ran.hosted
                 ? `hosted test agent: ${ran.tag} · a re-run may differ`
-                : 'local Ollama agent: llama3.1:8b on this computer (used when you don’t bring yours)'}{' '}
+                : !saved
+                  ? 'local Ollama agent: llama3.1:8b on this computer (used when you don’t bring yours)'
+                  : 'the saved example’s test agent: llama3.1:8b through Ollama'}{' '}
             · {v.audit.git_commit.slice(0, 7)}
           </dd>
         </dl>

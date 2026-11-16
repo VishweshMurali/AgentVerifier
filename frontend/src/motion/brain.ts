@@ -10,6 +10,7 @@
 import { scenePosition } from './ribbon.ts';
 import type { WebMessage } from './webfield.ts';
 import { hubName, matchLabels } from './webfield.ts';
+import { PERF, birthState, drawBody, drawBurst, drawFog, drawSparks, makeBirthPoints, travelColour, TUNE, type BirthState } from './birth.ts';
 
 export interface BrainOptions {
   messages: WebMessage[];
@@ -24,6 +25,8 @@ export interface BrainOptions {
   isNight: () => boolean;
   /** maps the page's screen position onto the graph's own steps (ask, race, close-up, answer) */
   remap?: (pos: number) => number;
+  /** the opening screens play the sphere's life cycle (charge, burst) before the graph forms */
+  birth?: boolean;
 }
 
 const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
@@ -153,6 +156,14 @@ export function startBrain(cv: HTMLCanvasElement, o: BrainOptions): () => void {
   const links: [number, number][] = [];
   o.messages.forEach((m, i) => m.nb.forEach((j) => (i < j || !o.messages[j].nb.includes(i) ? links.push([runPt[i], runPt[j]]) : null)));
 
+  // the sphere that the graph is born from (opening screens): where each point sits inside it
+  const trail: BirthState = { charge: 0, over: 0, e: 0, alive: 1, flash: 0, energy: 0 };
+  const bp = o.birth ? makeBirthPoints(pts.length + dust.length) : null;
+  const rgbOf = (c: string) => c.split(',').map(Number);
+  const prgb = pts.map((p) => rgbOf(p.col));
+  const drgb = dust.map((d) => rgbOf(d.col));
+  const tmp3 = new Float32Array(3), tc = new Float32Array(3), trp = new Float32Array(3);
+  let qs = 0, qv = 0, energy = 0;
   let W = 0, H = 0, S = 1, raf = 0, last = performance.now(), t = 0, pos = 0;
   let yaw = 0.4, pitch = -0.42, spin = 0.06, dragging = false, dragX = 0, dragY = 0, moved = 0;
   let mx = -1e4, my = -1e4, hovered = -1, raceStart = -1, lastShown = -1;
@@ -264,10 +275,24 @@ export function startBrain(cv: HTMLCanvasElement, o: BrainOptions): () => void {
 
   const frame = (now: number) => {
     const dt = Math.min(0.05, (now - last) / 1000);
+    if (bp) PERF.q = Math.min(1, Math.max(0.15, PERF.q * (dt > 0.034 ? 0.96 : dt < 0.02 ? 1.01 : 1))); // adapt the particle count to the device
     last = now;
     const slow = o.still ? 0.25 : 1;
     t += dt * slow;
-    pos += ((o.remap ? o.remap(scenePosition(secs)) : scenePosition(secs)) - pos) * (1 - Math.exp(-dt * 3));
+    const rawPos = scenePosition(secs);
+    pos += ((o.remap ? o.remap(rawPos) : rawPos) - pos) * (1 - Math.exp(-dt * 3));
+    if (bp) {
+      // a critically damped spring: the sphere's life cycle glides, never jerks, however the wheel steps
+      const k = 16;
+      qv += ((rawPos - qs) * k - qv * 2 * Math.sqrt(k)) * dt;
+      qs += qv * dt;
+    } else qs += (rawPos - qs) * (1 - Math.exp(-dt * 3));
+    const B: BirthState | null = bp ? birthState(qs) : null;
+    if (B) {
+      energy += (Math.min(1, Math.abs(qv) * 1.6) - energy) * (1 - Math.exp(-dt * 5));
+      B.energy = energy;
+      Object.assign(trail, B);
+    }
     const wake = awake();
     if (now - rectsAt > 250) {
       rectsAt = now;
@@ -292,7 +317,7 @@ export function startBrain(cv: HTMLCanvasElement, o: BrainOptions): () => void {
 
     // camera: the cloud sits right of centre, turns on its own, closes in for the close-up
     // while the reader is typing on the first screen the graph holds still around their kinds
-    const shaping = matched.size > 0 ? 1 - sstep(0.4, 0.9, pos) : 0;
+    const shaping = (matched.size > 0 ? 1 - sstep(0.4, 0.9, pos) : 0) * (B ? sstep(0.3, 0.5, B.e) : 1);
     if (!dragging) yaw += spin * dt * slow * (1 - 0.8 * dive) * (1 - 0.9 * shaping);
     const bfx = -Math.sin(pullYaw), bfz = -Math.cos(pullYaw);
     {
@@ -328,6 +353,10 @@ export function startBrain(cv: HTMLCanvasElement, o: BrainOptions): () => void {
     const baseX = wide ? W * 0.56 : W * 0.5, baseY = H * 0.5;
     cx = baseX;
     cy = baseY;
+    // the sphere starts right of the title, then moves in behind the page's content
+    if (B && wide) cx = mix(W * 0.52, baseX, sstep(0, 1, qs));
+    // on a phone the sphere floats above the title, then settles behind the content
+    if (B && !wide) cy = mix(H * 0.25, baseY, sstep(0, 1, qs));
     if (dive > 0.01) {
       const tmp = new Float32Array(3);
       project(fp.x, fp.y, fp.z, tmp, 0);
@@ -335,8 +364,19 @@ export function startBrain(cv: HTMLCanvasElement, o: BrainOptions): () => void {
       cx = baseX + (W * 0.7 - tmp[0]) * dive;
       cy = baseY + (H * 0.2 - tmp[1]) * dive;
     }
-    for (let i = 0; i < pts.length; i++) project(pts[i].x, pts[i].y, pts[i].z, scr, i * 3);
-    for (let i = 0; i < dust.length; i++) project(dust[i].x, dust[i].y, dust[i].z, dscr, i * 3);
+    if (B && bp) {
+      for (let i = 0; i < pts.length; i++) {
+        bp.place(i, pts[i].x, pts[i].y, pts[i].z, B, tmp3, 0);
+        project(tmp3[0], tmp3[1], tmp3[2], scr, i * 3);
+      }
+      for (let i = 0; i < dust.length; i++) {
+        bp.place(pts.length + i, dust[i].x, dust[i].y, dust[i].z, B, tmp3, 0);
+        project(tmp3[0], tmp3[1], tmp3[2], dscr, i * 3);
+      }
+    } else {
+      for (let i = 0; i < pts.length; i++) project(pts[i].x, pts[i].y, pts[i].z, scr, i * 3);
+      for (let i = 0; i < dust.length; i++) project(dust[i].x, dust[i].y, dust[i].z, dscr, i * 3);
+    }
 
     // hover
     const h = wake > 0.5 && !dragging ? nodeAt(mx, my, false) : -1;
@@ -352,12 +392,20 @@ export function startBrain(cv: HTMLCanvasElement, o: BrainOptions): () => void {
     const tone = (c: string) => (day ? c.split(',').map((v) => Math.round(+v * 0.6)).join(',') : c);
     const white = day ? '20,32,60' : '255,255,255';
     ctx.globalCompositeOperation = day ? 'source-over' : 'lighter';
-    const base = 0.3 + 0.7 * wake;
+    const base0 = 0.3 + 0.7 * wake;
+    // while the sphere is whole and charging it glows brighter than the quiet graph does
+    const base = B ? mix(Math.max(base0, 0.55 + 0.45 * B.charge), base0, sstep(0.6, 1, B.e)) : base0;
+    const graphA = B ? sstep(0.55, 1, B.e) : 1; // links and names only appear as the graph forms
+    if (B) {
+      project(0, 0, 0, tc, 0);
+      drawBody(ctx, tc[0], tc[1], TUNE.sphereSize * S * tc[2] * camZ, B, t, tone, day);
+      drawFog(ctx, tc[0], tc[1], TUNE.sphereSize * S * tc[2] * camZ, qs, B, t, tone, day, mx, my);
+    }
     // dust
     for (let i = 0; i < dust.length; i++) {
       const x = dscr[i * 3], y = dscr[i * 3 + 1], f = dscr[i * 3 + 2];
       ctx.globalAlpha = (0.16 + 0.22 * base) * f * f * Math.min(1, S / 300) * veil(x, y, 0.25);
-      ctx.fillStyle = `rgb(${tone(dust[i].col)})`;
+      ctx.fillStyle = `rgb(${tone(B && bp && B.e < 1 ? travelColour(drgb[i], bp.arrived(pts.length + i, B), day) : dust[i].col)})`;
       ctx.fillRect(x, y, 1.6 * f, 1.6 * f);
     }
     // kind skeletons
@@ -367,7 +415,7 @@ export function startBrain(cv: HTMLCanvasElement, o: BrainOptions): () => void {
       const trunk = p.level === 1 ? 1 : p.level === 2 ? 2 : 0;
       ctx.lineWidth = trunk === 2 ? 1.4 : trunk ? 1 : 0.5;
       const on = matched.has(p.kind) && pos < 0.6 ? 1 : 0;
-      ctx.globalAlpha = ((trunk === 2 ? 0.16 : trunk ? 0.22 : 0.06) * base + 0.3 * on + (p.kind === hoverKind ? 0.35 : 0)) * (1 - 0.6 * dive);
+      ctx.globalAlpha = ((trunk === 2 ? 0.16 : trunk ? 0.22 : 0.06) * base + 0.3 * on + (p.kind === hoverKind ? 0.35 : 0)) * (1 - 0.6 * dive) * graphA;
       ctx.strokeStyle = `rgb(${tone(p.col)})`;
       ctx.beginPath();
       ctx.moveTo(scr[a * 3], scr[a * 3 + 1]);
@@ -378,7 +426,7 @@ export function startBrain(cv: HTMLCanvasElement, o: BrainOptions): () => void {
     ctx.lineWidth = 1;
     for (const [a, b] of links) {
       const hot = a === hovered || b === hovered;
-      ctx.globalAlpha = (0.035 * base * race + (hot ? 0.6 : 0)) * (1 - 0.5 * dive);
+      ctx.globalAlpha = (0.035 * base * race + (hot ? 0.6 : 0)) * (1 - 0.5 * dive) * graphA;
       ctx.strokeStyle = `rgb(${hot ? white : tone(CYAN)})`;
       ctx.beginPath();
       ctx.moveTo(scr[a * 3], scr[a * 3 + 1]);
@@ -392,7 +440,13 @@ export function startBrain(cv: HTMLCanvasElement, o: BrainOptions): () => void {
       const p = pts[i];
       const x = scr[i * 3], y = scr[i * 3 + 1], f = scr[i * 3 + 2];
       if (x < -30 || x > W + 30 || y < -30 || y > H + 30) continue;
-      let col = p.col, a = 0.45 * base, r = p.r * f * Math.sqrt(camZ);
+      let col = B && bp && B.e < 1 ? travelColour(prgb[i], bp.arrived(i, B), day) : p.col, a = 0.45 * base, r = p.r * f * Math.sqrt(camZ);
+      if (B && bp && p.level > 0) {
+        // the hubs only appear as the dots reach their places
+        const h = sstep(0.3, 1, bp.arrived(i, B));
+        a *= h;
+        r *= mix(0.5, 1, h);
+      }
       if (p.run >= 0) {
         const m = o.messages[p.run];
         if (p.run < shown && race > 0.1) lit[p.run] = Math.min(1, lit[p.run] + dt * 4);
@@ -412,10 +466,33 @@ export function startBrain(cv: HTMLCanvasElement, o: BrainOptions): () => void {
         r *= 1.9 - 0.65 * (1 - shaping);
       } else if (shaping > 0.01 && p.level < 2) a *= 1 - 0.65 * shaping;
       if (p.kind === hoverKind) a = Math.min(1, a + 0.3);
+      // inside the sphere the dots are tiny and crisp, with no glow (the glow returns as they land)
+      let crisp = 0;
+      if (B && bp && p.level === 0) {
+        crisp = 1 - sstep(0, 0.4, bp.arrived(i, B));
+        r *= mix(1, TUNE.dotSize, crisp);
+        a = Math.min(1, a * mix(1, 1.8, crisp));
+      }
       if (i === hovered) r += 3;
       a *= veil(x, y, 0.3);
+      // streak behind a dot that is flying to its place
+      if (B && bp && TUNE.trail > 0 && B.e > 0 && B.e < 1) {
+        const ei = bp.arrived(i, B);
+        if (ei > 0.02 && ei < 0.97) {
+          trail.e = Math.max(0, B.e - 0.05 * TUNE.trail);
+          bp.place(i, p.x, p.y, p.z, trail, tmp3, 0);
+          project(tmp3[0], tmp3[1], tmp3[2], trp, 0);
+          ctx.globalAlpha = a * 0.55 * (1 - ei);
+          ctx.strokeStyle = `rgb(${tone(col)})`;
+          ctx.lineWidth = Math.max(0.8, r * 0.8);
+          ctx.beginPath();
+          ctx.moveTo(trp[0], trp[1]);
+          ctx.lineTo(x, y);
+          ctx.stroke();
+        }
+      }
       // glow, then core
-      ctx.globalAlpha = a * 0.22 * Math.min(1, S / 300);
+      ctx.globalAlpha = a * 0.22 * Math.min(1, S / 300) * (1 - crisp);
       ctx.fillStyle = `rgb(${tone(col)})`;
       ctx.beginPath();
       ctx.arc(x, y, r * 2.8, 0, Math.PI * 2);
@@ -432,6 +509,10 @@ export function startBrain(cv: HTMLCanvasElement, o: BrainOptions): () => void {
         ctx.arc(x, y, r + 8, 0, Math.PI * 2);
         ctx.stroke();
       }
+    }
+    if (B) {
+      drawSparks(ctx, tc[0], tc[1], TUNE.sphereSize * S * tc[2] * camZ, B, t, tone, day);
+      drawBurst(ctx, tc[0], tc[1], TUNE.sphereSize * S * tc[2] * camZ, qs, B, tone, day);
     }
     // the close-up: a white arc from the picked message through its similar messages
     if (dive > 0.02) {
@@ -456,14 +537,14 @@ export function startBrain(cv: HTMLCanvasElement, o: BrainOptions): () => void {
     // names: the kinds the reader typed, and the hovered kind
     ctx.font = '600 12px "JetBrains Mono", monospace';
     ctx.textAlign = 'center';
-    const named = new Set<string>(pos < 0.6 ? matched : []);
+    const named = new Set<string>(pos < 0.6 && !(B && B.e < 0.3) ? matched : []);
     if (hoverKind) named.add(hoverKind);
     const placed: { x: number; y: number; w: number }[] = [];
     ctx.font = '700 11px "JetBrains Mono", monospace';
     famPt.forEach((pi, n) => {
       const x = scr[pi * 3], y = scr[pi * 3 + 1] + 26 * scr[pi * 3 + 2];
-      if (behindText(x, y) || dive > 0.5) return;
-      ctx.globalAlpha = (0.45 + 0.4 * wake) * scr[pi * 3 + 2];
+      if (behindText(x, y) || dive > 0.5 || graphA < 0.05) return;
+      ctx.globalAlpha = (0.45 + 0.4 * wake) * scr[pi * 3 + 2] * graphA;
       ctx.fillStyle = `rgb(${tone(pts[pi].col)})`;
       ctx.fillText(n.toUpperCase(), x, y);
       placed.push({ x, y, w: ctx.measureText(n).width + 16 });
