@@ -197,3 +197,58 @@ def test_pacing_learns_that_requests_use_less_than_guessed(monkeypatch):
     assert seen[0] > 800  # the first guess is the full estimate (about 890)
     assert seen[-1] < seen[0] * 0.75  # then it follows what was really used
     assert seen[-1] >= seen[0] * 0.5  # never below half of the estimate
+
+
+def test_proxy_is_off_unless_both_settings_are_given():
+    assert hosted.proxy({}) is None
+    ok = {"GROQ_PROXY_URL": "https://p.example.dev/v1/", "GROQ_PROXY_TOKEN": " tok "}
+    assert hosted.proxy(ok) == ("https://p.example.dev/v1", "tok")
+    for bad in (
+        {"GROQ_PROXY_URL": "https://p.example.dev/v1"},  # no token
+        {"GROQ_PROXY_TOKEN": "tok"},  # no address
+        {"GROQ_PROXY_URL": "http://p.example.dev/v1", "GROQ_PROXY_TOKEN": "tok"},  # not https
+        {"GROQ_PROXY_URL": "https://p.example.dev", "GROQ_PROXY_TOKEN": "tok"},  # no /v1
+    ):
+        with pytest.raises(ValueError):
+            hosted.proxy(bad)
+
+
+def test_connection_with_a_proxy_never_needs_or_sends_the_groq_key(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setenv("GROQ_PROXY_URL", "https://p.example.dev/v1")
+    monkeypatch.setenv("GROQ_PROXY_TOKEN", "tok")
+    url, key, headers = hosted.connection()
+    assert url == "https://p.example.dev/v1" and key == "via-proxy"
+    assert headers == {"x-proxy-token": "tok"}
+    monkeypatch.delenv("GROQ_PROXY_URL")
+    monkeypatch.delenv("GROQ_PROXY_TOKEN")
+    monkeypatch.setenv("GROQ_API_KEY", "real")
+    assert hosted.connection() == (hosted.GROQ_URL, "real", {})
+
+
+def test_the_token_and_address_are_not_recorded_in_the_plan(monkeypatch):
+    monkeypatch.setenv("GROQ_PROXY_URL", "https://secret-name.example.dev/v1")
+    monkeypatch.setenv("GROQ_PROXY_TOKEN", "super-secret-token")
+    text = repr(hosted.settings()) + hosted.label()
+    assert "super-secret-token" not in text and "secret-name" not in text
+    assert hosted.settings()["via_proxy"] is True
+
+
+def test_a_proxys_own_error_body_is_not_a_refused_tool_call():
+    class Err(Exception):
+        body = {"error": "model not allowed"}  # the proxy's errors carry a plain string
+
+    assert hosted.refused_tool_call(Err(), {}) is None
+
+
+def test_refused_credentials_stop_the_run_in_plain_words():
+    import httpx
+    from openai import AuthenticationError
+
+    def deny(**_):
+        resp = httpx.Response(401, request=httpx.Request("POST", "https://p.example.dev"))
+        raise AuthenticationError("no", response=resp, body={"error": "bad token"})
+
+    call = hosted.groq_transport(create=deny, pacer=hosted.Pacer(10**6))
+    with pytest.raises(LLMUnavailable, match="refused our credentials"):
+        call({"messages": [{"role": "user", "content": "x"}]})

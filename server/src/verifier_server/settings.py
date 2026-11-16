@@ -18,6 +18,8 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from agent_committee import hosted
+
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 PUBLIC_ARMS = ("majority", "linear", "naive_bayes", "linear_svm", "agent")
 PUBLIC_GAPS = (0.10, 0.20)
@@ -72,8 +74,8 @@ def load(env: Mapping[str, str] | None = None) -> Settings:
         raise ValueError(f"AGENT_PROVIDER must be 'groq' or 'ollama', not {provider!r}")
     if public and provider is None:
         raise ValueError("VERIFIER_PUBLIC needs a hosted agent: set AGENT_PROVIDER=groq")
-    if provider and not (env.get("GROQ_API_KEY") or "").strip():
-        raise ValueError("AGENT_PROVIDER=groq needs GROQ_API_KEY")
+    if provider and hosted.proxy(env) is None and not (env.get("GROQ_API_KEY") or "").strip():
+        raise ValueError("AGENT_PROVIDER=groq needs GROQ_API_KEY (or GROQ_PROXY_URL + token)")
     named = [h.strip() for h in (env.get("VERIFIER_ALLOWED_HOSTS") or "").split(",") if h.strip()]
     if named:
         hosts = tuple(dict.fromkeys([*LOCAL_HOSTS, *named]))

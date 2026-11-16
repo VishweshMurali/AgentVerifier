@@ -316,3 +316,17 @@ def test_the_public_site_publishes_no_api_map(root):
     assert public.get("/api/openapi.json").status_code == 404
     local = TestClient(create_app(root, serve_page=False, testing=True))
     assert local.get("/api/openapi.json").status_code == 200
+
+
+def test_public_mode_accepts_a_proxy_instead_of_the_groq_key():
+    env = {
+        "VERIFIER_PUBLIC": "1",
+        "AGENT_PROVIDER": "groq",
+        "GROQ_PROXY_URL": "https://p.example.dev/v1",
+        "GROQ_PROXY_TOKEN": "tok",
+    }
+    assert settings.load(env).public is True
+    with pytest.raises(ValueError):
+        settings.load({**env, "GROQ_PROXY_TOKEN": ""})  # an address without its token
+    with pytest.raises(ValueError):
+        settings.load({"VERIFIER_PUBLIC": "1", "AGENT_PROVIDER": "groq"})  # neither

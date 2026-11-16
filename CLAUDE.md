@@ -47,6 +47,10 @@ Banking77 is the first task and proves the method.
   kept and its words for one message/label are masked; masking now also covers links, birth dates, postcodes and names introduced
   by a cue ("my name is", "Hi Ana"); the hosted agent's pacing scales its size guess to the real token counts. The page's guide answers
   about the reader's own use case before a test exists, and the page no longer moves by itself before a test of the reader's own.
+  Added 2026-11-16 on the owner's request (quick tests only, hosted agent): an optional key-holding proxy
+  (`proxy/worker.js`, a Cloudflare Worker): with `GROQ_PROXY_URL` (https, ends in /v1) and `GROQ_PROXY_TOKEN` the
+  engine sends the hosted agent's calls there and never holds the Groq key; without them nothing changes. The
+  proxy answers only POST /v1/chat/completions for the one model, with the token. The sealed run is unaffected.
 - Null is a flag for low-confidence cases (the lowest 10% on tune), not a score. All arms answer them, and accuracy on those cases is reported per arm.
 - Agent rules: a no-tool answer is sent back once, the last call must answer, a malformed tool call scores wrong. Maximum 4 model calls per case.
 - No RAG for now. `search` stays a single swappable tool.

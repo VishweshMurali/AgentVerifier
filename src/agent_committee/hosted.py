@@ -28,7 +28,7 @@ import os
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +46,9 @@ RATE_RETRIES = 6
 NOT_PINNED = "hosted agent (not pinned)"
 REASONING = "low"
 TOOL_USE_FAILED = "tool_use_failed"
+PROXY_URL_ENV = "GROQ_PROXY_URL"  # optional key-holding proxy (proxy/worker.js), ends in /v1
+PROXY_TOKEN_ENV = "GROQ_PROXY_TOKEN"  # the shared secret the proxy checks (never logged or saved)
+PROXY_HEADER = "x-proxy-token"
 
 
 def provider() -> str | None:
@@ -76,9 +79,34 @@ def reasoning() -> str | None:
     return REASONING if "gpt-oss" in model() else None
 
 
+def proxy(env: Mapping[str, str] | None = None) -> tuple[str, str] | None:
+    """(base url, token) of the key-holding proxy when one is configured, else None (the engine
+    then talks to Groq itself with GROQ_API_KEY). Both settings or neither; https only; the URL
+    ends in /v1 because the client adds /chat/completions."""
+    env = os.environ if env is None else env
+    url = (env.get(PROXY_URL_ENV) or "").strip().rstrip("/")
+    token = (env.get(PROXY_TOKEN_ENV) or "").strip()
+    if not url and not token:
+        return None
+    if not url or not token:
+        raise ValueError(f"{PROXY_URL_ENV} and {PROXY_TOKEN_ENV} must be set together")
+    if not url.startswith("https://") or not url.endswith("/v1"):
+        raise ValueError(f"{PROXY_URL_ENV} must be an https address ending in /v1")
+    return url, token
+
+
+def connection() -> tuple[str, str, dict[str, str]]:
+    """(base url, api key, extra headers) for the client. With a proxy the engine never holds the
+    Groq key: the SDK gets a placeholder and the proxy's token travels in its own header."""
+    via = proxy()
+    if via is not None:
+        return via[0], "via-proxy", {PROXY_HEADER: via[1]}
+    return GROQ_URL, api_key(), {}
+
+
 def settings() -> dict[str, Any]:
     """What a run on the hosted agent records in plan.json."""
-    return {
+    out: dict[str, Any] = {
         "kind": "hosted",
         "model": label(),
         "provider": "groq",
@@ -86,6 +114,9 @@ def settings() -> dict[str, Any]:
         "reasoning_effort": reasoning(),
         "refused_tool_call": "scored as a malformed tool call; tokens estimated",
     }
+    if proxy() is not None:
+        out["via_proxy"] = True  # only that a proxy is used, never its address or token
+    return out
 
 
 def refused_tool_call(exc: Exception, request: dict[str, Any]) -> dict[str, Any] | None:
@@ -203,10 +234,23 @@ def groq_transport(
 ) -> Transport:
     """One OpenAI-shaped call to Groq, paced under the per-minute limit. `create` is injected in
     tests (it stands in for client.chat.completions.create)."""
-    from openai import BadRequestError, OpenAI, RateLimitError
+    from openai import (
+        AuthenticationError,
+        BadRequestError,
+        OpenAI,
+        PermissionDeniedError,
+        RateLimitError,
+    )
 
     if create is None:
-        client = OpenAI(base_url=GROQ_URL, api_key=api_key(), timeout=timeout, max_retries=0)
+        base_url, key, headers = connection()
+        client = OpenAI(
+            base_url=base_url,
+            api_key=key,
+            default_headers=headers or None,
+            timeout=timeout,
+            max_retries=0,
+        )
         create = client.chat.completions.create
     pace = pacer or Pacer(_tpm())
     effort = reasoning()
@@ -229,6 +273,11 @@ def groq_transport(
                     raise
                 pace.spend(guess)
                 return refused
+            except (AuthenticationError, PermissionDeniedError) as exc:
+                raise LLMUnavailable(
+                    "the hosted agent refused our credentials (check the Groq key, or the "
+                    "proxy token): the test cannot run"
+                ) from exc
             except RateLimitError as exc:
                 wait = retry_after(exc)
                 if wait is not None and wait > MAX_WAIT_S:
