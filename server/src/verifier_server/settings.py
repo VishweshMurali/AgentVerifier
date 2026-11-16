@@ -25,6 +25,8 @@ DAILY_TOKENS = 180_000  # under Groq's free 200K a day
 TOKENS_PER_CASE = 900  # the hosted agent, measured on Banking77 (about 860)
 PUBLIC_OWN_MAX_BYTES = 1024 * 1024
 LOCAL_OWN_MAX_BYTES = 20 * 1024 * 1024
+PUBLIC_QUEUE = 3  # tests allowed to wait in line behind the running one (public site)
+UPLOAD_TTL_S = 2 * 3600.0  # a public upload is deleted this long after it was added
 
 
 def _flag(value: str | None) -> bool:
@@ -43,6 +45,8 @@ class Settings:
     daily_tokens: int | None = None  # None = no cap
     own_max_bytes: int = LOCAL_OWN_MAX_BYTES
     workers: int | None = None  # self-check processes for a quick test (None = by CPU count)
+    queue: int = 0  # tests allowed to wait behind the running one (0 = others are refused)
+    upload_ttl_s: float | None = None  # public: how long an upload is kept (None = kept)
 
     def view(self) -> dict[str, object]:
         """What the page is told."""
@@ -94,5 +98,7 @@ def load(env: Mapping[str, str] | None = None) -> Settings:
         daily_tokens=int(env.get("VERIFIER_DAILY_TOKENS") or DAILY_TOKENS) if public else None,
         own_max_bytes=PUBLIC_OWN_MAX_BYTES if public else LOCAL_OWN_MAX_BYTES,
         workers=int(workers) if workers else None,
+        queue=int(env.get("VERIFIER_QUEUE") or PUBLIC_QUEUE) if public else 0,
+        upload_ttl_s=float(env.get("VERIFIER_UPLOAD_TTL_S") or UPLOAD_TTL_S) if public else None,
         **names,
     )

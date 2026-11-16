@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { answer, readNumbers, type HelperContext, type Seg } from './helper.ts';
+import { answer, readNumbers, STARTERS, type HelperContext, type Seg } from './helper.ts';
 
 // the real refund quick test, as exported for the mockup
 const run = JSON.parse(readFileSync(new URL('../../public/data/mock-run.json', import.meta.url), 'utf8'));
@@ -73,3 +73,52 @@ test('an unknown question is answered honestly, with suggestions', () => {
   assert.match(text(a.text), /only answer from this run/);
   assert.ok(a.chips.length > 0);
 });
+
+test('the guide answers about the reader’s own use case, not the example run', () => {
+  const uc = { title: 'Customer mood', description: 'spots angry customers', kinds: ['anger', 'joy'], totalKinds: 6, gapPoints: 10, hasRun: false, running: false, planned: 168 };
+  const a = answer('what will you test for my use case?', { ...ctx, useCase: uc });
+  const t = text(a.text) + ' ' + (a.list ?? []).map(text).join(' ');
+  assert.ok(a.own);
+  assert.match(t, /Customer mood/);
+  assert.match(t, /spots angry customers/);
+  assert.match(t, /anger, joy/);
+  assert.match(t, /168 messages/);
+  assert.match(t, /No test has run/);
+});
+
+test('with no use case picked the guide says so instead of answering about the example', () => {
+  const a = answer('what are you testing?', { ...ctx, useCase: { title: null, description: '', kinds: [], totalKinds: null, gapPoints: 10, hasRun: false, running: false, planned: null } });
+  assert.match(text(a.text), /haven’t picked a use case/);
+});
+
+test('questions about the result still go to the result once there is a run', () => {
+  const uc = { title: 'Bank support routing', description: '', kinds: [], totalKinds: 77, gapPoints: 10, hasRun: true, running: false, planned: null };
+  const a = answer('which messages were wrong?', { ...ctx, useCase: uc });
+  assert.ok(!a.own);
+});
+
+// every follow-up the guide offers must lead somewhere: never the "didn't catch that" fallback, and
+// never the same answer that offered it (a dead-end loop), in each state the page can be in
+const uc = (over: object) => ({ title: 'Customer mood', description: 'spots angry customers', kinds: ['anger'], totalKinds: 6, gapPoints: 10, hasRun: false, running: false, planned: 168, ...over });
+for (const [state, useCase] of [
+  ['the static site', undefined],
+  ['a use case picked, no test yet', uc({})],
+  ['no use case picked yet', uc({ title: null, kinds: [], totalKinds: null })],
+  ['after their own test', uc({ hasRun: true })],
+] as const) {
+  test(`every chip leads somewhere: ${state}`, () => {
+    const seen = new Set<string>();
+    const queue = [...answer('hello', { ...ctx, useCase }).chips, ...STARTERS];
+    while (queue.length) {
+      const chip = queue.shift() as string;
+      if (seen.has(chip)) continue;
+      seen.add(chip);
+      const a = answer(chip, { ...ctx, useCase });
+      const t = text(a.text);
+      assert.ok(!/didn’t catch that/.test(t), `“${chip}” hits the fallback`);
+      const parent = [...seen].find((p) => p !== chip && answer(p, { ...ctx, useCase }).chips.includes(chip));
+      if (parent) assert.notEqual(t, text(answer(parent, { ...ctx, useCase }).text), `“${chip}” repeats the answer that offered it`);
+      queue.push(...a.chips);
+    }
+  });
+}

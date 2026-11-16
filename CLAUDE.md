@@ -41,6 +41,12 @@ Banking77 is the first task and proves the method.
   public mode offers only the light free models and gaps 0.10 and 0.20, starts a test only if it fits the day's
   remaining tokens, turns rehearsal and bring-your-agent off, lists an upload only for its visitor and answers the
   guide in plain code; masking also applies to local uploads.
+  Added 2026-11-15 on the owner's request (public mode): a waiting line (3 tests may wait behind the running one, the page shows
+  their place; the daily token budget counts them); uploads are deleted two hours after they were added (saved file, scenario,
+  split incl. sealed half, results; masked text may stay in the LLM answer cache until a restart); the title of an upload is not
+  kept and its words for one message/label are masked; masking now also covers links, birth dates, postcodes and names introduced
+  by a cue ("my name is", "Hi Ana"); the hosted agent's pacing scales its size guess to the real token counts. The page's guide answers
+  about the reader's own use case before a test exists, and the page no longer moves by itself before a test of the reader's own.
 - Null is a flag for low-confidence cases (the lowest 10% on tune), not a score. All arms answer them, and accuracy on those cases is reported per arm.
 - Agent rules: a no-tool answer is sent back once, the last call must answer, a malformed tool call scores wrong. Maximum 4 model calls per case.
 - No RAG for now. `search` stays a single swappable tool.

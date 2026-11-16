@@ -134,16 +134,28 @@ def test_status_and_busy_errors_never_show_another_visitors_job(root, monkeypatc
     monkeypatch.setattr(flow, "flow_data", lambda _root, _cfg=None: DATA)
     slow = [sys.executable, "-c", "import time; print('secret_upload_abc123'); time.sleep(3)"]
     monkeypatch.setattr(flow, "quick_command", lambda choice, data, cfg=None: slow)
-    c = TestClient(public_app(root))
+    c = TestClient(public_app(root, VERIFIER_QUEUE="1"))
     job = c.post("/api/jobs/quick", json=OK, headers=H).json()
     time.sleep(0.5)
     status = c.get("/api/status").json()
     assert status["job"] == {"kind": "quick", "state": "running"}
     assert job["id"] not in c.get("/api/status").text
     assert "secret_upload_abc123" not in c.get("/api/status").text
-    busy = c.post("/api/jobs/quick", json=OK, headers=H)
-    assert busy.status_code == 409 and job["id"] not in busy.text
+    # the next visitor waits in line, and is told only their own place
+    waiting = c.post("/api/jobs/quick", json=OK, headers=H)
+    assert waiting.status_code == 202
+    assert waiting.json()["state"] == "queued" and waiting.json()["position"] == 1
+    assert job["id"] not in waiting.text
+    # the line holds one: the next is refused, without naming anyone's job
+    full = c.post("/api/jobs/quick", json=OK, headers=H)
+    assert (
+        full.status_code == 409
+        and job["id"] not in full.text
+        and waiting.json()["id"] not in full.text
+    )
+    assert "line is full" in full.json()["detail"]
     wait_done(c, job["id"])
+    wait_done(c, waiting.json()["id"])
 
 
 def _spend(cache: Path, tokens: int, ts: float, cached: int = 0) -> None:
@@ -207,7 +219,7 @@ def test_locally_every_upload_is_listed(root, monkeypatch):
 def test_a_public_upload_gets_a_private_name_and_a_smaller_limit(root, monkeypatch):
     seen = {}
 
-    def add_own(root, name, fmt, raw, phrase, title, max_bytes):
+    def add_own(root, name, fmt, raw, phrase, title, max_bytes, generic=False):
         seen.update(name=name, max_bytes=max_bytes)
         return {"name": name}
 
@@ -273,3 +285,34 @@ def test_the_upload_limit_is_the_deployments(tmp_path):
     phrase = {"item": "a message", "items": "messages", "label_kind": "topic"}
     with pytest.raises(flow.FlowRefused, match="larger than 1 MB"):
         flow.add_own(tmp_path, "mine", "csv", b"x" * (1024 * 1024 + 1), phrase, "", 1024 * 1024)
+
+
+def test_old_public_uploads_are_deleted_and_nothing_else(tmp_path):
+    """The reader's data is not kept: an upload past its time goes, with its scenario and results;
+    a newer one, a running one and every other dataset stay."""
+    old, new, busy = "mine_" + "a" * 12, "mine_" + "b" * 12, "mine_" + "c" * 12
+    (tmp_path / "sources" / "own").mkdir(parents=True)
+    for n in (old, new, busy, "banking77"):
+        (tmp_path / "sources" / "own" / f"{n}.jsonl").write_text("{}\n")
+        for top in ("scenarios", "results", "data", "sealed"):
+            (tmp_path / top / n).mkdir(parents=True)
+    now = time.time()
+    import os
+
+    for n, age in ((old, 9000), (busy, 9000), (new, 10), ("banking77", 99999)):
+        os.utime(tmp_path / "sources" / "own" / f"{n}.jsonl", (now - age, now - age))
+    gone = flow.purge_own(tmp_path, 7200, keep={busy}, now=now)
+    assert gone == [old]
+    for top in ("scenarios", "results", "data", "sealed"):
+        assert not (tmp_path / top / old).exists()
+    for n in (new, busy, "banking77"):
+        assert (tmp_path / "sources" / "own" / f"{n}.jsonl").exists()
+        assert (tmp_path / "scenarios" / n).exists()
+
+
+def test_the_public_site_publishes_no_api_map(root):
+    public = TestClient(public_app(root))
+    assert public.get("/api/docs").status_code == 404
+    assert public.get("/api/openapi.json").status_code == 404
+    local = TestClient(create_app(root, serve_page=False, testing=True))
+    assert local.get("/api/openapi.json").status_code == 200

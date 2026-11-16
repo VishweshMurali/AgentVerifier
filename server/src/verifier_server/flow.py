@@ -517,7 +517,10 @@ def masked_cases(raw: bytes, fmt: str) -> tuple[list[Any], dict[str, Any]]:
             rid = f"{base}-{seen[base]}"
         tie = row.get("group") or None
         group = tie if isinstance(tie, str) else None
-        cases.append(Case(id=rid, text=row["text"], label=row["label"].strip(), group=group))
+        # a label is masked like the text: a private detail in a label never reaches the disk either
+        cases.append(
+            Case(id=rid, text=row["text"], label=pii.mask(row["label"].strip())[0], group=group)
+        )
     if len({c.id for c in cases}) != len(cases):
         raise FlowRefused("ids must be unique")
     return cases, {"kinds": kinds, "messages": changed, "not_found": "names, details in words"}
@@ -531,6 +534,7 @@ def add_own(
     phrase: dict[str, str],
     title: str = "",
     max_bytes: int = OWN_MAX_BYTES,
+    generic: bool = False,
 ) -> dict[str, Any]:
     """The reader's own data, end to end: check it in memory with the same split checks a build
     runs, and only then write sources/own/<name>.jsonl, its scenario, its prereg (Banking77's
@@ -566,6 +570,12 @@ def add_own(
         for k in ("item", "items", "label_kind")
     ):
         raise FlowRefused("say what one message is, what many are called, and what a label is")
+    from agent_committee import pii
+
+    # a private use case is not kept: how the reader words one message, one label and a title
+    # are masked like the data, and on a public site the title is not kept at all
+    phrase = {k: pii.mask(phrase[k].strip())[0] for k in ("item", "items", "label_kind")}
+    title = "" if generic else pii.mask(title)[0]
     cases, masked = masked_cases(raw, fmt)  # personal details never reach the disk
     prereg = load_prereg(root / "prereg.yaml")
     try:
@@ -584,12 +594,12 @@ def add_own(
     src.write_text("".join(lines), encoding="utf-8")
     spec = ScenarioFile(
         name=name,
-        description=title.strip()[:80] or name,
+        description=title.strip()[:80] or ("Your uploaded data" if generic else name),
         source=LocalSource(kind="local", path=f"{OWN_DIR}/{name}.jsonl"),
         task_phrase=TaskPhraseSpec(
-            item=phrase["item"].strip(),
-            items=phrase["items"].strip(),
-            label_kind=phrase["label_kind"].strip(),
+            item=phrase["item"],
+            items=phrase["items"],
+            label_kind=phrase["label_kind"],
         ),
     )
     add_scenario(spec, root)
@@ -612,3 +622,39 @@ def add_own(
         "detectable_gap": detectable(n_eval, sizes),
         "masked": masked,
     }
+
+
+UPLOAD_NAME = re.compile(
+    r"^[a-z0-9_]+_[0-9a-f]{12}$"
+)  # a public upload: its name ends in a random suffix
+
+
+def purge_own(
+    root: Path, ttl_s: float, keep: set[str] | None = None, now: float | None = None
+) -> list[str]:
+    """Delete public uploads older than `ttl_s` seconds (the reader's data is not kept): the saved
+    file, its scenario, split (DEV and sealed TEST) and results. Only names a public upload gets
+    are touched,
+    only
+    inside this repository's own folders, and never one in `keep` (a test running on it now)."""
+    import shutil
+    import time
+
+    now = time.time() if now is None else now
+    folder = root / OWN_DIR
+    gone: list[str] = []
+    if not folder.is_dir():
+        return gone
+    for src in sorted(folder.glob("*.jsonl")):
+        name = src.stem
+        if not UPLOAD_NAME.match(name) or name in (keep or set()):
+            continue
+        if now - src.stat().st_mtime < ttl_s:
+            continue
+        for top in ("scenarios", "results", "data", "sealed"):
+            path = root / top / name
+            if path.is_dir() and path.resolve().parent == (root / top).resolve():
+                shutil.rmtree(path, ignore_errors=True)
+        src.unlink(missing_ok=True)
+        gone.append(name)
+    return gone

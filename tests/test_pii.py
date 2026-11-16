@@ -79,3 +79,34 @@ def test_masking_twice_changes_nothing():
     once, _ = pii.mask("a@b.com, +44 20 7946 0958, 4111 1111 1111 1111, 12 Oak Street")
     twice, found = pii.mask(once)
     assert twice == once and not found
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        ("Hi Ana, my card is blocked", "Hi [NAME], my card is blocked"),
+        ("my name is Ana Maria Diaz and I need help", "my name is [NAME] and I need help"),
+        ("Mr Diaz called about a refund", "Mr [NAME] called about a refund"),
+        ("Thanks, Ana", "Thanks, [NAME]"),
+        ("see https://bank.example/x?id=5 or @ana_d", "see [URL] or [URL]"),
+        ("born 12/03/1988 in Leeds", "born [DATE] in Leeds"),
+        ("my date of birth is 3 March 1990", "my date of birth is [DATE]"),
+        ("parcel to AB12 3CD", "parcel to [POSTCODE]"),
+    ],
+)
+def test_masks_names_links_birth_dates_and_postcodes(text, want):
+    assert pii.mask(text)[0] == want
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "I'm Sorry to bother you",
+        "I am Unable to log in",
+        "Dear Team, my transfer is pending",
+        "this is Monday and I paid 5 pounds",
+        "charged on 2024-03-05 twice",
+    ],
+)
+def test_ordinary_words_and_transaction_dates_are_left_alone(text):
+    assert pii.mask(text)[0] == text

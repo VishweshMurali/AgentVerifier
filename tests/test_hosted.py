@@ -170,3 +170,30 @@ def test_the_commit_comes_from_the_host_when_there_is_no_git_folder(tmp_path, mo
     monkeypatch.delenv("RENDER_GIT_COMMIT")
     with pytest.raises(subprocess.CalledProcessError):  # never an invented commit
         quick.source_commit(tmp_path)
+
+
+def test_pacing_learns_that_requests_use_less_than_guessed(monkeypatch):
+    """The size guess reserves a full reply; once real counts come back, the pacer stops waiting for
+    room that was never used (and a request that proves bigger raises the guess again)."""
+    monkeypatch.setenv("GROQ_API_KEY", "k")
+    seen = []
+
+    class Spy(hosted.Pacer):
+        def wait(self, tokens):
+            seen.append(tokens)
+            return 0.0
+
+    def create(**_):
+        return {"choices": [{"message": {"content": "ok"}}], "usage": {"total_tokens": 300}}
+
+    call = hosted.groq_transport(pacer=Spy(8000), create=create)
+    request = {
+        "model": "m",
+        "messages": [{"role": "user", "content": "x" * 1000}],
+        "max_tokens": 600,
+    }
+    for _ in range(6):
+        call(request)
+    assert seen[0] > 800  # the first guess is the full estimate (about 890)
+    assert seen[-1] < seen[0] * 0.75  # then it follows what was really used
+    assert seen[-1] >= seen[0] * 0.5  # never below half of the estimate

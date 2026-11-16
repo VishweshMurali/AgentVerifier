@@ -147,8 +147,8 @@ export function LiveApp() {
         for (;;) {
           await new Promise((res) => setTimeout(res, 1200));
           if (!alive.current) return;
-          const view = await getJson<{ state: string; progress: LiveControl['progress']; output_tail?: string[] }>(`/api/jobs/${job.id}`);
-          setProgress(view.progress ?? {});
+          const view = await getJson<{ state: string; progress: LiveControl['progress']; position?: number; output_tail?: string[] }>(`/api/jobs/${job.id}`);
+          setProgress({ ...(view.progress ?? {}), queued: view.state === 'queued' ? (view.position ?? 1) : undefined });
           if (view.state === 'succeeded') break;
           if (view.state !== 'running' && view.state !== 'queued') throw new Error(failureReason(view.output_tail ?? []));
         }

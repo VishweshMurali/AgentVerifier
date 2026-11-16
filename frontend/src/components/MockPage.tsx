@@ -419,6 +419,17 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
     mistake,
     table,
     label: modelLabel,
+    // the reader's own use case, so the chat answers about THEIR agent
+    useCase: !saved ? {
+      title: chosenCase ? chosenCase.title : null,
+      description: desc.trim(),
+      kinds: picked.length ? picked : sugg,
+      totalKinds: chosenCase ? chosenCase.labels : null,
+      gapPoints: Math.round(gap * 100),
+      hasRun: !!live?.mine,
+      running,
+      planned: live?.planSizes?.[gap.toFixed(2)] ?? null,
+    } : undefined,
   };
   const flat = (list: Seg[]) => list.map((x) => (typeof x === 'string' ? x : x.b)).join('');
   // every fact the guide may use, worked out by plain code from the run (the model only words it)
@@ -473,7 +484,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
     let actionOnly = false;
     if (hasActions(act) && did.length) {
       const done = `Done: I set ${did.join(', ')}. `;
-      const fallback = flat(a.text).startsWith('I can only answer');
+      const fallback = /^I can (only )?answer/.test(flat(a.text));
       actionOnly = fallback;
       a.text = fallback ? [done, act.describe ? 'Pick your kinds on screen 2, then run.' : 'The costs screens use them now.'] : [done, ...a.text];
       if (fallback) {
@@ -481,17 +492,18 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
         a.go = act.describe ? 'm1b' : act.mistake !== undefined ? 'm5' : act.volume !== undefined || act.table ? 'm5b' : a.go;
       }
     }
-    if (live && !live.mine && !actionOnly)
+    if (live && !live.mine && !actionOnly && !a.own)
       a.text = [
         ...(typeof a.text[0] === 'string' && a.text[0].startsWith('Done:') ? [a.text.shift() as string] : []),
-        running ? 'Your test is still running, so this is about the example run (a bank refund agent): ' : 'You haven’t run a test yet, so this is about the example run (a bank refund agent): ',
+        running ? 'Your test is still running, so this is about the example run (a bank refund agent): ' : `You haven’t run a test${chosenCase ? ` on your ${chosenCase.title} use case` : ''} yet, so this is about the example run (a bank refund agent): `,
         ...a.text,
       ];
     focusRef.current = a.focus ?? [];
     setChatOpen(true);
     setAsk('');
     setChat((c) => [...c, { who: 'you', text: q }]);
-    if (a.go && a.go !== active) setTimeout(() => document.getElementById(a.go as string)?.scrollIntoView({ behavior: 'smooth' }), 250);
+    // before the reader has a test of their own the chat never moves the page: it answers where they are
+    if (a.go && a.go !== active && !(live && !live.mine)) setTimeout(() => document.getElementById(a.go as string)?.scrollIntoView({ behavior: 'smooth' }), 250);
     setThinking(true);
     const plain = flat(a.text) + (a.list ? ' ' + a.list.map((l) => flat(l)).join(' ') : '');
     let reply = plain, by: 'model' | 'code' = 'code';
@@ -539,7 +551,17 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
     </>
   );
   const nextButton = () =>
-    NEXT[active] && (active !== 'm1' || picked.length > 0) ? (
+    // before the reader has a test of their own the page does not push them on: on the kinds screen it
+    // sends them back to pick a use case, or leaves the run button to start their test
+    live && !live.mine && active === 'm1b' ? (
+      chosenCase ? null : (
+        <div className="chips">
+          <a href="#m1" className="chip small primary">
+            Pick a use case ↑
+          </a>
+        </div>
+      )
+    ) : NEXT[active] && (active !== 'm1' || picked.length > 0 || !!chosenCase) ? (
       <div className="chips">
         <a href={`#${NEXT[active][0]}`} className="chip small primary">
           {NEXT[active][1]} ↓
@@ -687,8 +709,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               best={bestCase}
               onChoose={(o) => {
                 handChosen.current = true;
-                live.choose?.(o);
-                setTimeout(() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' }), 350);
+                live.choose?.(o); // the page stays where it is: a next button appears under the reader's description
               }}
               canUpload={!!live.canUpload}
               onUpload={(u) => live.upload?.(u)}

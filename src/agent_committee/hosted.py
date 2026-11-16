@@ -38,7 +38,7 @@ PROVIDER_ENV = "AGENT_PROVIDER"
 GROQ_URL = "https://api.groq.com/openai/v1"
 GROQ_MODEL = "openai/gpt-oss-20b"
 GROQ_TPM = 8000  # free tier, tokens per minute (override: GROQ_TPM)
-HEADROOM = 0.9  # stay under the limit: the estimate of a request's size is rough
+HEADROOM = 0.92  # stay under the limit: the estimate of a request's size is rough
 CHARS_PER_TOKEN = 3.5
 REPLY_TOKENS = 300  # assumed reply size when the request sets no max_tokens
 MAX_WAIT_S = 90.0  # a longer wait is the daily limit, not the per-minute one
@@ -211,9 +211,14 @@ def groq_transport(
     pace = pacer or Pacer(_tpm())
     effort = reasoning()
     extra = {"reasoning_effort": effort} if effort else {}
+    # the size guess is rough and errs high (it reserves a full reply); once real counts come back,
+    # guess is scaled to them, so the pacer does not wait for room the request never used. A request
+    # that proves bigger than guessed raises the scale again, and a 429 is still waited out.
+    scale = {"v": 1.0}
 
     def call(request: dict[str, Any]) -> dict[str, Any]:
-        guess = estimate_tokens(request)
+        raw_guess = estimate_tokens(request)
+        guess = max(1, int(raw_guess * scale["v"]))
         for _ in range(RATE_RETRIES + 1):
             pace.wait(guess)
             try:
@@ -238,6 +243,9 @@ def groq_transport(
             usage = data.get("usage") if isinstance(data, dict) else None
             total = usage.get("total_tokens") if isinstance(usage, dict) else None
             pace.spend(total if isinstance(total, int) else guess)
+            if isinstance(total, int) and raw_guess > 0:
+                seen = min(1.25, max(0.5, total / raw_guess))
+                scale["v"] = min(1.25, max(0.5, 0.7 * scale["v"] + 0.3 * seen))
             return data
         raise LLMUnavailable("Groq kept refusing the request for its rate limit")
 

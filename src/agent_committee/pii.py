@@ -5,13 +5,15 @@
 on every uploaded message before the split is built, so the stored file, the trained models, the
 audit bundle and anything sent to a hosted agent only ever hold the masked text.
 
-What it finds: email addresses, payment card numbers (checked with the Luhn sum), IBANs, US
-social security numbers, IP addresses, phone numbers, street addresses in the common English form
-("12 Oak Street") and any other number of nine or more digits, also when written in groups
-(account, customer or ID numbers).
+What it finds: email addresses, web links and @handles, payment card numbers (checked with the
+Luhn sum), IBANs, US social security numbers, IP addresses, phone numbers, street addresses in the
+common English form ("12 Oak Street"), UK postcodes, full dates (such as a birth date), any other
+number of nine or more digits (also in groups: account, customer or ID numbers), and the names of
+people when something gives them away: "my name is Ana Diaz", "I'm Ana", "Hi Ana,", "Mr Diaz",
+"Thanks, Ana". It errs toward masking too much.
 
-What it cannot find: names of people and places, and details written out in words. The page says
-so; this layer lowers the risk, it does not make data anonymous.
+What it cannot find: a name with no such cue, names of places, and details written out in words.
+The page says so; this layer lowers the risk, it does not make data anonymous.
 """
 
 from __future__ import annotations
@@ -28,7 +30,11 @@ IP = "IP_ADDRESS"
 PHONE = "PHONE"
 ADDRESS = "ADDRESS"
 NUMBER = "LONG_NUMBER"
-KINDS = (EMAIL, CARD, IBAN, SSN, IP, PHONE, ADDRESS, NUMBER)
+URL = "URL"
+DATE = "DATE"
+POSTCODE = "POSTCODE"
+NAME = "NAME"
+KINDS = (EMAIL, URL, CARD, IBAN, SSN, IP, PHONE, ADDRESS, POSTCODE, DATE, NAME, NUMBER)
 
 _EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}(?:[ ]?[A-Z0-9]{1,4})?\b")
@@ -42,6 +48,76 @@ _ADDRESS = re.compile(
     r"Square|Sq|Terrace|Close|Crescent)\b\.?"
 )
 _NUMBER = re.compile(r"(?<![\w.])\d{9,}(?![\w.])")
+_URL = re.compile(r"(?:https?://|www\.)[^\s<>\"']+|(?<![\w@])@[A-Za-z_][\w.]{2,}")
+_POSTCODE = re.compile(r"\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b")
+_MONTH = r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"  # noqa: E501
+_DATE_VALUE = (
+    rf"(?:\d{{1,2}}[/.-]\d{{1,2}}[/.-](?:19|20)?\d{{2}}|(?:19|20)\d{{2}}-\d{{2}}-\d{{2}}"
+    rf"|\d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTH}\.?,?\s+(?:19|20)\d{{2}}|{_MONTH}\.?\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+(?:19|20)\d{{2}})"
+)
+# only a BIRTH date is personal; a transaction date ("charged on 2024-03-05") is left alone
+_DOB = re.compile(
+    rf"(?P<cue>(?i:born|dob|d\.o\.b\.?|date of birth|birth date|birthday)(?:\s+on|\s+is|:)?\s*)(?P<d>{_DATE_VALUE})"  # noqa: E501
+)
+# names: only where something gives them away, so ordinary capitalised words are left alone
+_PERSON = r"[A-Z][a-z'-]{1,}(?:\s+[A-Z][a-z'-]{1,}){0,2}"
+_NAME = re.compile(
+    rf"(?P<cue>(?i:my name is|my name's|name is|name:|i am|i'm|this is|called|"
+    rf"(?:mr|mrs|ms|miss|dr|prof|sir|madam)\.?|hi|hello|hey|dear|thanks,|thank you,|regards,|"
+    rf"best,|cheers,|sincerely,)\s+)(?P<who>{_PERSON})"
+)
+_NOT_NAMES = {
+    "Sorry",
+    "There",
+    "Please",
+    "Thanks",
+    "Thank",
+    "Hello",
+    "Hi",
+    "Hey",
+    "Team",
+    "Support",
+    "Customer",
+    "Help",
+    "Again",
+    "Not",
+    "Just",
+    "Still",
+    "Very",
+    "Unable",
+    "Having",
+    "Trying",
+    "Looking",
+    "Writing",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+    "Calling",
+    "Contacting",
+    "Locked",
+    "Charged",
+    "Stuck",
+    "Concerned",
+    "Worried",
+    "Happy",
+    "Angry",
+}
 
 
 def _digits(text: str) -> str:
@@ -72,15 +148,22 @@ def _is_phone(text: str) -> bool:
     return 9 <= n <= 15 and (text.startswith(("+", "(")) or bool(re.search(r"[\s().-]", text)))
 
 
+def _swap_name(match: re.Match[str]) -> str:
+    first = match.group("who").split()[0]
+    return match.group() if first in _NOT_NAMES else f"{match.group('cue')}[{NAME}]"
+
+
 # checked in this order: the first pattern to claim a stretch of text keeps it
 _RULES: tuple[tuple[str, re.Pattern[str], Callable[[str], bool] | None], ...] = (
     (EMAIL, _EMAIL, None),
+    (URL, _URL, None),
     (IBAN, _IBAN, lambda t: len(t.replace(" ", "")) >= 15),
     (CARD, _CARD, luhn),
     (SSN, _SSN, None),
     (IP, _IP, _is_ip),
     (PHONE, _PHONE, _is_phone),
     (ADDRESS, _ADDRESS, None),
+    (POSTCODE, _POSTCODE, None),
     (NUMBER, _NUMBER, None),
 )
 
@@ -99,6 +182,21 @@ def mask(text: str) -> tuple[str, Counter[str]]:
             return f"[{kind}]"
 
         text = pattern.sub(swap, text)
+
+    # names last: a cue followed by a capitalised word; a tag such as [EMAIL] is never one
+    def named(match: re.Match[str]) -> str:
+        out = _swap_name(match)
+        if out != match.group():
+            found[NAME] += 1
+        return out
+
+    text = _NAME.sub(named, text)
+
+    def born(match: re.Match[str]) -> str:
+        found[DATE] += 1
+        return f"{match.group('cue')}[{DATE}]"
+
+    text = _DOB.sub(born, text)
     return text, found
 
 

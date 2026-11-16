@@ -43,3 +43,9 @@ test('all free models trained, before the one to beat is named', () => {
   const p = { phase: 'training', drawn: 168, trained: ['a', 'b', 'c', 'd', 'e', 'f'] };
   assert.equal(texts(p).at(-1), '> Picking the free model your agent must beat…');
 });
+
+test('a test waiting in line says how many are ahead of it', () => {
+  const log = runLog({ queued: 2 });
+  assert.match(log.headline, /in line: 2 ahead/);
+  assert.equal(log.steps[0].text, 'Waiting in line: 2 tests ahead of yours…');
+});

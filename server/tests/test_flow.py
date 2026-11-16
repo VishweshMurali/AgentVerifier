@@ -422,3 +422,63 @@ def test_prewarming_queues_once_and_never_runs_in_tests(root, monkeypatch):
     assert [d["what"] for d in w.state["done"]] == ["--all", "--scenario emotion"]
     with TestClient(make_app(root)) as client:  # the test app never starts pre-training
         assert client.get("/api/status", headers=H).json().get("warmup") is None
+
+
+def test_a_private_use_case_is_masked_and_a_public_title_is_not_kept(tmp_path):
+    """What the reader calls their data, a label and one message are masked; on a public site the
+    title is not kept at all (owner request 2026-11-15)."""
+    import shutil
+
+    shutil.copy(Path(__file__).parents[2] / "prereg.yaml", tmp_path / "prereg.yaml")
+    rows = [
+        (f"{w} request number {i}", w)
+        for w in ("refund", "card", "ana@mail.example")
+        for i in range(120)
+    ]
+    rows[0] = ("Hi Ana my card 4111 1111 1111 1111 is blocked", "card")
+    phrase = {"item": "a message to ana@mail.example", "items": "messages", "label_kind": "topic"}
+    out = flow.add_own(
+        tmp_path,
+        "mine_aaaaaaaaaaaa",
+        "csv",
+        _csv(rows),
+        phrase,
+        "Acme Corp secret bot",
+        generic=True,
+    )
+    saved = (tmp_path / "sources" / "own" / "mine_aaaaaaaaaaaa.jsonl").read_text(encoding="utf-8")
+    scenario = (tmp_path / "scenarios" / "mine_aaaaaaaaaaaa" / "scenario.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "4111 1111" not in saved and "ana@mail" not in saved and "Hi Ana" not in saved
+    assert "[EMAIL]" in saved and "[NAME]" in saved
+    assert (
+        "Acme" not in scenario and "Your uploaded data" in scenario and "ana@mail" not in scenario
+    )
+    assert out["masked"]["messages"] >= 1
+
+
+def test_a_real_public_upload_leaves_nothing_behind_once_purged(tmp_path):
+    """Add a real upload, find everything written for it, then purge: no file or folder carrying its
+    name is left anywhere under the repository folder (the sealed half included)."""
+    import shutil
+    import time
+
+    shutil.copy(Path(__file__).parents[2] / "prereg.yaml", tmp_path / "prereg.yaml")
+    rows = [
+        (f"{w} request number {i}", w) for w in ("refund", "card", "transfer") for i in range(120)
+    ]
+    name = "mine_bbbbbbbbbbbb"
+    flow.add_own(tmp_path, name, "csv", _csv(rows), PHRASE, "Acme secret", generic=True)
+    written = [p for p in tmp_path.rglob("*") if name in p.name or name in p.parent.name]
+    assert written, "the upload wrote nothing under its name?"
+    assert any("sealed" in p.parts for p in tmp_path.rglob("*") if name in str(p)), (
+        "no sealed half found"
+    )
+    assert flow.purge_own(tmp_path, 7200, now=time.time() + 7201) == [name]
+    left = [
+        str(p.relative_to(tmp_path))
+        for p in tmp_path.rglob("*")
+        if name in str(p.relative_to(tmp_path))
+    ]
+    assert left == []

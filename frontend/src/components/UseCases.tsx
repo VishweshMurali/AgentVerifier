@@ -171,8 +171,13 @@ export function UseCases({
             Columns: <b>text</b> and <b>label</b> (optional <b>id</b>, <b>group</b>). At least 30 rows per label. Up to {Math.round(maxBytes / (1024 * 1024))} MB.
           </small>
           <small className="mono muted">
-            Before anything is saved, emails, phone, card and ID numbers and street addresses are replaced with tags like [EMAIL]. Names can’t be detected: remove them
-            first{ours.hosted ? '. The masked messages are sent to the hosted model to be classified' : ''}.
+            Before anything is saved, emails, links, phone, card and ID numbers, addresses, birth dates and names that are introduced ("my name is…", "Hi Ana") are
+            replaced with tags like [EMAIL]; the labels and the words below get the same treatment. A name with nothing around it can’t be found, so remove those first.
+            {publicMode
+              ? ' Use general data, not a private use case. The masked messages are sent to the hosted model to be classified, your name for the data is not kept, and the upload is deleted after about two hours (masked text may stay in the server’s answer cache until it restarts).'
+              : ours.hosted
+                ? ' The masked messages are sent to the hosted model to be classified.'
+                : ''}
           </small>
           <label className="own-row">
             <span>Name it</span>

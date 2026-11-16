@@ -29,7 +29,7 @@ PID_FILE = Path("results") / "rehearsal" / "job.pid"
 class Job:
     id: str
     kind: str
-    state: str = "running"  # running | succeeded | failed
+    state: str = "running"  # queued | running | succeeded | failed
     started: float = field(default_factory=time.time)
     finished: float | None = None
     returncode: int | None = None
@@ -39,6 +39,10 @@ class Job:
     cmd: list[str] = field(default_factory=list, repr=False)
     timeout_s: float = TIMEOUT_S
     parse: Callable[[dict[str, Any], str], None] | None = field(default=None, repr=False)
+    tokens: int = (
+        0  # the hosted tokens a queued test is expected to use (the daily budget counts them)
+    )
+    position: int = 0  # for a queued test: how many tests are ahead of it
 
     def view(self) -> dict[str, Any]:
         return {
@@ -50,6 +54,7 @@ class Job:
             "returncode": self.returncode,
             "output_tail": list(self.tail),
             "progress": self.progress,
+            "position": self.position,
         }
 
 
@@ -82,7 +87,16 @@ def pid_alive(pid: int) -> bool:
 
 
 class JobManager:
-    def __init__(self, root: Path, cmd: list[str] | None = None, timeout_s: float = TIMEOUT_S):
+    def __init__(
+        self,
+        root: Path,
+        cmd: list[str] | None = None,
+        timeout_s: float = TIMEOUT_S,
+        max_queue: int = 0,
+    ):
+        self.max_queue = (
+            max_queue  # tests allowed to wait behind the running one (0 = refuse while busy)
+        )
         self.root = root
         self.cmd = cmd or REHEARSAL_CMD
         self.timeout_s = timeout_s
@@ -123,19 +137,64 @@ class JobManager:
         cmd: list[str],
         timeout_s: float,
         parse: Callable[[dict[str, Any], str], None] | None = None,
+        tokens: int = 0,
     ) -> Job:
-        """Start one job; refused while any job (or an earlier server's child) is running."""
+        """Start one job. While another runs, it waits in line (up to `max_queue` waiting; the page
+        shows its place) or is refused when the line is full or the queue is off. Always refused
+        while an
+        earlier server's child is still running."""
         with self._lock:
-            if busy := next((j for j in self._jobs.values() if j.state == "running"), None):
-                raise JobBusy(busy.id)
-            if (pid := self.orphan_pid()) is not None:
+            busy = next((j for j in self._jobs.values() if j.state == "running"), None)
+            waiting = [j for j in self._jobs.values() if j.state == "queued"]
+            if (
+                busy is None and (pid := self.orphan_pid()) is not None
+            ):  # our own child is no orphan
                 raise JobBusy(f"process {pid} from an earlier server is still running")
             job = Job(
-                id=uuid.uuid4().hex[:12], kind=kind, cmd=list(cmd), timeout_s=timeout_s, parse=parse
+                id=uuid.uuid4().hex[:12],
+                kind=kind,
+                cmd=list(cmd),
+                timeout_s=timeout_s,
+                parse=parse,
+                tokens=tokens,
             )
+            if busy is not None or waiting:
+                if len(waiting) >= self.max_queue:
+                    raise JobBusy((busy or waiting[0]).id)
+                job.state = "queued"
+                job.position = len(waiting) + (1 if busy else 0)
+                self._jobs[job.id] = job
+                return job
             self._jobs[job.id] = job
         threading.Thread(target=self._run, args=(job,), daemon=True).start()
         return job
+
+    def active_cmds(self) -> list[list[str]]:
+        """The commands of every running or waiting job (what an upload purge must leave alone)."""
+        with self._lock:
+            return [j.cmd for j in self._jobs.values() if j.state in ("running", "queued")]
+
+    def queued_tokens(self) -> int:
+        """Hosted tokens the waiting tests are expected to use, for the daily budget."""
+        with self._lock:
+            return sum(j.tokens for j in self._jobs.values() if j.state == "queued")
+
+    def _next(self) -> None:
+        """Start the oldest waiting test and move everyone else up one place."""
+        with self._lock:
+            if any(j.state == "running" for j in self._jobs.values()):
+                return
+            waiting = sorted(
+                (j for j in self._jobs.values() if j.state == "queued"), key=lambda j: j.started
+            )
+            if not waiting:
+                return
+            job = waiting[0]
+            job.state = "running"
+            job.started = time.time()
+            for i, other in enumerate(waiting[1:], start=1):
+                other.position = i
+        threading.Thread(target=self._run, args=(job,), daemon=True).start()
 
     def shutdown(self) -> None:
         """Kill every running child (called when the server stops)."""
@@ -195,3 +254,4 @@ class JobManager:
             job.finished = time.time()
             if job.state == "running":  # e.g. a BaseException escaped
                 job.state = "failed"
+            self._next()

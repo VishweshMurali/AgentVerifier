@@ -35,6 +35,27 @@ export interface HelperContext {
   mistake: number;
   table: string;
   label: (arm: string) => string;
+  /** the reader's own use case, so the guide answers about THEIR agent, not only the example run */
+  useCase?: UseCaseContext;
+}
+
+export interface UseCaseContext {
+  /** the use case they picked (a bank's support routing, customer mood...), null before they pick */
+  title: string | null;
+  /** how they described their agent, in their words */
+  description: string;
+  /** the kinds of message they picked (or that matched their words) */
+  kinds: string[];
+  /** how many kinds this use case has in all */
+  totalKinds: number | null;
+  /** the difference they asked the test to be able to see, in points */
+  gapPoints: number;
+  /** a test of theirs has finished */
+  hasRun: boolean;
+  /** a test of theirs is running now */
+  running: boolean;
+  /** how many messages the test is planned on, when known */
+  planned: number | null;
 }
 
 export type Seg = string | { b: string };
@@ -47,6 +68,8 @@ export interface Answer {
   focus?: number[];
   /** Scene to glide to, when the answer is about it. */
   go?: string;
+  /** about the reader's own use case, not the example run */
+  own?: boolean;
   chips: string[];
 }
 
@@ -84,8 +107,37 @@ function wrongOf(ctx: HelperContext, who: 'agent' | 'simpler') {
 
 export const STARTERS = ['Which messages did my agent get wrong?', 'What if a mistake costs $5?', 'How sure is this?', 'Break it down by kind'];
 
+/** Questions about the reader's own use case and what happens next, answered from what they set up. */
+function useCaseAnswer(q: string, u: UseCaseContext): Answer | null {
+  if (!has(q, 'use case', 'my kinds', 'my data', 'what are you testing', 'what will you test', 'what do you test', 'which kinds', 'what kinds', 'picked', 'how long', 'what happens', 'next step')) return null;
+  if (has(q, 'wrong', 'mistake', 'cost', 'sure', 'deploy', 'should') && u.hasRun) return null; // those are about the result
+  const who = u.title ? `your ${u.title} use case` : 'your use case';
+  const kinds = u.kinds.slice(0, 6).map((k) => kind(k));
+  const more = u.kinds.length > 6 ? ` and ${u.kinds.length - 6} more` : '';
+  const text: Seg[] = [];
+  const list: Seg[][] = [];
+  if (u.running) {
+    text.push('Your test is running on ', { b: who }, '. The steps are in the panel; the result opens up the next screens when it ends.');
+  } else if (!u.title) {
+    return { text: ['You haven’t picked a use case yet. Pick one on the “What does your agent do?” screen, or bring your own data, and I’ll answer about it.'], own: true, chips: ['How does the test work?', 'What does it cost a month?'] };
+  } else {
+    text.push('For ', { b: who }, u.description ? [` (you said: “${u.description}”)`].join('') : '', u.hasRun ? ' you have a finished test.' : '. No test has run on it yet.');
+    list.push(
+      u.kinds.length
+        ? ['Kinds of message in the test: ', { b: `${kinds.join(', ')}${more}` }, u.totalKinds ? ` (${u.kinds.length} of ${u.totalKinds})` : '']
+        : ['You haven’t picked the kinds of message your agent handles. Describe it, or tap kinds, on the next screen.'],
+    );
+    list.push(['The test looks for a difference of ', { b: `${u.gapPoints} points` }, ' or more between the agent and the best simpler model.']);
+    if (u.planned) list.push(['It plans on ', { b: `${u.planned} messages` }, ', and stops early once the answer is clear.']);
+    list.push(u.hasRun ? ['Ask me what it got wrong, how sure it is, or what it costs.'] : u.kinds.length ? ['Next: run the test. It usually takes a few minutes.'] : ['Next: pick your kinds, then run the test. The test itself usually takes a few minutes.']);
+  }
+  return { text, list, chips: u.hasRun ? ['Which messages did my agent get wrong?', 'How sure is this?', 'What does it cost a month?'] : ['What does it cost a month?', 'How does the test work?', 'Break it down by kind'], own: true };
+}
+
 export function answer(question: string, ctx: HelperContext): Answer {
   const q = question.trim();
+  const mine = ctx.useCase ? useCaseAnswer(q, ctx.useCase) : null;
+  if (mine) return mine;
   const simpler = ctx.label(ctx.simpler);
   // the racing agent's name: the reference test agent, or the user's own when they plugged it in
   const A = ctx.label('agent');
@@ -93,7 +145,7 @@ export function answer(question: string, ctx: HelperContext): Answer {
   const aboutSimpler = has(q, ctx.label(ctx.simpler).toLowerCase(), 'simpl', 'linear', 'free model', 'cheap model');
 
   // costs, with the reader's own numbers when the question gives them
-  if (has(q, 'cost', 'save', 'saving', 'money', 'price', 'cheap', 'expens', 'spend', 'pay', 'dollar', 'budget') || /\$/.test(q)) {
+  if (has(q, 'cost', 'save', 'saving', 'money', 'price', 'cheap', 'expens', 'spend', 'pay', 'dollar', 'budget', 'month') || /\$/.test(q)) {
     const n = readNumbers(q);
     const mistake = n.money ?? ctx.mistake, volume = n.volume ?? ctx.volume;
     const ag = monthly(ctx, 'agent', volume, mistake), si = monthly(ctx, ctx.simpler, volume, mistake);
@@ -143,15 +195,17 @@ export function answer(question: string, ctx: HelperContext): Answer {
 
   // patterns in the agent's mistakes: which kind it confused with which
   if (has(q, 'common', 'pattern', 'why these', 'confus', 'mix')) {
+    const who = aboutSimpler && !has(q, 'agent') ? 'simpler' : 'agent';
     const pairs = new Map<string, number[]>();
-    for (const { m, i } of wrongOf(ctx, 'agent')) {
-      const key = `${kind(m.gold)} → ${kind(m.agent)}`;
+    for (const { m, i } of wrongOf(ctx, who)) {
+      const key = `${kind(m.gold)} → ${kind(who === 'agent' ? m.agent : m.simpler)}`;
       pairs.set(key, [...(pairs.get(key) ?? []), i]);
     }
-    if (!pairs.size) return { text: [`${A} made no mistakes here, so there is no pattern.`], chips: STARTERS };
+    const name = who === 'agent' ? A : simpler;
+    if (!pairs.size) return { text: [`${name} made no mistakes here, so there is no pattern.`], chips: STARTERS };
     const top = [...pairs.entries()].sort((a, b) => b[1].length - a[1].length);
     return {
-      text: [`Here is what ${agentLower} mixed up (what it should be → what it said):`],
+      text: [`Here is what ${who === 'agent' ? agentLower : simpler} mixed up (what it should be → what it said):`],
       list: top.map(([k, ids]) => [{ b: `${ids.length}×` }, ` ${k}`]),
       focus: top[0][1],
       go: 'm2',
@@ -272,8 +326,9 @@ export function answer(question: string, ctx: HelperContext): Answer {
     };
   }
 
+  const u = ctx.useCase;
   return {
-    text: ['I can only answer from this run’s results, and I didn’t catch that one. Try one of these:'],
-    chips: STARTERS,
+    text: [u?.title ? `I can answer about ${u.hasRun ? 'your run' : `your ${u.title} setup and the example run`}, and I didn’t catch that one. Try one of these:` : 'I can only answer from this run’s results, and I didn’t catch that one. Try one of these:'],
+    chips: u && !u.hasRun ? ['What will you test for my use case?', 'How does the test work?', 'What does it cost a month?'] : STARTERS,
   };
 }

@@ -60,7 +60,7 @@ def create_app(
     paths = Paths(root)
     # the export code always comes from this checkout; `root` only says where the data lives
     stories = story or StoryService(paths, with_case=with_case, script_root=ROOT)
-    manager = jobs or JobManager(root)
+    manager = jobs or JobManager(root, max_queue=cfg.queue)
     # free models are trained ahead of time, in the background (never in tests)
     warmer = (
         Prewarmer(root, arms=cfg.arms) if (not testing if prewarm is None else prewarm) else None
@@ -81,8 +81,9 @@ def create_app(
 
     app = FastAPI(
         title="Agent Verifier",
-        docs_url="/api/docs",
-        openapi_url="/api/openapi.json",
+        # the public site does not publish a map of its own API
+        docs_url=None if cfg.public else "/api/docs",
+        openapi_url=None if cfg.public else "/api/openapi.json",
         lifespan=lifespan,
     )
     # refuse other Host names (DNS rebinding); "testserver" (the test client's) only in tests
@@ -141,6 +142,10 @@ def create_app(
     flow_cache: dict[str, Any] = {}
 
     def flow_choices() -> dict[str, Any]:
+        if cfg.upload_ttl_s is not None:  # the reader's data is not kept: old uploads are deleted
+            # a test running or waiting on an upload keeps it
+            busy = {t for cmd in manager.active_cmds() for t in cmd if flow.UPLOAD_NAME.match(t)}
+            flow.purge_own(root, cfg.upload_ttl_s, keep=busy)
         # the menu is cheap; labels and test sizes are kept until the set of ready datasets changes
         from agent_committee import catalog
 
@@ -206,7 +211,9 @@ def create_app(
                 raise HTTPException(429, "this demo is holding as many uploads as it can for now")
             name = f"{name}_{secrets.token_hex(6)}"  # only this visitor learns the full name
         try:
-            out = flow.add_own(root, name, format, raw, phrase, title, cfg.own_max_bytes)
+            out = flow.add_own(
+                root, name, format, raw, phrase, title, cfg.own_max_bytes, generic=cfg.public
+            )
         except flow.FlowRefused as exc:
             raise HTTPException(422, str(exc)) from exc
         except (ValueError, UnicodeDecodeError) as exc:
@@ -246,7 +253,8 @@ def create_app(
             # the hosted agent's free tokens are shared by every visitor: a test starts only
             # when all of its planned cases still fit in what is left of today
             need = flow.planned_cases(choice, data) * deploy.TOKENS_PER_CASE
-            if need > cfg.daily_tokens - tokens_today(paths.cache):
+            # ...counting the tests already waiting in line for the same tokens
+            if need + manager.queued_tokens() > cfg.daily_tokens - tokens_today(paths.cache):
                 raise HTTPException(
                     429,
                     "Today's free test budget is used up (the hosted model allows a fixed "
@@ -254,12 +262,19 @@ def create_app(
                     "run the verifier on your own machine.",
                 )
         try:
-            return manager.start("quick", cmd, flow.QUICK_TIMEOUT_S, flow.read_progress).view()
+            tokens = (
+                flow.planned_cases(choice, data) * deploy.TOKENS_PER_CASE
+                if cfg.daily_tokens is not None
+                else 0
+            )
+            return manager.start(
+                "quick", cmd, flow.QUICK_TIMEOUT_S, flow.read_progress, tokens
+            ).view()
         except JobBusy as exc:
             if cfg.public:  # never another visitor's job id
                 raise HTTPException(
                     409,
-                    "Another visitor's test is running; this demo runs one at a time. "
+                    "The line is full: this demo runs one test at a time and every place is taken. "
                     "Try again in a few minutes.",
                 ) from exc
             raise HTTPException(409, f"a job is already running: {exc}") from exc

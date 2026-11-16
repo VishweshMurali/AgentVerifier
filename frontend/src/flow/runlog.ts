@@ -13,6 +13,8 @@ export type RunProgress = {
   of?: number;
   looks?: { n: number }[];
   verdict?: string;
+  /** the demo runs one test at a time: how many tests are ahead of this one in line */
+  queued?: number;
 };
 
 export type RunStep = { text: string; now: boolean };
@@ -35,6 +37,11 @@ export function runLog(p: RunProgress | null | undefined, name: (arm: string) =>
   const done = (text: string) => steps.push({ text, now: false });
   const now = (text: string) => steps.push({ text, now: true });
 
+  if (g.queued && g.queued > 0) {
+    const n = g.queued;
+    now(`Waiting in line: ${n} test${n > 1 ? 's' : ''} ahead of yours…`);
+    return { headline: `Your test is in line: ${n} ahead of it.`, steps };
+  }
   if (!total) {
     now('Starting the test and picking messages…');
     return { headline: 'Starting your test…', steps };
