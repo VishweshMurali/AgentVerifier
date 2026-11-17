@@ -39,3 +39,6 @@ docs/LAUNCH_PLAN.md
 docs/CANDIDATE_TASKS.md
 reports/
 research_notes/
+
+# deployment secrets (typed on the server, never committed)
+deploy/oracle/.env

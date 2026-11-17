@@ -1,0 +1,29 @@
+# Oracle VM deployment: the app (page + API + models, built on the VM so it matches the CPU) behind
+# Caddy, which serves the public port. No Groq key here: the app reaches Groq through the
+# Cloudflare Worker (GROQ_PROXY_URL / GROQ_PROXY_TOKEN in .env).
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: docker/public.Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: "8000"
+    expose:
+      - "8000"
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+volumes:
+  caddy_data:

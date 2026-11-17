@@ -1,0 +1,5 @@
+# SITE_ADDRESS=:80 serves plain http on the machine's IP (fine for the first check).
+# With a domain name (for example yourname.duckdns.org) Caddy gets an https certificate itself.
+{$SITE_ADDRESS} {
+	reverse_proxy app:8000
+}
