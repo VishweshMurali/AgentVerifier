@@ -56,6 +56,12 @@ FIRST_TOOL_ENV = "GROQ_FIRST_TOOL"  # required | named to force the first tool c
 # a label that only varies the cache key: answers cached before the first call was forced (or from
 # a run with it off) are never replayed as if they came from this setting
 FIRST_TOOL_KEY = "hosted:first-call-tool"
+SEARCH_FIRST_ENV = "GROQ_SEARCH_FIRST"  # 1 = tell the model to search before it answers
+CACHE_TAG_ENV = "GROQ_CACHE_TAG"  # measuring only: a label that keeps repeat runs from replaying
+SEARCH_FIRST_TEXT = (
+    "\nImportant: always call search_examples first, even when you already think you know the "
+    "label. Never reply with a label before you have called a tool."
+)
 
 
 def provider() -> str | None:
@@ -107,12 +113,34 @@ def first_call_tool(env: Mapping[str, str] | None = None) -> bool:
     return first_call_choice(env) is not None
 
 
+def search_first(env: Mapping[str, str] | None = None) -> bool:
+    """True when the hosted agent's first call carries the extra search-first instruction."""
+    env = os.environ if env is None else env
+    return (env.get(SEARCH_FIRST_ENV) or "").strip().lower() in ("1", "on", "yes", "true")
+
+
+def with_search_first(request: dict[str, Any]) -> dict[str, Any]:
+    """The request with the extra instruction added to its system message (a copy)."""
+    messages = [dict(m) for m in request["messages"]]
+    for m in messages:
+        if m.get("role") == "system" and isinstance(m.get("content"), str):
+            m["content"] = m["content"] + SEARCH_FIRST_TEXT
+            break
+    return {**request, "messages": messages}
+
+
 def first_call_key() -> str | None:
-    """The label that varies the cache key with the first-call setting (None when it is free)."""
+    """The label that varies the cache key with the hosted settings that change the model's input
+    or what it must do (None when none is set, so the plain keys stay as they were)."""
+    parts = []
     choice = first_call_choice()
-    if choice is None:
-        return None
-    return f"{FIRST_TOOL_KEY}:{'named' if isinstance(choice, dict) else choice}"
+    if choice is not None:
+        parts.append(f"{FIRST_TOOL_KEY}:{'named' if isinstance(choice, dict) else choice}")
+    if search_first():
+        parts.append("search-first")
+    if tag := (os.environ.get(CACHE_TAG_ENV) or "").strip():
+        parts.append(f"tag-{tag}")
+    return "|".join(parts) or None
 
 
 def is_first_call(request: dict[str, Any]) -> bool:
@@ -156,6 +184,11 @@ def settings() -> dict[str, Any]:
         "pinned": False,
         "reasoning_effort": reasoning(),
         "refused_tool_call": "scored as a malformed tool call; tokens estimated",
+        "search_first": (
+            "the first call adds: always call search_examples first, never reply with a label first"
+            if search_first()
+            else "off"
+        ),
         "first_call": (
             f"forced for experiment: tool_choice {first_call_choice()}"
             if first_call_tool()
@@ -304,6 +337,7 @@ def groq_transport(
     effort = reasoning()
     extra = {"reasoning_effort": effort} if effort else {}
     first_choice = first_call_choice()
+    nudge = search_first()
     # the size guess is rough and errs high (it reserves a full reply); once real counts come back,
     # guess is scaled to them, so the pacer does not wait for room the request never used. A request
     # that proves bigger than guessed raises the scale again, and a 429 is still waited out.
@@ -315,12 +349,10 @@ def groq_transport(
         for _ in range(RATE_RETRIES + 1):
             pace.wait(guess)
             try:
-                forced = (
-                    {"tool_choice": first_choice}
-                    if first_choice is not None and is_first_call(request)
-                    else {}
-                )
-                out = create(**request, **extra, **forced)
+                first = is_first_call(request)
+                forced = {"tool_choice": first_choice} if first_choice is not None and first else {}
+                sent = with_search_first(request) if nudge and first else request
+                out = create(**sent, **extra, **forced)
             except BadRequestError as exc:
                 refused = refused_tool_call(exc, request)
                 if refused is None:

@@ -162,6 +162,61 @@ def test_a_forced_first_call_is_recorded_and_never_shares_cached_answers(monkeyp
     assert hosted.client(":memory:").model_digest == f"{hosted.FIRST_TOOL_KEY}:named"
 
 
+SYSTEM_REQUEST = {
+    **FIRST,
+    "messages": [
+        {"role": "system", "content": "You classify."},
+        {"role": "user", "content": "my message"},
+    ],
+}
+
+
+def _messages_sent(request, monkeypatch, search_first=None):
+    monkeypatch.delenv("GROQ_REASONING", raising=False)
+    monkeypatch.delenv(hosted.FIRST_TOOL_ENV, raising=False)
+    if search_first is None:
+        monkeypatch.delenv(hosted.SEARCH_FIRST_ENV, raising=False)
+    else:
+        monkeypatch.setenv(hosted.SEARCH_FIRST_ENV, search_first)
+    seen = {}
+
+    def create(**kwargs):
+        seen.update(kwargs)
+        return REPLY
+
+    hosted.groq_transport(pacer=hosted.Pacer(10**6), create=create)(request)
+    return seen["messages"]
+
+
+def test_the_search_first_line_is_off_by_default_and_changes_nothing(monkeypatch):
+    assert _messages_sent(SYSTEM_REQUEST, monkeypatch) == SYSTEM_REQUEST["messages"]
+    assert hosted.settings()["search_first"] == "off"
+    assert hosted.client(":memory:").model_digest is None
+
+
+def test_the_search_first_line_is_added_to_the_first_call_only(monkeypatch):
+    sent = _messages_sent(SYSTEM_REQUEST, monkeypatch, "1")
+    assert sent[0]["content"] == "You classify." + hosted.SEARCH_FIRST_TEXT
+    assert sent[1] == SYSTEM_REQUEST["messages"][1]  # the customer's message is untouched
+    assert SYSTEM_REQUEST["messages"][0]["content"] == "You classify."  # the request was copied
+    later = {
+        **SYSTEM_REQUEST,
+        "messages": [*SYSTEM_REQUEST["messages"], *AFTER_TOOL["messages"][1:]],
+    }
+    assert _messages_sent(later, monkeypatch, "1") == later["messages"]  # no line after a tool
+    assert _messages_sent(REQUEST, monkeypatch, "1") == REQUEST["messages"]  # no tools, no line
+    assert "always call search_examples" in hosted.settings()["search_first"]
+
+
+def test_the_search_first_line_and_a_repeat_tag_never_share_cached_answers(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "k")
+    monkeypatch.delenv(hosted.FIRST_TOOL_ENV, raising=False)
+    monkeypatch.setenv(hosted.SEARCH_FIRST_ENV, "1")
+    assert hosted.client(":memory:").model_digest == "search-first"
+    monkeypatch.setenv(hosted.CACHE_TAG_ENV, "r2")
+    assert hosted.client(":memory:").model_digest == "search-first|tag-r2"
+
+
 def test_rate_limit_waits_for_the_named_time_then_answers():
     calls = []
 
