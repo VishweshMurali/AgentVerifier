@@ -82,27 +82,38 @@ def run_progress(cache: Path) -> tuple[dict[str, int], str | None]:
     return {str(arm): int(n) for arm, n in rows}, None
 
 
-def tokens_today(cache: Path, now: float | None = None) -> int:
-    """Tokens the LLM arms really spent since midnight UTC (replayed answers cost nothing).
-    Sums only; no prompt or answer is read. An unreadable ledger counts as 0."""
-    import time
-
+def tokens_spent_since(cache: Path, since: float) -> int | None:
+    """Tokens the LLM arms really spent from `since` on (replayed answers cost nothing). Sums
+    only; no prompt or answer is read. 0 when no ledger exists yet; None when it cannot be read,
+    so a caller guarding a budget can refuse instead of treating "unreadable" as "nothing spent"."""
     if not cache.exists():
         return 0
-    now = time.time() if now is None else now
     try:
         con = sqlite3.connect(f"file:{cache.as_posix()}?mode=ro", uri=True, timeout=0.5)
         try:
             row = con.execute(
                 "SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0) FROM calls "
                 "WHERE cached = 0 AND ts >= ?",
-                (now - now % 86400,),
+                (since,),
             ).fetchone()
         finally:
             con.close()
     except sqlite3.Error:
-        return 0
+        return None
     return int(row[0])
+
+
+def utc_midnight(now: float | None = None) -> float:
+    import time
+
+    now = time.time() if now is None else now
+    return now - now % 86400
+
+
+def tokens_today(cache: Path, now: float | None = None) -> int:
+    """Tokens spent since midnight UTC, for display. An unreadable ledger shows 0 here; the
+    admission check uses `tokens_spent_since` and refuses instead."""
+    return tokens_spent_since(cache, utc_midnight(now)) or 0
 
 
 def _file(path: Path) -> dict[str, Any] | None:

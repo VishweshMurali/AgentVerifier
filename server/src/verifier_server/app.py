@@ -30,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from . import flow, guide
 from . import settings as deploy
 from .jobs import JobBusy, JobManager
-from .status import Paths, ollama_up, project_status, tokens_today
+from .status import Paths, ollama_up, project_status, tokens_spent_since, tokens_today, utc_midnight
 from .story import StoryService, VerdictUnreadable
 from .warmup import Prewarmer
 
@@ -249,12 +249,27 @@ def create_app(
         # the reference agent runs on Ollama; the user's own agent does not need it
         if choice.get("agent") is None and not agent_ready():
             raise HTTPException(503, "Ollama is not reachable; start it before a test")
+        tokens = 0
         if cfg.daily_tokens is not None:
             # the hosted agent's free tokens are shared by every visitor: a test starts only
             # when all of its planned cases still fit in what is left of today
-            need = flow.planned_cases(choice, data) * deploy.TOKENS_PER_CASE
-            # ...counting the tests already waiting in line for the same tokens
-            if need + manager.queued_tokens() > cfg.daily_tokens - tokens_today(paths.cache):
+            tokens = flow.planned_cases(choice, data) * deploy.TOKENS_PER_CASE
+            spent = tokens_spent_since(paths.cache, utc_midnight())
+            if spent is None:  # never guess a budget from a ledger that cannot be read
+                raise HTTPException(
+                    503, "The usage ledger cannot be read right now, so no test can start."
+                )
+            # ...counting what the tests already waiting in line will use, and what the running
+            # test has still to use (its reservation minus what it has already spent)
+            reserved = manager.queued_tokens()
+            if (running := manager.running_reservation()) is not None:
+                used = tokens_spent_since(paths.cache, running[1])
+                if used is None:
+                    raise HTTPException(
+                        503, "The usage ledger cannot be read right now, so no test can start."
+                    )
+                reserved += max(0, running[0] - used)
+            if tokens + reserved > cfg.daily_tokens - spent:
                 raise HTTPException(
                     429,
                     "Today's free test budget is used up (the hosted model allows a fixed "
@@ -262,11 +277,6 @@ def create_app(
                     "run the verifier on your own machine.",
                 )
         try:
-            tokens = (
-                flow.planned_cases(choice, data) * deploy.TOKENS_PER_CASE
-                if cfg.daily_tokens is not None
-                else 0
-            )
             return manager.start(
                 "quick", cmd, flow.QUICK_TIMEOUT_S, flow.read_progress, tokens
             ).view()

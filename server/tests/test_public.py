@@ -13,7 +13,7 @@ from test_app import root as _root_fixture
 
 from verifier_server import flow, guide, settings
 from verifier_server.app import OWN_HEADER, create_app
-from verifier_server.status import Paths, tokens_today
+from verifier_server.status import Paths, tokens_spent_since, tokens_today
 from verifier_server.story import StoryService
 
 REPO = Path(__file__).resolve().parents[2]
@@ -181,6 +181,10 @@ def test_tokens_today_counts_only_real_calls_since_midnight(tmp_path):
     _spend(cache, 700, now - 7200)  # yesterday
     _spend(cache, 900, now - 30, cached=1)  # a replayed answer costs nothing
     assert tokens_today(cache, now) == 500
+    assert tokens_spent_since(cache, now - 100) == 500  # from a given moment, not midnight
+    cache.write_bytes(b"not a database" * 20)
+    assert tokens_spent_since(cache, 0) is None  # unreadable is not "nothing spent"
+    assert tokens_today(cache, now) == 0  # (the display shows 0; the admission check refuses)
 
 
 def test_a_test_is_refused_when_the_days_tokens_would_not_cover_it(root, monkeypatch):
@@ -193,6 +197,39 @@ def test_a_test_is_refused_when_the_days_tokens_would_not_cover_it(root, monkeyp
     c = TestClient(public_app(root))
     r = c.post("/api/jobs/quick", json=OK, headers=H)
     assert r.status_code == 429 and "budget" in r.json()["detail"]
+
+
+def test_the_running_tests_unspent_share_is_kept_from_the_budget(root, monkeypatch):
+    monkeypatch.setattr(flow, "flow_data", lambda _root, _cfg=None: DATA)
+    monkeypatch.setattr(
+        flow,
+        "quick_command",
+        lambda choice, data, cfg=None: [sys.executable, "-c", "import time; time.sleep(8)"],
+    )
+    # each test needs 40 cases x 900 = 36,000 tokens; 80,000 of the day is left
+    _spend(Paths(root).cache, settings.DAILY_TOKENS - 80_000, time.time())
+    c = TestClient(public_app(root))
+    first = c.post("/api/jobs/quick", json=OK, headers=H)  # runs: 36,000 reserved
+    second = c.post("/api/jobs/quick", json=OK, headers=H)  # waits: 36,000 more
+    assert (first.status_code, second.status_code) == (202, 202)
+    third = c.post("/api/jobs/quick", json=OK, headers=H)  # 108,000 > 80,000: must be refused
+    assert third.status_code == 429 and "budget" in third.json()["detail"]
+    # once the running test has spent part of its share, only the unspent part stays reserved
+    _spend(Paths(root).cache, 30_000, time.time())  # inside its own window (it started just now)
+    assert c.post("/api/jobs/quick", json=OK, headers=H).status_code == 429  # still not enough room
+
+
+def test_no_test_starts_while_the_usage_ledger_cannot_be_read(root, monkeypatch):
+    monkeypatch.setattr(flow, "flow_data", lambda _root, _cfg=None: DATA)
+    monkeypatch.setattr(
+        flow, "quick_command", lambda choice, data, cfg=None: [sys.executable, "-c", "print(1)"]
+    )
+    ledger = Paths(root).cache
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    ledger.write_bytes(b"this is not a sqlite file at all" * 10)  # exists, cannot be read
+    c = TestClient(public_app(root))
+    r = c.post("/api/jobs/quick", json=OK, headers=H)
+    assert r.status_code == 503 and "ledger" in r.json()["detail"]
 
 
 def test_an_upload_is_listed_only_for_the_visitor_who_added_it(root, monkeypatch):

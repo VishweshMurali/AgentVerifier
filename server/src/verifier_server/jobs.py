@@ -179,6 +179,12 @@ class JobManager:
         with self._lock:
             return sum(j.tokens for j in self._jobs.values() if j.state == "queued")
 
+    def running_reservation(self) -> tuple[int, float] | None:
+        """(tokens it was expected to use, when it started) of the running test, if any."""
+        with self._lock:
+            job = next((j for j in self._jobs.values() if j.state == "running"), None)
+            return None if job is None else (job.tokens, job.started)
+
     def _next(self) -> None:
         """Start the oldest waiting test and move everyone else up one place."""
         with self._lock:
