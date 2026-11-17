@@ -58,6 +58,7 @@ def test_local_is_the_default():
         "name": "Local Ollama agent",
         "model": "llama3.1:8b via Ollama",
         "pinned": True,
+        "search_first": False,
     }
 
 
@@ -231,6 +232,15 @@ def test_a_test_is_refused_when_the_days_tokens_would_not_cover_it(root, monkeyp
     c = TestClient(public_app(root))
     r = c.post("/api/jobs/quick", json=OK, headers=H)
     assert r.status_code == 429 and "budget" in r.json()["detail"]
+
+
+def test_the_page_is_told_the_hosted_agent_searches_first(monkeypatch):
+    cfg = settings.load(PUBLIC_ENV)
+    assert cfg.view()["agent"]["search_first"] is True
+    off = settings.load({**PUBLIC_ENV})
+    monkeypatch.setenv("GROQ_SEARCH_FIRST", "0")
+    assert off.view()["agent"]["search_first"] is False
+    assert settings.load({}).view()["agent"]["search_first"] is False  # local Ollama: no line
 
 
 def test_the_running_tests_unspent_share_is_kept_from_the_budget(root, monkeypatch):

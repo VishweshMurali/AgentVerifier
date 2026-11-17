@@ -97,7 +97,7 @@ export interface MockRun {
     cases?: number;
     scope?: { labels?: string[]; one_route?: boolean } | null;
     /** who raced: the reference test agent (Ollama), a hosted model, or the user's own agent over HTTP */
-    agent?: { kind: 'reference' | 'hosted' | 'external'; model?: string; endpoint?: string; usd_per_message?: number };
+    agent?: { kind: 'reference' | 'hosted' | 'external'; model?: string; endpoint?: string; usd_per_message?: number; search_first?: string };
   };
   scope: Record<string, ScopeScore>;
   verdict: Verdict;

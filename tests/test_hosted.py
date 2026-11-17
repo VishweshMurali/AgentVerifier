@@ -141,7 +141,7 @@ def test_the_first_call_is_free_by_default_because_forcing_it_was_measured_to_hu
     for later in (FIRST, AFTER_TOOL, SENT_BACK, REQUEST):
         assert "tool_choice" not in _sent(later, monkeypatch)
     assert "free" in hosted.settings()["first_call"]
-    assert hosted.client(":memory:").model_digest is None  # the cache keys are the plain ones
+    assert hosted.client(":memory:").model_digest == "search-first"  # only the search-first label
 
 
 def test_forcing_the_first_call_is_an_experiment_that_touches_only_the_first_call(monkeypatch):
@@ -157,9 +157,11 @@ def test_a_forced_first_call_is_recorded_and_never_shares_cached_answers(monkeyp
     monkeypatch.setenv("GROQ_API_KEY", "k")
     monkeypatch.setenv(hosted.FIRST_TOOL_ENV, "required")
     assert "tool_choice required" in hosted.settings()["first_call"]
-    assert hosted.client(":memory:").model_digest == f"{hosted.FIRST_TOOL_KEY}:required"
+    assert (
+        hosted.client(":memory:").model_digest == f"{hosted.FIRST_TOOL_KEY}:required|search-first"
+    )
     monkeypatch.setenv(hosted.FIRST_TOOL_ENV, "named")
-    assert hosted.client(":memory:").model_digest == f"{hosted.FIRST_TOOL_KEY}:named"
+    assert hosted.client(":memory:").model_digest == f"{hosted.FIRST_TOOL_KEY}:named|search-first"
 
 
 SYSTEM_REQUEST = {
@@ -188,10 +190,14 @@ def _messages_sent(request, monkeypatch, search_first=None):
     return seen["messages"]
 
 
-def test_the_search_first_line_is_off_by_default_and_changes_nothing(monkeypatch):
-    assert _messages_sent(SYSTEM_REQUEST, monkeypatch) == SYSTEM_REQUEST["messages"]
+def test_the_search_first_line_is_on_by_default_and_can_be_turned_off(monkeypatch):
+    on = _messages_sent(SYSTEM_REQUEST, monkeypatch)
+    assert on[0]["content"] == "You classify." + hosted.SEARCH_FIRST_TEXT
+    assert "always call search_examples" in hosted.settings()["search_first"]
+    off = _messages_sent(SYSTEM_REQUEST, monkeypatch, "0")
+    assert off == SYSTEM_REQUEST["messages"]
     assert hosted.settings()["search_first"] == "off"
-    assert hosted.client(":memory:").model_digest is None
+    assert hosted.client(":memory:").model_digest is None  # off: the plain cache keys
 
 
 def test_the_search_first_line_is_added_to_the_first_call_only(monkeypatch):
@@ -205,7 +211,6 @@ def test_the_search_first_line_is_added_to_the_first_call_only(monkeypatch):
     }
     assert _messages_sent(later, monkeypatch, "1") == later["messages"]  # no line after a tool
     assert _messages_sent(REQUEST, monkeypatch, "1") == REQUEST["messages"]  # no tools, no line
-    assert "always call search_examples" in hosted.settings()["search_first"]
 
 
 def test_the_search_first_line_and_a_repeat_tag_never_share_cached_answers(monkeypatch):

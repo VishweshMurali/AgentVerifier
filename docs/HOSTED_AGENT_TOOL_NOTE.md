@@ -27,10 +27,30 @@ harmless skipped tool into a hard failure on about 1 case in 4, and the floor st
 **Decision.** The forcing code stays as an off-by-default experiment (`GROQ_FIRST_TOOL=required|named`,
 recorded in plan.json, part of the cache key). Nothing else in the agent was changed.
 
-**Options not yet tried (need the owner's approval, they change the agent for the hosted model):**
+**Options considered:**
 1. Put the search results in the first message (examples in context) so no tool call is needed.
 2. A hosted-only line in the system prompt: "never answer with a label before calling search_examples".
 3. Keep the rule as is and explain INVALID plainly on the page.
 
 **Monitoring.** A tracing tool (LangSmith or Langfuse) would show each call's request, reply, tool
 calls and failures in one place; the ledger today keeps counts and tokens only.
+
+## Follow-up: the search-first line (2026-11-17, owner approved, ON by default for the hosted agent)
+
+A hosted-only line is added to the first call's system message: "always call search_examples first,
+even when you already think you know the label. Never reply with a label before you have called a
+tool." The send-back recovery is untouched. `GROQ_SEARCH_FIRST=0` turns it off; plan.json records it
+(`search_first`), it is part of the cache key, and the page says the hosted agent was told to search first.
+
+Measured on the same 39-message sample (5 kinds, gap 0.20, 23 cases scored), separate cache tags:
+
+| Run | Line | Tool use (floor 90%) | Sent back | Malformed | Agent correct | Verdict |
+|---|---|---|---|---|---|---|
+| earlier | none | 82.6% | 4 | 0 | 22/23 | INVALID |
+| repeat | none | 82.6% | 4 | 0 | 22/23 | INVALID |
+| 1 | search-first | 100% | 0 | 0 | 22/23 | USE_SIMPLER |
+| 2 | search-first | 100% | 0 | 0 | 22/23 | USE_SIMPLER |
+| 3 | search-first | not finished: Groq asked the key to wait 3 to 4 minutes (its usage limit) |  |  |  |  |
+
+Limits of this evidence: two runs, 23 messages, the same sample, one provider whose backends vary
+(each reply carried a different `system_fingerprint`). One more run on other messages is still due.

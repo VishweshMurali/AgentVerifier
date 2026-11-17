@@ -59,6 +59,8 @@ class Settings:
                 "name": self.agent_name,
                 "model": self.agent_model,
                 "pinned": self.provider is None,
+                # the hosted agent is told to search before it answers (hosted.search_first)
+                "search_first": self.provider == "groq" and hosted.search_first(),
             },
             "own_max_bytes": self.own_max_bytes,
         }

@@ -56,7 +56,7 @@ FIRST_TOOL_ENV = "GROQ_FIRST_TOOL"  # required | named to force the first tool c
 # a label that only varies the cache key: answers cached before the first call was forced (or from
 # a run with it off) are never replayed as if they came from this setting
 FIRST_TOOL_KEY = "hosted:first-call-tool"
-SEARCH_FIRST_ENV = "GROQ_SEARCH_FIRST"  # 1 = tell the model to search before it answers
+SEARCH_FIRST_ENV = "GROQ_SEARCH_FIRST"  # on by default; 0 = do not add the search-first line
 CACHE_TAG_ENV = "GROQ_CACHE_TAG"  # measuring only: a label that keeps repeat runs from replaying
 SEARCH_FIRST_TEXT = (
     "\nImportant: always call search_examples first, even when you already think you know the "
@@ -114,9 +114,12 @@ def first_call_tool(env: Mapping[str, str] | None = None) -> bool:
 
 
 def search_first(env: Mapping[str, str] | None = None) -> bool:
-    """True when the hosted agent's first call carries the extra search-first instruction."""
+    """True (the default, owner approved 2026-11-17) when the hosted agent's first call carries the
+    extra search-first instruction. Measured on the same 39-message sample: without it the tool-use
+    floor failed twice (82.6%, 4 sent back of 23); with it, twice, 100% and no send-backs, same
+    accuracy (docs/HOSTED_AGENT_TOOL_NOTE.md). GROQ_SEARCH_FIRST=0 turns it off."""
     env = os.environ if env is None else env
-    return (env.get(SEARCH_FIRST_ENV) or "").strip().lower() in ("1", "on", "yes", "true")
+    return (env.get(SEARCH_FIRST_ENV) or "1").strip().lower() not in ("0", "off", "no", "false")
 
 
 def with_search_first(request: dict[str, Any]) -> dict[str, Any]:

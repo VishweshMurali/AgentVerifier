@@ -20,6 +20,17 @@ test('a hosted agent is never called local and says a re-run may differ', () => 
   assert.match(w.who, /re-run may differ/);
 });
 
+test('the page says the hosted agent was told to search first, only when its plan says so', () => {
+  const model = 'm via Groq (hosted, not pinned)';
+  const told = runAgent({ kind: 'hosted', model, search_first: 'the first call adds: always call search_examples first' });
+  assert.equal(told.search_first, true);
+  assert.match(agentWords(told).who, /told to search before it answers/);
+  for (const plan of [{ kind: 'hosted', model, search_first: 'off' }, { kind: 'hosted', model }]) {
+    const w = agentWords(runAgent(plan));
+    assert.doesNotMatch(w.who, /told to search/);
+  }
+});
+
 test('a finished run is named by its own plan', () => {
   assert.equal(runAgent({ kind: 'reference', model: 'llama3.1:8b via Ollama' }), OLLAMA_AGENT);
   assert.equal(runAgent(undefined), OLLAMA_AGENT);

@@ -6,6 +6,8 @@ export interface AgentInfo {
   name: string;
   model: string;
   pinned: boolean;
+  /** the hosted agent is told to search before it answers (its plan records it) */
+  search_first?: boolean;
 }
 
 export const OLLAMA_AGENT: AgentInfo = { provider: 'ollama', name: 'Local Ollama agent', model: 'llama3.1:8b via Ollama', pinned: true };
@@ -29,8 +31,8 @@ export function agentWords(info: AgentInfo | null | undefined): AgentWords {
     return {
       name: 'Hosted test agent',
       lower: 'the hosted test agent',
-      who: `${info.model}; the provider can change the model, so a re-run may differ`,
-      standIn: `a hosted model, ${info.model}`,
+      who: `${info.model}${info.search_first ? '; told to search before it answers' : ''}; the provider can change the model, so a re-run may differ`,
+      standIn: `a hosted model, ${info.model}${info.search_first ? ' (told to search before it answers)' : ''}`,
       tag: info.model,
       hosted: true,
     };
@@ -46,9 +48,10 @@ export function agentWords(info: AgentInfo | null | undefined): AgentWords {
 }
 
 /** The agent a finished run raced, read from its plan (never from the page's current settings). */
-export function runAgent(agent?: { kind?: string; model?: string } | null): AgentInfo {
+export function runAgent(agent?: { kind?: string; model?: string; search_first?: string } | null): AgentInfo {
   if (agent?.kind === 'hosted') {
-    return { provider: 'hosted', name: 'Hosted test agent', model: agent.model ?? 'a hosted model (not pinned)', pinned: false };
+    const told = typeof agent.search_first === 'string' && agent.search_first !== 'off';
+    return { provider: 'hosted', name: 'Hosted test agent', model: agent.model ?? 'a hosted model (not pinned)', pinned: false, search_first: told };
   }
   return OLLAMA_AGENT;
 }

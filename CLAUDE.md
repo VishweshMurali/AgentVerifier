@@ -55,6 +55,9 @@ Banking77 is the first task and proves the method.
   refuses a new test when the usage ledger cannot be read; an upload over the size limit is refused before it is read and expired
   uploads are swept on a timer; the test status reports counts of model requests (no content). A forced first tool call
   (`GROQ_FIRST_TOOL`) exists as an experiment and is OFF: measured to make this model worse (`docs/HOSTED_AGENT_TOOL_NOTE.md`).
+  Owner approved 2026-11-17 (hosted agent, quick tests only): a hosted-only line telling the agent to search before it answers is ON by
+  default (`GROQ_SEARCH_FIRST=0` turns it off); it is recorded in plan.json, shown on the page, and kept out of the Ollama agent and the
+  pinned Banking77 prompt. Measured: tool-use floor 82.6% without it (twice), 100% with it (twice), same accuracy.
 - Null is a flag for low-confidence cases (the lowest 10% on tune), not a score. All arms answer them, and accuracy on those cases is reported per arm.
 - Agent rules: a no-tool answer is sent back once, the last call must answer, a malformed tool call scores wrong. Maximum 4 model calls per case.
 - No RAG for now. `search` stays a single swappable tool.
