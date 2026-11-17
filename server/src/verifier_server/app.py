@@ -31,7 +31,15 @@ from fastapi.staticfiles import StaticFiles
 from . import flow, guide
 from . import settings as deploy
 from .jobs import JobBusy, JobManager
-from .status import Paths, ollama_up, project_status, tokens_spent_since, tokens_today, utc_midnight
+from .status import (
+    Paths,
+    call_stats,
+    ollama_up,
+    project_status,
+    tokens_spent_since,
+    tokens_today,
+    utc_midnight,
+)
 from .story import StoryService, VerdictUnreadable
 from .warmup import Prewarmer
 
@@ -390,7 +398,11 @@ def create_app(
         job = manager.get(job_id)
         if job is None:
             raise HTTPException(404, "no such job")
-        return job.view()
+        view = job.view()
+        if job.kind == "quick" and job.state in ("running", "succeeded", "failed"):
+            # what the test is doing behind the page: counts of model requests (no content)
+            view["calls"] = call_stats(paths.cache, job.started, job.finished)
+        return view
 
     page = page_dir or paths.dist
     if serve_page and page.is_dir():

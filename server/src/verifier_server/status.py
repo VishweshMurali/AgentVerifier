@@ -103,6 +103,53 @@ def tokens_spent_since(cache: Path, since: float) -> int | None:
     return int(row[0])
 
 
+def call_stats(cache: Path, since: float, until: float | None = None) -> dict[str, float | int]:
+    """What the model calls of one test amount to, read from the usage ledger: counts, tokens and
+    times only (no prompt or answer is read). `requests` went to the hosted model; `replayed`
+    were answered from the saved answers; `failed` ended in an error. Zeros when there is no
+    ledger yet or it cannot be read (the page then shows nothing yet, never a made-up number)."""
+    zero: dict[str, float | int] = {
+        "requests": 0,
+        "replayed": 0,
+        "failed": 0,
+        "tokens": 0,
+        "avg_s": 0.0,
+        "last_s": 0.0,
+    }
+    if not cache.exists():
+        return zero
+    until = float("inf") if until is None else until + 2.0  # the last rows land just after the end
+    try:
+        con = sqlite3.connect(f"file:{cache.as_posix()}?mode=ro", uri=True, timeout=0.5)
+        try:
+            row = con.execute(
+                "SELECT COALESCE(SUM(cached = 0 AND status = 'ok'), 0), COALESCE(SUM(cached), 0), "
+                "COALESCE(SUM(status != 'ok'), 0), "
+                "COALESCE(SUM(CASE WHEN cached = 0 "
+                "THEN prompt_tokens + completion_tokens END), 0), "
+                "COALESCE(AVG(CASE WHEN cached = 0 AND status = 'ok' THEN latency_s END), 0) "
+                "FROM calls WHERE ts >= ? AND ts <= ?",
+                (since, until),
+            ).fetchone()
+            last = con.execute(
+                "SELECT latency_s FROM calls WHERE cached = 0 AND status = 'ok' "
+                "AND ts >= ? AND ts <= ? ORDER BY ts DESC LIMIT 1",
+                (since, until),
+            ).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return zero
+    return {
+        "requests": int(row[0]),
+        "replayed": int(row[1]),
+        "failed": int(row[2]),
+        "tokens": int(row[3]),
+        "avg_s": round(float(row[4]), 2),
+        "last_s": round(float(last[0]), 2) if last else 0.0,
+    }
+
+
 def utc_midnight(now: float | None = None) -> float:
     import time
 

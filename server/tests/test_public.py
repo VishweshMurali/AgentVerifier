@@ -193,6 +193,34 @@ def test_tokens_today_counts_only_real_calls_since_midnight(tmp_path):
     assert tokens_today(cache, now) == 0  # (the display shows 0; the admission check refuses)
 
 
+def test_a_tests_model_requests_are_counted_for_the_page(tmp_path):
+    from verifier_server.status import call_stats
+
+    cache = tmp_path / "cache" / "llm.sqlite"
+    assert call_stats(cache, 0)["requests"] == 0  # no ledger yet: zeros, never invented numbers
+    now = time.time()
+    _spend(cache, 800, now - 5)  # a real request in this test
+    _spend(cache, 600, now - 3)  # another
+    _spend(cache, 900, now - 2, cached=1)  # replayed from saved answers: costs nothing
+    _spend(cache, 700, now - 1000)  # an earlier test's: not counted
+    con = sqlite3.connect(cache)
+    con.execute("UPDATE calls SET latency_s = 1.0 WHERE id = 1")
+    con.execute("UPDATE calls SET latency_s = 3.0 WHERE id = 2")
+    con.execute(
+        "INSERT INTO calls (key, phase, arm, status, cached, attempts, wall_s, latency_s, "
+        "prompt_tokens, completion_tokens, ts) VALUES ('f','build','agent','failed',0,1,0,0,0,0,?)",
+        (now - 1,),
+    )
+    con.commit()
+    con.close()
+    stats = call_stats(cache, now - 10, now)
+    assert stats["requests"] == 2 and stats["replayed"] == 1 and stats["failed"] == 1
+    assert stats["tokens"] == 1400  # real requests only: 800 + 600
+    assert stats["avg_s"] == 2.0 and stats["last_s"] == 3.0
+    cache.write_bytes(b"not a database" * 20)
+    assert call_stats(cache, 0)["requests"] == 0  # unreadable: zeros, the test itself is unaffected
+
+
 def test_a_test_is_refused_when_the_days_tokens_would_not_cover_it(root, monkeypatch):
     monkeypatch.setattr(flow, "flow_data", lambda _root, _cfg=None: DATA)
     monkeypatch.setattr(
