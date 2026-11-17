@@ -389,6 +389,8 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
   const sA = run.scope[AGENT] as ScopeScore | undefined, sS = run.scope[simpler] as ScopeScore | undefined;
   const lessAccurate = !!sA && !!sS && sA.in_scope_accuracy < sS.in_scope_accuracy;
   const grabsMore = !!sA && !!sS && !lessAccurate && sA.other_cases > 0 && sA.false_grab_rate > sS.false_grab_rate;
+  // an agent that skipped its tools too often: the one failed check that has a plain explanation
+  const floorFail = failed.find((c) => c.name === 'quality_floor' && c.value != null && c.low != null);
   const costPart: Part[] = saving > 0 ? [', and it costs ', { b: `$${count(saving)} more a month` }] : [];
   const reason: Part[] =
     v.verdict === 'USE_SIMPLER'
@@ -406,7 +408,13 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           '.',
         ]
       : v.verdict === 'INVALID'
-        ? ['This run can’t pick a winner: a safety check failed (', { b: failed.map((c) => checkName(c.name)).join('; ') || 'see the details' }, '). Run it again with more messages, or on other kinds.']
+        ? floorFail
+          ? [
+              `${ag.charAt(0).toUpperCase()}${ag.slice(1)} used its tools on its own for only `,
+              { b: `${(floorFail.value! * 100).toFixed(1)}%` },
+              ` of the messages (the floor is ${(floorFail.low! * 100).toFixed(0)}%), so this run can’t judge it fairly and names no winner. Run it again, or on other kinds.`,
+            ]
+          : ['This run can’t pick a winner: a safety check failed (', { b: failed.map((c) => checkName(c.name)).join('; ') || 'see the details' }, '). Run it again with more messages, or on other kinds.']
         : [
             'Neither is proven better on these ',
             { b: `${count(v.n_cases)} messages` },
@@ -1145,12 +1153,19 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
                   </small>
                 </div>
               )}
-              <div>
-                <b>
-                  <Counter to={Math.abs(saving)} run={inView.has('m4')} prefix="$" />
-                </b>
-                <small>{saving >= 0 ? 'saved a month' : 'extra a month'}</small>
-              </div>
+              {v.verdict === 'INVALID' ? (
+                <div>
+                  <b>–</b>
+                  <small>no cost claim: an invalid run proves nothing about money</small>
+                </div>
+              ) : (
+                <div>
+                  <b>
+                    <Counter to={Math.abs(saving)} run={inView.has('m4')} prefix="$" />
+                  </b>
+                  <small>{saving >= 0 ? 'saved a month' : 'extra a month'}</small>
+                </div>
+              )}
               <div>
                 <b>
                   <Counter to={v.n_cases} run={inView.has('m4')} />
