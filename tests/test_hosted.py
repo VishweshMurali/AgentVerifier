@@ -137,27 +137,29 @@ def _sent(request, monkeypatch, first_tool=None):
     return seen
 
 
-def test_the_first_model_call_must_use_a_tool_and_no_other_call(monkeypatch):
-    assert _sent(FIRST, monkeypatch)["tool_choice"] == "required"
-    for later in (AFTER_TOOL, SENT_BACK, REQUEST):  # after a tool, after a send-back, no tools
+def test_the_first_call_is_free_by_default_because_forcing_it_was_measured_to_hurt(monkeypatch):
+    for later in (FIRST, AFTER_TOOL, SENT_BACK, REQUEST):
         assert "tool_choice" not in _sent(later, monkeypatch)
+    assert "free" in hosted.settings()["first_call"]
+    assert hosted.client(":memory:").model_digest is None  # the cache keys are the plain ones
 
 
-def test_the_first_call_can_be_left_free_to_compare(monkeypatch):
+def test_forcing_the_first_call_is_an_experiment_that_touches_only_the_first_call(monkeypatch):
+    assert _sent(FIRST, monkeypatch, "required")["tool_choice"] == "required"
+    named = _sent(FIRST, monkeypatch, "named")["tool_choice"]
+    assert named["function"]["name"] == "search_examples"
+    for later in (AFTER_TOOL, SENT_BACK, REQUEST):  # after a tool, after a send-back, no tools
+        assert "tool_choice" not in _sent(later, monkeypatch, "required")
     assert "tool_choice" not in _sent(FIRST, monkeypatch, "0")
 
 
-def test_the_forced_first_call_is_recorded_and_keeps_its_own_cache_keys(monkeypatch):
-    monkeypatch.delenv(hosted.FIRST_TOOL_ENV, raising=False)
-    assert "tool_choice required" in hosted.settings()["first_call"]
-    monkeypatch.setenv(hosted.FIRST_TOOL_ENV, "0")
-    assert "free" in hosted.settings()["first_call"]
-    # the setting is part of the cache key, so answers from before it are not replayed
+def test_a_forced_first_call_is_recorded_and_never_shares_cached_answers(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "k")
-    monkeypatch.delenv(hosted.FIRST_TOOL_ENV)
-    assert hosted.client(":memory:").model_digest == hosted.FIRST_TOOL_KEY
-    monkeypatch.setenv(hosted.FIRST_TOOL_ENV, "0")
-    assert hosted.client(":memory:").model_digest is None
+    monkeypatch.setenv(hosted.FIRST_TOOL_ENV, "required")
+    assert "tool_choice required" in hosted.settings()["first_call"]
+    assert hosted.client(":memory:").model_digest == f"{hosted.FIRST_TOOL_KEY}:required"
+    monkeypatch.setenv(hosted.FIRST_TOOL_ENV, "named")
+    assert hosted.client(":memory:").model_digest == f"{hosted.FIRST_TOOL_KEY}:named"
 
 
 def test_rate_limit_waits_for_the_named_time_then_answers():

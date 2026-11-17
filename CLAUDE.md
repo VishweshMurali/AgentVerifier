@@ -51,6 +51,10 @@ Banking77 is the first task and proves the method.
   (`proxy/worker.js`, a Cloudflare Worker): with `GROQ_PROXY_URL` (https, ends in /v1) and `GROQ_PROXY_TOKEN` the
   engine sends the hosted agent's calls there and never holds the Groq key; without them nothing changes. The
   proxy answers only POST /v1/chat/completions for the one model, with the token. The sealed run is unaffected.
+  Added 2026-11-17 (quick tests only, hosted agent): the daily token budget also reserves the running test's unspent share and
+  refuses a new test when the usage ledger cannot be read; an upload over the size limit is refused before it is read and expired
+  uploads are swept on a timer; the test status reports counts of model requests (no content). A forced first tool call
+  (`GROQ_FIRST_TOOL`) exists as an experiment and is OFF: measured to make this model worse (`docs/HOSTED_AGENT_TOOL_NOTE.md`).
 - Null is a flag for low-confidence cases (the lowest 10% on tune), not a score. All arms answer them, and accuracy on those cases is reported per arm.
 - Agent rules: a no-tool answer is sent back once, the last call must answer, a malformed tool call scores wrong. Maximum 4 model calls per case.
 - No RAG for now. `search` stays a single swappable tool.

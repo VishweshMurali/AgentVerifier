@@ -12,12 +12,10 @@ The free tier allows few tokens per minute, so calls are paced under the limit a
 for the time the provider names. A wait longer than MAX_WAIT_S (the daily limit) stops the run:
 a starved agent must not turn into a verdict.
 
-Three things differ from the Ollama reference, all recorded in plan.json (`settings()`):
-- the agent's FIRST model call must use a tool (`tool_choice: required`; owner approved
-  2026-11-17, GROQ_FIRST_TOOL=0 turns it off). This model often answers at once instead of
-  using its tools, which the agent rules send back, and the quality floor read that as a weak
-  agent. With the first call forced, the floor's tool-use measure shows malformed calls only;
-  every later call is free to answer. The setting is part of the cache key (`FIRST_TOOL_KEY`);
+Things that differ from the Ollama reference, all recorded in plan.json (`settings()`):
+- the agent's first model call may be forced to use a tool (`tool_choice`, GROQ_FIRST_TOOL=
+  required|named). It is OFF: measured on 2026-11-17 it made this model worse (see
+  docs/HOSTED_AGENT_TOOL_NOTE.md). The setting is part of the cache key (`FIRST_TOOL_KEY`);
 - the model reasons before it answers and its reasoning counts against the arms' small reply
   limits, so it is asked for the least reasoning (`reasoning_effort`, GROQ_REASONING);
 - Groq refuses a reply whose tool call is not valid JSON (HTTP 400 `tool_use_failed`) instead of
@@ -54,10 +52,10 @@ TOOL_USE_FAILED = "tool_use_failed"
 PROXY_URL_ENV = "GROQ_PROXY_URL"  # optional key-holding proxy (proxy/worker.js), ends in /v1
 PROXY_TOKEN_ENV = "GROQ_PROXY_TOKEN"  # the shared secret the proxy checks (never logged or saved)
 PROXY_HEADER = "x-proxy-token"
-FIRST_TOOL_ENV = "GROQ_FIRST_TOOL"  # 0 = do not force the first tool call (to compare)
+FIRST_TOOL_ENV = "GROQ_FIRST_TOOL"  # required | named to force the first tool call (off by default)
 # a label that only varies the cache key: answers cached before the first call was forced (or from
 # a run with it off) are never replayed as if they came from this setting
-FIRST_TOOL_KEY = "hosted:first-call-tool-required"
+FIRST_TOOL_KEY = "hosted:first-call-tool"
 
 
 def provider() -> str | None:
@@ -88,14 +86,33 @@ def reasoning() -> str | None:
     return REASONING if "gpt-oss" in model() else None
 
 
-def first_call_tool(env: Mapping[str, str] | None = None) -> bool:
-    """True (the default) when the agent's first model call must use a tool (`tool_choice:
-    required`). This hosted model often answers straight away instead of using its tools, which
-    the agent rules send back, and the quality floor then reads that as a weak agent. Forcing the
-    first call removes that mismatch; the floor's tool-use measure then only shows malformed
-    calls. GROQ_FIRST_TOOL=0 turns it off (to compare). Recorded in plan.json (`settings()`)."""
+def first_call_choice(env: Mapping[str, str] | None = None) -> dict[str, Any] | str | None:
+    """The `tool_choice` sent on the agent's first model call: None (free, the default),
+    "required" (GROQ_FIRST_TOOL=required) or the named search tool (GROQ_FIRST_TOOL=named).
+
+    Forcing is OFF because it was measured to hurt (2026-11-17, docs/HOSTED_AGENT_TOOL_NOTE.md):
+    on a case it is sure of, the hosted model writes the label as plain text instead of a tool
+    call, Groq rejects that as `tool_use_failed`, and the case scores malformed. Left free, the
+    same reply is sent back once (the locked agent rule) and the model then uses its tools."""
     env = os.environ if env is None else env
-    return (env.get(FIRST_TOOL_ENV) or "1").strip().lower() not in ("0", "off", "no", "false")
+    value = (env.get(FIRST_TOOL_ENV) or "").strip().lower()
+    if value in ("1", "required", "yes", "on", "true"):
+        return "required"
+    if value == "named":
+        return {"type": "function", "function": {"name": "search_examples"}}
+    return None
+
+
+def first_call_tool(env: Mapping[str, str] | None = None) -> bool:
+    return first_call_choice(env) is not None
+
+
+def first_call_key() -> str | None:
+    """The label that varies the cache key with the first-call setting (None when it is free)."""
+    choice = first_call_choice()
+    if choice is None:
+        return None
+    return f"{FIRST_TOOL_KEY}:{'named' if isinstance(choice, dict) else choice}"
 
 
 def is_first_call(request: dict[str, Any]) -> bool:
@@ -140,8 +157,7 @@ def settings() -> dict[str, Any]:
         "reasoning_effort": reasoning(),
         "refused_tool_call": "scored as a malformed tool call; tokens estimated",
         "first_call": (
-            "the first model call must use a tool (tool_choice required), so the tool-use "
-            "check measures malformed calls, not skipped tools"
+            f"forced for experiment: tool_choice {first_call_choice()}"
             if first_call_tool()
             else "free: the model may answer without a tool (it is then sent back once)"
         ),
@@ -287,7 +303,7 @@ def groq_transport(
     pace = pacer or Pacer(_tpm())
     effort = reasoning()
     extra = {"reasoning_effort": effort} if effort else {}
-    force_first = first_call_tool()
+    first_choice = first_call_choice()
     # the size guess is rough and errs high (it reserves a full reply); once real counts come back,
     # guess is scaled to them, so the pacer does not wait for room the request never used. A request
     # that proves bigger than guessed raises the scale again, and a 429 is still waited out.
@@ -299,8 +315,11 @@ def groq_transport(
         for _ in range(RATE_RETRIES + 1):
             pace.wait(guess)
             try:
-                must_use_tool = force_first and is_first_call(request)
-                forced = {"tool_choice": "required"} if must_use_tool else {}
+                forced = (
+                    {"tool_choice": first_choice}
+                    if first_choice is not None and is_first_call(request)
+                    else {}
+                )
                 out = create(**request, **extra, **forced)
             except BadRequestError as exc:
                 refused = refused_tool_call(exc, request)
@@ -342,6 +361,6 @@ def client(db_path: str | Path = "cache/llm.sqlite", *, phase: Phase = "build") 
         db_path,
         phase=phase,
         model=model(),
-        model_digest=FIRST_TOOL_KEY if first_call_tool() else None,
+        model_digest=first_call_key(),
         transport=groq_transport(),
     )
