@@ -101,6 +101,65 @@ def test_transport_sends_low_reasoning_and_records_usage(monkeypatch):
     assert pacer._used(clock.now) == 105
 
 
+TOOLS = [{"type": "function", "function": {"name": "search_examples"}}]
+FIRST = {**REQUEST, "tools": TOOLS}
+AFTER_TOOL = {
+    **FIRST,
+    "messages": [
+        {"role": "user", "content": "x"},
+        {"role": "assistant", "content": "", "tool_calls": [{"id": "1"}]},
+        {"role": "tool", "tool_call_id": "1", "content": "..."},
+    ],
+}
+SENT_BACK = {
+    **FIRST,
+    "messages": [
+        {"role": "user", "content": "x"},
+        {"role": "assistant", "content": "my answer"},
+        {"role": "user", "content": "Do not answer yet."},
+    ],
+}
+
+
+def _sent(request, monkeypatch, first_tool=None):
+    monkeypatch.delenv("GROQ_REASONING", raising=False)
+    if first_tool is None:
+        monkeypatch.delenv(hosted.FIRST_TOOL_ENV, raising=False)
+    else:
+        monkeypatch.setenv(hosted.FIRST_TOOL_ENV, first_tool)
+    seen = {}
+
+    def create(**kwargs):
+        seen.update(kwargs)
+        return REPLY
+
+    hosted.groq_transport(pacer=hosted.Pacer(10**6), create=create)(request)
+    return seen
+
+
+def test_the_first_model_call_must_use_a_tool_and_no_other_call(monkeypatch):
+    assert _sent(FIRST, monkeypatch)["tool_choice"] == "required"
+    for later in (AFTER_TOOL, SENT_BACK, REQUEST):  # after a tool, after a send-back, no tools
+        assert "tool_choice" not in _sent(later, monkeypatch)
+
+
+def test_the_first_call_can_be_left_free_to_compare(monkeypatch):
+    assert "tool_choice" not in _sent(FIRST, monkeypatch, "0")
+
+
+def test_the_forced_first_call_is_recorded_and_keeps_its_own_cache_keys(monkeypatch):
+    monkeypatch.delenv(hosted.FIRST_TOOL_ENV, raising=False)
+    assert "tool_choice required" in hosted.settings()["first_call"]
+    monkeypatch.setenv(hosted.FIRST_TOOL_ENV, "0")
+    assert "free" in hosted.settings()["first_call"]
+    # the setting is part of the cache key, so answers from before it are not replayed
+    monkeypatch.setenv("GROQ_API_KEY", "k")
+    monkeypatch.delenv(hosted.FIRST_TOOL_ENV)
+    assert hosted.client(":memory:").model_digest == hosted.FIRST_TOOL_KEY
+    monkeypatch.setenv(hosted.FIRST_TOOL_ENV, "0")
+    assert hosted.client(":memory:").model_digest is None
+
+
 def test_rate_limit_waits_for_the_named_time_then_answers():
     calls = []
 
