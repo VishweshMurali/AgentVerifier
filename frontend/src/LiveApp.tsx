@@ -3,7 +3,8 @@ import { MockPage, type LiveControl, type MockRun } from './components/MockPage.
 import { caseCard, type AgentCheck, type MyAgent, type OwnUpload, type UseCase } from './components/UseCases.tsx';
 import type { Arm, PriceTable, Verdict } from './data/types.ts';
 import { maskedNote, type AgentInfo } from './flow/agentInfo.ts';
-import { runTables, type ScopeScore } from './flow/model.ts';
+import { modelLabel, runTables, type ScopeScore } from './flow/model.ts';
+import { feedEvents, type CallStats, type FeedEvent } from './flow/feed.ts';
 import { failureReason } from './flow/run.ts';
 
 /**
@@ -91,6 +92,8 @@ export function LiveApp() {
   const [mine, setMine] = useState<MockRun | null>(null);
   const [state, setState] = useState<LiveControl['state']>('idle');
   const [progress, setProgress] = useState<LiveControl['progress']>(null);
+  const [feed, setFeed] = useState<FeedEvent[]>([]);
+  const [calls, setCalls] = useState<CallStats | null>(null);
   const [startedAt, setStartedAt] = useState(0);
   const [auditUrl, setAuditUrl] = useState<string | null>(null);
   // the reader's own agent; null = our test agent (llama3.1:8b on Ollama)
@@ -136,6 +139,10 @@ export function LiveApp() {
       setState('running');
       setError(null);
       setProgress({ phase: 'starting' });
+      setFeed([{ at: 0, text: 'Test requested: waiting for the server to start it' }]);
+      setCalls(null);
+      let seen: { progress: LiveControl['progress']; calls: CallStats | null } = { progress: null, calls: null };
+      const t0 = Date.now();
       try {
         const r = await fetch(`${api}/api/jobs/quick`, {
           method: 'POST',
@@ -147,8 +154,14 @@ export function LiveApp() {
         for (;;) {
           await new Promise((res) => setTimeout(res, 1200));
           if (!alive.current) return;
-          const view = await getJson<{ state: string; progress: LiveControl['progress']; position?: number; output_tail?: string[] }>(`/api/jobs/${job.id}`);
-          setProgress({ ...(view.progress ?? {}), queued: view.state === 'queued' ? (view.position ?? 1) : undefined });
+          const view = await getJson<{ state: string; progress: LiveControl['progress']; position?: number; output_tail?: string[]; calls?: CallStats }>(`/api/jobs/${job.id}`);
+          const now = { ...(view.progress ?? {}), queued: view.state === 'queued' ? (view.position ?? 1) : undefined };
+          setProgress(now);
+          const callNow = view.calls ?? seen.calls;
+          setCalls(callNow);
+          const fresh = feedEvents(seen, { progress: now, calls: callNow }, (Date.now() - t0) / 1000, (a) => modelLabel(a), agent ? 'Your agent' : (flow.agent?.name ?? 'The test agent'));
+          if (fresh.length) setFeed((f) => [...f, ...fresh]);
+          seen = { progress: now, calls: callNow };
           if (view.state === 'succeeded') break;
           if (view.state !== 'running' && view.state !== 'queued') throw new Error(failureReason(view.output_tail ?? []));
         }
@@ -229,6 +242,8 @@ export function LiveApp() {
     canRun: api !== null && !!flow && !!chosen && !!libraries[chosen],
     state,
     progress,
+    feed,
+    calls,
     startedAt,
     auditUrl,
     error,

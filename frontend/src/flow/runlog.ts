@@ -11,7 +11,7 @@ export type RunProgress = {
   simpler?: string;
   stopped_at?: number;
   of?: number;
-  looks?: { n: number }[];
+  looks?: { n: number; gain?: number }[];
   verdict?: string;
   /** the demo runs one test at a time: how many tests are ahead of this one in line */
   queued?: number;

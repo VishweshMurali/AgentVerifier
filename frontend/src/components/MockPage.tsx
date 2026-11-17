@@ -14,6 +14,7 @@ import { hubName, matchLabels, matchScore, queryWords } from '../motion/webfield
 import { answer, STARTERS, type Seg } from '../flow/helper.ts';
 import { revealMood } from '../story/lines.ts';
 import { runLog, type RunProgress } from '../flow/runlog.ts';
+import { clock, type CallStats, type FeedEvent } from '../flow/feed.ts';
 import { estimateText } from '../flow/estimate.ts';
 import { chatActions, hasActions } from '../flow/actions.ts';
 import { count, pct, tableLabel } from '../story/format.ts';
@@ -41,6 +42,9 @@ export interface LiveControl {
   canRun: boolean;
   state: 'idle' | 'running' | 'done' | 'failed';
   progress: RunProgress | null;
+  /** the lines the live feed on the race screen shows, and the model-request counts behind them */
+  feed?: FeedEvent[];
+  calls?: CallStats | null;
   /** when the reader pressed Run (ms), for the elapsed time in the robot's bubble */
   startedAt?: number;
   error: string | null;
@@ -287,6 +291,13 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
   const [mistakeSaid, setMistakeSaid] = useState<number | null>(null);
   const mistake = mistakeSaid ?? (hourly * minutes) / 60;
   const [table, setTable] = useState(TABLE0);
+  // set once the reader has changed the cost (or the volume or price): the screen then says it was
+  // taken, and offers the button to the next one
+  const [costEdited, setCostEdited] = useState(false);
+  const [volumeEdited, setVolumeEdited] = useState(false);
+  useEffect(() => {
+    if (mistakeSaid !== null) setCostEdited(true); // the guide took a figure from the chat
+  }, [mistakeSaid]);
   // a run priced with other tables (a scenario's own prereg): pick one it has
   useEffect(() => {
     if (run.price_tables.length && !run.price_tables.some((p) => p.name === table)) setTable(run.price_tables[0].name);
@@ -878,6 +889,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               </div>
             </div>
           )}
+          {live && live.state !== 'idle' && !!live.feed?.length && <LiveFeed feed={live.feed} calls={live.calls ?? null} startedAt={live.startedAt} running={running} />}
           <div className="duel race-duel">
             <div className={raceDone && agentRight > simplerRight ? 'lead' : ''}>
               <span className="mono">{AG}</span>
@@ -984,6 +996,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
                     onClick={() => {
                       setFixer(k);
                       setHourly(rate);
+                      setCostEdited(true);
                     }}
                   >
                     {name}
@@ -997,13 +1010,13 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
                   <span>
                     They cost <b>${hourly}</b> an hour
                   </span>
-                  <input type="range" min={10} max={200} step={5} value={hourly} onChange={(e) => (setMistakeSaid(null), setHourly(Number(e.target.value)))} />
+                  <input type="range" min={10} max={200} step={5} value={hourly} onChange={(e) => (setMistakeSaid(null), setCostEdited(true), setHourly(Number(e.target.value)))} />
                 </label>
                 <label className="slider">
                   <span>
                     A fix takes <b>{minutes} min</b>
                   </span>
-                  <input type="range" min={1} max={60} step={1} value={minutes} onChange={(e) => (setMistakeSaid(null), setMinutes(Number(e.target.value)))} />
+                  <input type="range" min={1} max={60} step={1} value={minutes} onChange={(e) => (setMistakeSaid(null), setCostEdited(true), setMinutes(Number(e.target.value)))} />
                 </label>
               </div>
             )}
@@ -1012,6 +1025,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               {mistakeSaid !== null ? ' (you told the guide; move a slider to use these instead)' : fixer === 'nobody' ? ' (no one is paid to fix it; the cost is your customer’s time)' : ''}
             </p>
           </Reveal>
+          <NextStep to="m5b" label="Next: your volume" done={costEdited ? `Taken: a mistake costs you $${mistake.toFixed(2)}` : null} />
         </section>
 
         {/* 7 · Your volume and who runs the AI */}
@@ -1035,7 +1049,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               <span>
                 Messages a month <b>{count(volume)}</b>
               </span>
-              <input type="range" min={0} max={300} step={1} value={sliderFromVol(volume)} onChange={(e) => setVolume(volFromSlider(Number(e.target.value)))} />
+              <input type="range" min={0} max={300} step={1} value={sliderFromVol(volume)} onChange={(e) => (setVolumeEdited(true), setVolume(volFromSlider(Number(e.target.value))))} />
             </label>
             <p className="price-q">
               {extRun ? 'What your agent costs' : 'Where does the AI model run?'}{' '}
@@ -1046,7 +1060,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
                 <small className="mono muted">Your agent: ${run.plan.agent?.usd_per_message} per answer (your figure), whichever way it runs.</small>
               ) : (
                 run.price_tables.map((p) => (
-                  <button key={p.name} type="button" className={`chip small${p.name === table ? ' on' : ''}`} onClick={() => setTable(p.name)}>
+                  <button key={p.name} type="button" className={`chip small${p.name === table ? ' on' : ''}`} onClick={() => (setVolumeEdited(true), setTable(p.name))}>
                     {tableLabel(p.name)}
                     <small className="mono"> · ${perMsg(p.name)}/msg</small>
                   </button>
@@ -1054,6 +1068,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               )}
             </div>
           </Reveal>
+          <NextStep to="m5c" label="Next: compare the three ways" done={volumeEdited ? `Taken: ${count(volume)} messages a month${extRun ? '' : `, ${tableLabel(table)}`}` : null} />
         </section>
 
         {/* 8 · The three ways to do it, priced with the reader's numbers */}
@@ -1355,6 +1370,73 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
       )}
 
       <Robot controls={controls()} alive listening={typing} mood={mood} side={SCENES.find((s) => s.id === active)!.side} onFly={onFly} line={line()} />
+    </div>
+  );
+}
+
+/** A button to the next screen. Once the reader has changed something here it says what was taken
+ *  (read out politely) and the button stands out. */
+function NextStep({ to, label, done }: { to: string; label: string; done: string | null }) {
+  return (
+    <div className={`next-step${done ? ' ready' : ''}`}>
+      <span className="mono" role="status" aria-live="polite">
+        {done ? `✓ ${done}` : ''}
+      </span>
+      <button type="button" className={`chip${done ? ' primary' : ''}`} onClick={() => document.getElementById(to)?.scrollIntoView({ behavior: 'smooth' })}>
+        {label} ↓
+      </button>
+    </div>
+  );
+}
+
+/** The live feed on the race screen: counts of the model requests and a scrolling list of what the
+ *  test is doing, in plain lines (no message text). It stays after the test, as its record. */
+function LiveFeed({ feed, calls, startedAt, running }: { feed: FeedEvent[]; calls: CallStats | null; startedAt?: number; running: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [running]);
+  const log = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    const el = log.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [feed.length]);
+  const secs = running && startedAt ? (now - startedAt) / 1000 : (feed.at(-1)?.at ?? 0);
+  return (
+    <div className="live-feed glass" role="group" aria-label="What the test is doing behind the page">
+      <div className="live-feed-head">
+        <span className={running ? 'chat-dot' : 'feed-done'} aria-hidden="true" />
+        <b>{running ? 'Behind the scenes, live' : 'What happened behind the scenes'}</b>
+        <small className="mono muted">{clock(secs)}</small>
+      </div>
+      <dl className="live-stats mono">
+        <div>
+          <dt>model requests</dt>
+          <dd>{calls?.requests ?? 0}</dd>
+        </div>
+        <div>
+          <dt>replayed</dt>
+          <dd>{calls?.replayed ?? 0}</dd>
+        </div>
+        <div>
+          <dt>tokens used</dt>
+          <dd>{(calls?.tokens ?? 0).toLocaleString('en-US')}</dd>
+        </div>
+        <div>
+          <dt>last answer</dt>
+          <dd>{calls?.last_s ? `${calls.last_s.toFixed(1)} s` : '–'}</dd>
+        </div>
+      </dl>
+      <ol ref={log} className="live-log mono" role="log" aria-live="off" tabIndex={0} aria-label="Steps so far">
+        {feed.map((e, i) => (
+          <li key={i} className={running && i === feed.length - 1 ? 'now' : ''}>
+            <time>{clock(e.at)}</time>
+            <span>{e.text}</span>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
