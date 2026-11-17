@@ -159,7 +159,7 @@ export function LiveApp() {
           setProgress(now);
           const callNow = view.calls ?? seen.calls;
           setCalls(callNow);
-          const fresh = feedEvents(seen, { progress: now, calls: callNow }, (Date.now() - t0) / 1000, (a) => modelLabel(a), agent ? 'Your agent' : (flow.agent?.name ?? 'The test agent'));
+          const fresh = feedEvents(seen, { progress: now, calls: callNow }, (Date.now() - t0) / 1000, (a) => modelLabel(a), agent ? 'Your agent' : `The ${(flow.agent?.name ?? 'test agent').replace(/^./, (c) => c.toLowerCase())}`);
           if (fresh.length) setFeed((f) => [...f, ...fresh]);
           seen = { progress: now, calls: callNow };
           if (view.state === 'succeeded') break;
@@ -173,7 +173,10 @@ export function LiveApp() {
         setState('done');
       } catch (e) {
         if (!alive.current) return;
-        setError(e instanceof Error ? e.message : String(e));
+        const why = e instanceof Error ? e.message : String(e);
+        setError(why);
+        // the feed says what happened instead of still saying "waiting for the server"
+        setFeed((f) => [...f, { at: (Date.now() - t0) / 1000, text: `Stopped: ${why}` }]);
         setState('failed');
       }
     },

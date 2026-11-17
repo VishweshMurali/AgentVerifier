@@ -9,6 +9,7 @@ export type CallStats = { requests: number; replayed: number; failed: number; to
 
 export type FeedEvent = { at: number; text: string };
 
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const points = (gain: number) => `${Math.abs(gain * 100).toFixed(1)} points ${gain >= 0 ? 'ahead of' : 'behind'}`;
 
@@ -33,14 +34,14 @@ export function feedEvents(
   if (total && !(p.drawn ?? p.planned)) say(`Picked ${total} real messages to test`);
   const trained = n.trained ?? [];
   for (const m of trained.slice((p.trained ?? []).length)) say(`Trained ${name(m)}, a free model`);
-  if (n.simpler && n.simpler !== p.simpler) say(`${name(n.simpler)} is the free model ${agent} has to beat`);
+  if (n.simpler && n.simpler !== p.simpler) say(`${name(n.simpler)} is the free model ${lowerFirst(agent)} has to beat`);
 
   const lookedBefore = p.looks?.length ?? 0;
   (n.looks ?? []).slice(lookedBefore).forEach((l, i) => {
     const gain = l.gain;
     say(
       `Check-in ${lookedBefore + i + 1} at ${l.n} messages` +
-        (typeof gain === 'number' ? `: ${agent} is ${points(gain)} ${name(n.simpler ?? 'the free model')}` : ''),
+        (typeof gain === 'number' ? `: ${lowerFirst(agent)} is ${points(gain)} ${name(n.simpler ?? 'the free model')}` : ''),
     );
   });
   if (n.scored && n.scored !== p.scored && total) say(`${agent} has answered ${n.scored} of ${total}`);

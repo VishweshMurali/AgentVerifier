@@ -17,7 +17,7 @@ test('the feed lists the first things the test prints, once', () => {
   assert.deepEqual(lines([null, null], [{ drawn: 39, trained: ['naive_bayes'], simpler: 'linear_svm' }, null]), [
     'Picked 39 real messages to test',
     'Trained Naive Bayes, a free model',
-    'Linear SVM is the free model The hosted test agent has to beat',
+    'Linear SVM is the free model the hosted test agent has to beat',
   ]);
 });
 
@@ -34,7 +34,7 @@ test('a check-in shows the test’s own gain, and progress in messages', () => {
   const before: RunProgress = { drawn: 39, simpler: 'linear_svm', looks: [], scored: 0 };
   const after: RunProgress = { ...before, scored: 10, looks: [{ n: 8, gain: -0.043 }] };
   assert.deepEqual(lines([before, null], [after, null]), [
-    'Check-in 1 at 8 messages: The hosted test agent is 4.3 points behind Linear SVM',
+    'Check-in 1 at 8 messages: the hosted test agent is 4.3 points behind Linear SVM',
     'The hosted test agent has answered 10 of 39',
   ]);
 });
