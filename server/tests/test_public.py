@@ -35,11 +35,17 @@ DATA = {
 OK = {"scenario": "banking77", "gap": 0.2, "arms": ["agent", "linear"], "scope": ["a"]}
 
 
-def public_app(root: Path, ollama: bool = False, **env: str):
+def public_app(root: Path, ollama: bool = False, sweep_s: float = 300.0, **env: str):
     cfg = settings.load({**PUBLIC_ENV, **env})
     story = StoryService(Paths(root), with_case=False, script_root=REPO)
     return create_app(
-        root, ollama=lambda: ollama, story=story, serve_page=False, testing=True, settings=cfg
+        root,
+        ollama=lambda: ollama,
+        story=story,
+        serve_page=False,
+        testing=True,
+        settings=cfg,
+        sweep_s=sweep_s,
     )
 
 
@@ -268,6 +274,49 @@ def test_a_public_upload_gets_a_private_name_and_a_smaller_limit(root, monkeypat
     assert r.status_code == 201
     assert seen["name"].startswith("mine_") and len(seen["name"]) == len("mine_") + 12
     assert seen["max_bytes"] == settings.PUBLIC_OWN_MAX_BYTES
+
+
+def test_an_oversized_upload_is_refused_before_it_is_read(root, monkeypatch):
+    read = []
+
+    def add_own(*args, **kwargs):
+        read.append(1)
+        return {"name": "x"}
+
+    monkeypatch.setattr(flow, "flow_data", lambda _root, _cfg=None: DATA)
+    monkeypatch.setattr(flow, "add_own", add_own)
+    c = TestClient(public_app(root))
+    q = "name=mine&format=csv&item=a+message&items=messages&label_kind=topic"
+    big = b"x" * (settings.PUBLIC_OWN_MAX_BYTES + 1)
+    r = c.post(f"/api/own?{q}", content=big, headers=H)  # honest Content-Length: refused up front
+    assert r.status_code == 413 and "larger" in r.json()["detail"]
+
+    def chunks():  # no Content-Length: streamed, and cut off at the limit
+        for _ in range(settings.PUBLIC_OWN_MAX_BYTES // 65536 + 2):
+            yield b"x" * 65536
+
+    r = c.post(f"/api/own?{q}", content=chunks(), headers=H)
+    assert r.status_code == 413
+    assert not read  # the upload code never saw either body
+    ok = c.post(f"/api/own?{q}", content=b"text,label\n", headers=H)
+    assert ok.status_code == 201 and read
+
+
+def test_expired_uploads_are_swept_without_any_visitor(root):
+    import os
+
+    name = "mine_" + "d" * 12
+    src = root / "sources" / "own" / f"{name}.jsonl"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.write_text("{}\n")
+    old = time.time() - 9000
+    os.utime(src, (old, old))
+    app = public_app(root, sweep_s=0.05)  # TTL is 2 h by default
+    with TestClient(app):  # starting the app starts the timer; nobody loads the menu
+        end = time.time() + 5
+        while src.exists() and time.time() < end:
+            time.sleep(0.05)
+    assert not src.exists()
 
 
 def test_the_public_guide_never_calls_the_model():

@@ -18,6 +18,7 @@ Every number comes from the pipeline's own files and deterministic code. Nothing
 agent_committee.seal or the runner, and nothing reads the sealed test.
 """
 
+import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -41,6 +42,7 @@ CLIENT_HEADER = "x-verifier-client"
 # server made up, so knowing the name is what lets a visitor see or test that dataset).
 OWN_HEADER = "x-verifier-own"
 PUBLIC_OWN_LIMIT = 20  # uploads kept on a public host until it restarts
+SWEEP_S = 300.0  # how often expired public uploads are looked for, visitors or not
 
 
 def create_app(
@@ -55,6 +57,7 @@ def create_app(
     testing: bool = False,
     prewarm: bool | None = None,
     settings: deploy.Settings | None = None,
+    sweep_s: float = SWEEP_S,
 ) -> FastAPI:
     cfg = settings or (deploy.Settings() if testing else deploy.load())
     paths = Paths(root)
@@ -70,11 +73,30 @@ def create_app(
         """The agent a test would race: the hosted one needs only its key (checked at start)."""
         return True if cfg.provider else ollama()
 
+    def purge_old_uploads() -> list[str]:
+        """Delete expired public uploads (a test running or waiting on one keeps it)."""
+        if cfg.upload_ttl_s is None:
+            return []
+        busy = {t for cmd in manager.active_cmds() for t in cmd if flow.UPLOAD_NAME.match(t)}
+        return flow.purge_own(root, cfg.upload_ttl_s, keep=busy)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        stop_sweep = threading.Event()
+        if cfg.upload_ttl_s is not None:
+            # expiry must not wait for a visitor to load the menu: sweep on a timer as well
+            def sweep() -> None:
+                while not stop_sweep.wait(sweep_s):
+                    try:
+                        purge_old_uploads()
+                    except OSError:  # a locked file is retried at the next sweep
+                        pass
+
+            threading.Thread(target=sweep, daemon=True, name="upload-sweep").start()
         if warmer is not None:
             warmer.request()  # every ready use case
         yield
+        stop_sweep.set()
         manager.shutdown()  # a rehearsal never outlives the server
         if warmer is not None:
             warmer.shutdown()
@@ -142,10 +164,7 @@ def create_app(
     flow_cache: dict[str, Any] = {}
 
     def flow_choices() -> dict[str, Any]:
-        if cfg.upload_ttl_s is not None:  # the reader's data is not kept: old uploads are deleted
-            # a test running or waiting on an upload keeps it
-            busy = {t for cmd in manager.active_cmds() for t in cmd if flow.UPLOAD_NAME.match(t)}
-            flow.purge_own(root, cfg.upload_ttl_s, keep=busy)
+        purge_old_uploads()  # the reader's data is not kept (the timer sweeps too)
         # the menu is cheap; labels and test sizes are kept until the set of ready datasets changes
         from agent_committee import catalog
 
@@ -201,7 +220,16 @@ def create_app(
         """The reader's own data: the raw .csv/.jsonl as the request body (no form parsing)."""
         if request.headers.get(CLIENT_HEADER) != "1":
             raise HTTPException(403, f"send the header {CLIENT_HEADER}: 1")
-        raw = await request.body()
+        too_big = HTTPException(413, f"the file is larger than {cfg.own_max_bytes // 1024} KB")
+        declared = request.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > cfg.own_max_bytes:
+            raise too_big  # refused before a byte is read
+        body = bytearray()
+        async for chunk in request.stream():  # a body with no honest length is cut off at the limit
+            body.extend(chunk)
+            if len(body) > cfg.own_max_bytes:
+                raise too_big
+        raw = bytes(body)
         phrase = {"item": item, "items": items, "label_kind": label_kind}
         if cfg.public:
             import secrets
