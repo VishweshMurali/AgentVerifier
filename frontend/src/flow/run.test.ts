@@ -5,6 +5,11 @@ import { failureReason } from './run.ts';
 test('a failed job shows its last output line', () => {
   assert.equal(failureReason(['a', 'Ollama is not reachable', '  ']), 'Ollama is not reachable');
   assert.equal(failureReason([]), 'the test ended without a result');
+  assert.equal(
+    failureReason(['LLMUnavailable: Groq\'s limit is used up for now (it asks to wait 141 s)', "During task with name 'think' and id 'x'"]).startsWith("The free hosted model's rate limit"),
+    true,
+  );
+  assert.equal(failureReason(['boom', "During task with name 'think' and id 'x'"]), 'boom');
 });
 
 import { runTables } from './model.ts';

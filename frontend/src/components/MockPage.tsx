@@ -229,6 +229,18 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
   const ran = agentWords(runAgent(run.plan.agent));
   const ours = agentWords(live?.agentInfo);
   const saved = !live || !!live.offline; // the static site: a saved example, nothing runs here
+  // why the example is on screen: say what is happening to the reader's own test, not only "after you run it"
+  const exampleText = `Example run · a bank refund agent${
+    saved
+      ? ' · saved, not run live'
+      : live?.state === 'running'
+        ? ' · your test is running; your own result replaces this when it finishes'
+        : live?.state === 'failed'
+          ? ' · your test stopped, so this is still the example'
+          : chosenCase && chosenCase.option !== 'banking77'
+            ? ` · yours (${chosenCase.title}) appears here after you run it`
+            : ' · yours appears here after you run it'
+  }`;
   const AG = extRun ? 'Your agent' : ran.name;
   const ag = extRun ? 'your agent' : ran.lower;
   const agWho = extRun ? `your agent at ${run.plan.agent?.endpoint ?? 'your address'}` : !saved
@@ -878,9 +890,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                Example run · a bank refund agent{saved ? ' · saved, not run live' : chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
+                {exampleText}
               </span>
-              {!saved && (
+              {!saved && !running && (
                 <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
                   Run mine ↑
                 </button>
@@ -925,12 +937,15 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
         {/* 3 · One mistake: any dot can be picked */}
         <section id="m3" tabIndex={-1} className={`scene robot-${sideOf('m3')}${inView.has('m3') ? ' in' : ''}`}>
           <Decode className="eyebrow beat" text="04 · One mistake" run={inView.has('m3')} instantWhenStill />
+          <p className="muted">
+            Every test has a few messages the agent got wrong. Here is one, next to what the free model answered, so you can see what a mistake looks like. Use Previous and Next to step through them.
+          </p>
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                Example run · a bank refund agent{saved ? ' · saved, not run live' : chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
+                {exampleText}
               </span>
-              {!saved && (
+              {!saved && !running && (
                 <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
                   Run mine ↑
                 </button>
@@ -982,9 +997,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                Example run · a bank refund agent{saved ? ' · saved, not run live' : chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
+                {exampleText}
               </span>
-              {!saved && (
+              {!saved && !running && (
                 <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
                   Run mine ↑
                 </button>
@@ -1042,9 +1057,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                Example run · a bank refund agent{saved ? ' · saved, not run live' : chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
+                {exampleText}
               </span>
-              {!saved && (
+              {!saved && !running && (
                 <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
                   Run mine ↑
                 </button>
@@ -1085,9 +1100,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                Example run · a bank refund agent{saved ? ' · saved, not run live' : chosenCase && chosenCase.option !== 'banking77' ? ` · yours (${chosenCase.title}) appears here after you run it` : ' · yours appears here after you run it'}
+                {exampleText}
               </span>
-              {!saved && (
+              {!saved && !running && (
                 <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
                   Run mine ↑
                 </button>
