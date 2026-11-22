@@ -116,7 +116,7 @@ const SCENES: SceneDef[] = [
   { id: 'm3', name: 'One mistake', side: 'left', mood: 'curious' },
   { id: 'm5', name: 'Your costs', side: 'left', mood: 'point' },
   { id: 'm5b', name: 'Your volume', side: 'right', mood: 'thinking' },
-  { id: 'm5c', name: 'Three ways', side: 'left', mood: 'point' },
+  { id: 'm5c', name: 'The options', side: 'left', mood: 'point' },
   { id: 'm4', name: 'Your answer', side: 'right', mood: 'proud' },
   { id: 'm6', name: 'Next', side: 'right', mood: 'hello' },
 ];
@@ -391,6 +391,8 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
     { tier: 'Tier 3 · AI agent', p: points.find((x) => x.name === AGENT), cls: 'agent' },
   ].filter((t) => t.p);
   const maxTier = Math.max(1, ...tiers.map((t) => t.p!.cost));
+  // the public demo trains only the light free models, so tier 2 can be absent: the heading counts what is shown
+  const ways = tiers.length >= 3 ? 'Three' : 'Two';
   const passed = v.checks.filter((c: Check) => c.passed).length;
   const failed = v.checks.filter((c: Check) => !c.passed && c.effect !== 'REPORT');
   const noted = v.checks.filter((c: Check) => !c.passed && c.effect === 'REPORT');
@@ -1098,12 +1100,12 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               )}
             </div>
           </Reveal>
-          <NextStep to="m5c" label="Next: compare the three ways" done={volumeEdited ? `Taken: ${count(volume)} messages a month${extRun ? '' : `, ${tableLabel(table)}`}` : null} />
+          <NextStep to="m5c" label="Next: compare the options" done={volumeEdited ? `Taken: ${count(volume)} messages a month${extRun ? '' : `, ${tableLabel(table)}`}` : null} />
         </section>
 
         {/* 8 · The three ways to do it, priced with the reader's numbers */}
         <section id="m5c" tabIndex={-1} className={`scene robot-${sideOf('m5c')}${inView.has('m5c') ? ' in' : ''}${waiting ? ' waiting' : ''}`}>
-          <Decode className="eyebrow beat" text="07 · Three ways" run={inView.has('m5c')} instantWhenStill />
+          <Decode className="eyebrow beat" text={`07 · ${ways} ways`} run={inView.has('m5c')} instantWhenStill />
           {waiting && <p className="waiting-note muted mono">Your test is running. Your own numbers appear here when it finishes, not the example.</p>}
           {live && !live.mine ? (
             <div className="example-note mono">
@@ -1117,7 +1119,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               )}
             </div>
           ) : null}
-          <ScrollRise className="mid" text="Three ways to do it." />
+          <ScrollRise className="mid" text={`${ways} ways to do it.`} />
           <Reveal className="tryit glass" items=".costbar, .tiers > small, .tryit-out">
             <div className="costbars tiers">
               {tiers.map((t) => (
@@ -1130,6 +1132,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
                   <b>${count(t.p!.cost)}</b>
                 </div>
               ))}
+              {tiers.length < 3 && live?.publicMode && (
+                <small className="mono muted">Tier 2 (random forest, gradient boosting) is not run in this public demo. It runs when you run the verifier on your own machine.</small>
+              )}
               <small className="mono muted">
                 a month: model costs plus mistakes, cheapest of each tier. The answer compares {ag} with {modelLabel(simpler)}, picked beforehand on separate tuning messages so the test stays fair.
               </small>
@@ -1211,8 +1216,8 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           <ScrollRise className="mid" text="Take it with you." />
           <Reveal className="next-cards">
             <a className="glass next-card" href="?story">
-              <b>See the full story</b>
-              <small>Every number, every check, step by step</small>
+              <b>{saved ? 'See the full story' : 'See the sealed reference test'}</b>
+              <small>{saved ? 'Every number, every check, step by step' : 'A different run: Banking77, 3,234 messages, kept sealed until one final run. Your own evidence is the audit file.'}</small>
             </a>
             {live?.auditUrl ? (
               <a className="glass next-card" href={live.auditUrl} download>
@@ -1331,7 +1336,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
 
       {active !== 'm1' && (
         <aside className={`chat glass${chatOpen ? ' open' : ' closed'}`} aria-label="Ask the guide">
-          <button type="button" className="chat-head" onClick={() => setChatOpen(!chatOpen)} aria-expanded={chatOpen}>
+          <button type="button" className="chat-head" onClick={() => setChatOpen(!chatOpen)} aria-expanded={chatOpen} aria-label={chatOpen ? 'Ask about your result. Press to minimise the guide' : 'Ask the guide'}>
             <span className="chat-dot" /> {chatOpen ? 'Ask about your result' : 'Ask'}
             {chatOpen && <span className="chat-caret">–</span>}
           </button>

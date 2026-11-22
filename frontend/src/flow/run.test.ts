@@ -10,6 +10,12 @@ test('a failed job shows its last output line', () => {
     true,
   );
   assert.equal(failureReason(['boom', "During task with name 'think' and id 'x'"]), 'boom');
+  // the Python class name never reaches a visitor, and owner advice becomes a plain message
+  assert.equal(failureReason(['agent_committee.llm.LLMUnavailable: Ollama is not reachable']), 'Ollama is not reachable');
+  assert.equal(
+    failureReason(['agent_committee.llm.LLMUnavailable: the hosted agent refused our credentials (check the Groq key, or the proxy token): the test cannot run']),
+    "The hosted test agent isn't available right now. Nothing is wrong with your test: please try again later.",
+  );
 });
 
 import { runTables } from './model.ts';

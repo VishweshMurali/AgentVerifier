@@ -46,10 +46,15 @@ export function failureReason(tail: readonly string[]): string {
   const lines = tail.map((l) => l.trim()).filter((l) => l && !l.startsWith('During task with name'));
   const last = lines.at(-1);
   if (!last) return 'the test ended without a result';
-  if (last.includes("Groq's limit is used up")) {
+  // "agent_committee.llm.LLMUnavailable: the real reason" -> the real reason
+  const text = last.replace(/^(?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*(?:Error|Exception|Unavailable):\s*/, '');
+  if (text.includes("Groq's limit is used up")) {
     return "The free hosted model's rate limit is used up for a moment. Nothing is wrong with your test: wait a couple of minutes and run it again.";
   }
-  return last;
+  if (text.includes('refused our credentials') || text.includes('GROQ_API_KEY is not set')) {
+    return "The hosted test agent isn't available right now. Nothing is wrong with your test: please try again later.";
+  }
+  return text;
 }
 
 export function useQuickRun(api: string | null, saved: SavedRun | null) {
