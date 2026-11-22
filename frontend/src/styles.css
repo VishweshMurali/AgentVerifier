@@ -892,3 +892,9 @@ details.more p,details.more ul{margin:10px 0 0;line-height:1.55;animation:landnu
 .tune input[type=range]{width:100%;accent-color:#22E3F0}
 .tune-jumps,.tune-go{display:flex;flex-wrap:wrap;gap:6px}
 @media (max-width:700px){.tune{top:auto;bottom:8px;right:8px;left:8px;width:auto;max-height:42vh}}
+
+/* while the reader's own first test runs, only the heading, a note, and the live progress stay (never the saved example) */
+.scene.waiting > :not(.eyebrow):not(.waiting-note){display:none}
+#m2.waiting > .live-progress{display:flex}
+#m2.waiting > .live-feed{display:grid}
+.waiting-note{font-size:13px;max-width:520px}

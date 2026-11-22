@@ -230,6 +230,8 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
   const ours = agentWords(live?.agentInfo);
   const saved = !live || !!live.offline; // the static site: a saved example, nothing runs here
   // why the example is on screen: say what is happening to the reader's own test, not only "after you run it"
+  // while the reader's own first test runs, the saved example must not sit on screen as if it were theirs
+  const waiting = !!live && !live.mine && live.state === 'running';
   const exampleText = `Example run · a bank refund agent${
     saved
       ? ' · saved, not run live'
@@ -753,6 +755,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               maxBytes={live.ownMaxBytes}
             />
           ) : null}
+          {chosenCase && <NextStep to="m1b" label="Next: pick your kinds" done={`Chosen: ${chosenCase.title}`} />}
         </section>
 
         {/* 2 · Your kinds: which messages are the agent's, and how big a difference to look for */}
@@ -885,8 +888,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
         </section>
 
         {/* 3 · The race: the counter ticks with the dots */}
-        <section id="m2" tabIndex={-1} className={`scene robot-${sideOf('m2')}${inView.has('m2') ? ' in' : ''}`}>
+        <section id="m2" tabIndex={-1} className={`scene robot-${sideOf('m2')}${inView.has('m2') ? ' in' : ''}${waiting ? ' waiting' : ''}`}>
           <Decode className="eyebrow beat" text="03 · The race" run={inView.has('m2')} instantWhenStill />
+          {waiting && <p className="waiting-note muted mono">Your test is running. Your own numbers appear here when it finishes, not the example.</p>}
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
@@ -905,7 +909,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               <span className="chat-dot" />
               <div>
                 <b>{runLog(live.progress, runningLabel).steps.at(-1)?.text}</b>
-                <small className="mono muted">{live.mine ? 'the screens below show your last run until this one finishes' : 'the race below is the example until yours finishes'}</small>
+                <small className="mono muted">{live.mine ? 'the screens below show your last run until this one finishes' : 'the race appears below when yours finishes'}</small>
               </div>
             </div>
           )}
@@ -935,8 +939,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
         </section>
 
         {/* 3 · One mistake: any dot can be picked */}
-        <section id="m3" tabIndex={-1} className={`scene robot-${sideOf('m3')}${inView.has('m3') ? ' in' : ''}`}>
+        <section id="m3" tabIndex={-1} className={`scene robot-${sideOf('m3')}${inView.has('m3') ? ' in' : ''}${waiting ? ' waiting' : ''}`}>
           <Decode className="eyebrow beat" text="04 · One mistake" run={inView.has('m3')} instantWhenStill />
+          {waiting && <p className="waiting-note muted mono">Your test is running. Your own numbers appear here when it finishes, not the example.</p>}
           <p className="muted">
             Every test has a few messages the agent got wrong. Here is one, next to what the free model answered, so you can see what a mistake looks like. Use Previous and Next to step through them.
           </p>
@@ -992,8 +997,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
         </section>
 
         {/* 5 · Try your numbers: the costs move live; the verdict word stays the engine's */}
-        <section id="m5" tabIndex={-1} className={`scene robot-${sideOf('m5')}${inView.has('m5') ? ' in' : ''}`}>
+        <section id="m5" tabIndex={-1} className={`scene robot-${sideOf('m5')}${inView.has('m5') ? ' in' : ''}${waiting ? ' waiting' : ''}`}>
           <Decode className="eyebrow beat" text="05 · Your costs" run={inView.has('m5')} instantWhenStill />
+          {waiting && <p className="waiting-note muted mono">Your test is running. Your own numbers appear here when it finishes, not the example.</p>}
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
@@ -1052,8 +1058,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
         </section>
 
         {/* 7 · Your volume and who runs the AI */}
-        <section id="m5b" tabIndex={-1} className={`scene robot-${sideOf('m5b')}${inView.has('m5b') ? ' in' : ''}`}>
+        <section id="m5b" tabIndex={-1} className={`scene robot-${sideOf('m5b')}${inView.has('m5b') ? ' in' : ''}${waiting ? ' waiting' : ''}`}>
           <Decode className="eyebrow beat" text="06 · Your volume" run={inView.has('m5b')} instantWhenStill />
+          {waiting && <p className="waiting-note muted mono">Your test is running. Your own numbers appear here when it finishes, not the example.</p>}
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
@@ -1095,8 +1102,9 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
         </section>
 
         {/* 8 · The three ways to do it, priced with the reader's numbers */}
-        <section id="m5c" tabIndex={-1} className={`scene robot-${sideOf('m5c')}${inView.has('m5c') ? ' in' : ''}`}>
+        <section id="m5c" tabIndex={-1} className={`scene robot-${sideOf('m5c')}${inView.has('m5c') ? ' in' : ''}${waiting ? ' waiting' : ''}`}>
           <Decode className="eyebrow beat" text="07 · Three ways" run={inView.has('m5c')} instantWhenStill />
+          {waiting && <p className="waiting-note muted mono">Your test is running. Your own numbers appear here when it finishes, not the example.</p>}
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
@@ -1140,7 +1148,8 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
         </section>
 
         {/* 8 · The answer, after the reader's own costs: one word, three numbers, nothing else */}
-        <section id="m4" tabIndex={-1} className={`scene robot-${sideOf('m4')}${inView.has('m4') ? ' in' : ''}`}>
+        <section id="m4" tabIndex={-1} className={`scene robot-${sideOf('m4')}${inView.has('m4') ? ' in' : ''}${waiting ? ' waiting' : ''}`}>
+          {waiting && <p className="waiting-note muted mono">Your test is running. Your own numbers appear here when it finishes, not the example.</p>}
           <div className="verdict-hero">
             <span className="eyebrow">{live && !live.mine ? '08 · Example answer' : '08 · Your answer'}</span>
             <span className="proof mono" title="A quick test on a sample of practice messages. Only a sealed test, run once, is verified.">
