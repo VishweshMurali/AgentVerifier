@@ -898,3 +898,19 @@ details.more p,details.more ul{margin:10px 0 0;line-height:1.55;animation:landnu
 #m2.waiting > .live-progress{display:flex}
 #m2.waiting > .live-feed{display:grid}
 .waiting-note{font-size:13px;max-width:520px}
+
+/* top strip, example badge, honesty panel */
+.ex-badge{display:inline-block;font-size:11px;letter-spacing:.08em;padding:2px 8px;border-radius:999px;border:1px solid rgba(255,194,61,.6);color:#FFC23D;background:rgba(255,194,61,.1);font-weight:700}
+.ex-badge.mine{border-color:rgba(92,225,230,.7);color:var(--aqua);background:rgba(92,225,230,.1)}
+.mock5:not(.night) .ex-badge{color:#92600A;border-color:rgba(146,96,10,.5)}
+.mock5:not(.night) .ex-badge.mine{color:#0B6B73;border-color:rgba(11,107,115,.5)}
+.verdict-strip{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;max-width:640px;padding:12px 16px;border-radius:16px;margin-top:18px}
+.verdict-strip .strip-word{font-size:20px;font-weight:700}
+.verdict-strip .strip-line{font-size:13px}
+.verdict-strip .strip-note{flex-basis:100%;font-size:12px;opacity:.75}
+.verdict-strip .strip-link{margin-left:auto;font-size:13px}
+.honest{max-width:640px;margin-top:10px;font-size:14px}
+.honest summary{cursor:pointer;font-weight:600}
+.honest ul{margin:8px 0 6px 18px;padding:0;display:grid;gap:4px}
+.honest-links{display:flex;flex-wrap:wrap;gap:6px 18px;margin:6px 0 0}
+.mock5.sphere .verdict-strip,.mock5.sphere .honest{max-width:420px}

@@ -17,6 +17,7 @@ import { runLog, type RunProgress } from '../flow/runlog.ts';
 import { clock, type CallStats, type FeedEvent } from '../flow/feed.ts';
 import { estimateText } from '../flow/estimate.ts';
 import { chatActions, hasActions } from '../flow/actions.ts';
+import { badgeWord, exampleState, stripCounts } from '../flow/strip.ts';
 import { count, pct, tableLabel } from '../story/format.ts';
 import type { Mood, SceneDef } from '../story/scenes.ts';
 import { Icon } from './Icons.tsx';
@@ -232,17 +233,11 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
   // why the example is on screen: say what is happening to the reader's own test, not only "after you run it"
   // while the reader's own first test runs, the saved example must not sit on screen as if it were theirs
   const waiting = !!live && !live.mine && live.state === 'running';
-  const exampleText = `Example run · a bank refund agent${
-    saved
-      ? ' · saved, not run live'
-      : live?.state === 'running'
-        ? ' · your test is running; your own result replaces this when it finishes'
-        : live?.state === 'failed'
-          ? ' · your test stopped, so this is still the example'
-          : chosenCase && chosenCase.option !== 'banking77'
-            ? ` · yours (${chosenCase.title}) appears here after you run it`
-            : ' · yours appears here after you run it'
-  }`;
+  const exampleText = `a bank refund agent · ${exampleState({
+    saved,
+    state: live?.state,
+    ownTitle: chosenCase && chosenCase.option !== 'banking77' ? chosenCase.title : undefined,
+  })}`;
   const AG = extRun ? 'Your agent' : ran.name;
   const ag = extRun ? 'your agent' : ran.lower;
   const agWho = extRun ? `your agent at ${run.plan.agent?.endpoint ?? 'your address'}` : !saved
@@ -437,6 +432,17 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
             `: the agent’s gain is somewhere between ${(v.accuracy_diff_ci[0] * 100).toFixed(0)} and ${(v.accuracy_diff_ci[1] * 100).toFixed(0)} points. Test more messages to decide.`,
           ];
   const word = v.verdict === 'USE_SIMPLER' ? `Use ${modelLabel(simpler)}` : v.verdict === 'DEPLOY_AGENT' ? `Use ${ag}` : v.verdict === 'NEED_MORE_DATA' ? 'Too close to call' : 'Invalid run';
+  // the strip at the top: the same verdict word and counts the answer screen shows, one badge for whose run it is
+  const isExample = !!live && !live.mine;
+  const stripLine = stripCounts({
+    invalid: v.verdict === 'INVALID',
+    simplerName: modelLabel(simpler),
+    agentName: ag,
+    simplerRight: inRight(sS),
+    simplerOf: sS?.in_scope_cases ?? 0,
+    agentRight: inRight(sA),
+    agentOf: sA?.in_scope_cases ?? 0,
+  });
 
   const helperCtx = {
     messages: run.messages,
@@ -681,6 +687,17 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
         <section id="t0" tabIndex={-1} className={`scene robot-${sideOf('t0')} title-scene${inView.has('t0') ? ' in' : ''}`}>
           <span className="eyebrow title-eyebrow">An honest test for AI agents</span>
           <ScrollTiles as="h1" className="title-word grad" text="Agent Verifier" intro />
+          <aside className="verdict-strip glass" aria-label="The headline answer">
+            <b className={`ex-badge${isExample ? '' : ' mine'}`}>{badgeWord(isExample ? 'example' : 'mine')}</b>
+            <span className="strip-word">{word}</span>
+            {stripLine && <span className="strip-line mono">{stripLine}</span>}
+            <small className="strip-note mono">
+              Exploratory · quick test on {count(v.n_cases)} messages · not a sealed test
+            </small>
+            <a href="#m4" className="strip-link">
+              See why ↓
+            </a>
+          </aside>
           <Reveal className="title-sub" items=".title-lead, .title-steps > *, .title-go" intro>
             <p className="lead title-lead">Is your AI agent worth what it costs? We race it against simpler models on real messages and tell you, in plain numbers, which one to use.</p>
             <div className="title-steps mono">
@@ -698,6 +715,26 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
               Start ↓
             </a>
           </Reveal>
+          <details className="honest">
+            <summary>How we know this is honest</summary>
+            <ul>
+              <li>Plain code does all the scoring and the decision. No AI judges another AI.</li>
+              <li>The model to beat is the best free one on practice data, picked before the agent is scored.</li>
+              <li>Both sides answer the same messages, and an exact paired test compares them.</li>
+              <li>The reference result (Banking77, 3,234 messages) used a test set kept sealed until one final run. A quick test is exploratory and says so.</li>
+            </ul>
+            <p className="honest-links">
+              <a href="https://github.com/VishweshMurali/AgentVerifier" target="_blank" rel="noreferrer">
+                Code on GitHub
+              </a>
+              <a href="?story">The sealed reference test</a>
+              {live?.auditUrl && (
+                <a href={live.auditUrl} download>
+                  Audit file of your run
+                </a>
+              )}
+            </p>
+          </details>
         </section>
 
         {/* 1 · Ask */}
@@ -896,7 +933,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                {exampleText}
+                <b className="ex-badge">{badgeWord('example')}</b> {exampleText}
               </span>
               {!saved && !running && (
                 <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
@@ -950,7 +987,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                {exampleText}
+                <b className="ex-badge">{badgeWord('example')}</b> {exampleText}
               </span>
               {!saved && !running && (
                 <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
@@ -1005,7 +1042,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                {exampleText}
+                <b className="ex-badge">{badgeWord('example')}</b> {exampleText}
               </span>
               {!saved && !running && (
                 <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
@@ -1066,7 +1103,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                {exampleText}
+                <b className="ex-badge">{badgeWord('example')}</b> {exampleText}
               </span>
               {!saved && !running && (
                 <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
@@ -1110,7 +1147,7 @@ export function MockPage({ run, library, live, aiGuide = true }: { run: MockRun;
           {live && !live.mine ? (
             <div className="example-note mono">
               <span>
-                {exampleText}
+                <b className="ex-badge">{badgeWord('example')}</b> {exampleText}
               </span>
               {!saved && !running && (
                 <button type="button" className="chip small" onClick={() => document.getElementById('m1b')?.scrollIntoView({ behavior: 'smooth' })}>
